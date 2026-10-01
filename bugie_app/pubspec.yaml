@@ -1,0 +1,157 @@
+name: bugie_app
+description: Bugie - Plataforma Integral de Transporte Seguro (Trujillo, Perú)
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP + estado + storage
+  http: ^1.2.2
+  provider: ^6.1.2
+  flutter_secure_storage: ^9.2.2
+  flutter_dotenv: ^5.2.1
+
+  # Navegación
+  go_router: ^14.6.2
+
+  # Mapas (OpenStreetMap, gratis — igual que el web)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Ubicación GPS — versión 13.0.4 que es compatible con Flutter 3.24.x
+  # (la 14.x requiere Flutter 3.29+ por el Gradle nuevo de geolocator_android 5.x)
+  geolocator: 13.0.4
+
+  # Formato fechas y moneda
+  intl: ^0.19.0
+
+  # Selección de imágenes (cámara + galería) para subida de documentos
+  image_picker: ^1.1.2
+
+  # Cámara con preview en vivo (para verificación facial al ponerse online).
+  # Usamos esta en lugar de image_picker porque necesitamos analizar frames
+  # en vivo con ML Kit. image_picker solo abre la cámara nativa y devuelve la foto.
+  camera: ^0.11.0+2
+
+  # Detección facial offline con Google ML Kit.
+  # Procesa frames de la cámara para validar:
+  #   - Hay UN rostro (no 0, no 2+)
+  #   - Centrado y a la distancia correcta
+  #   - Mirando de frente (sin inclinación)
+  #   - Ojos abiertos (anti-foto-de-foto)
+  google_mlkit_face_detection: ^0.13.0
+
+  # Path utilities (para guardar la foto temporal localmente).
+  path_provider: ^2.1.4
+
+  # Vibración (alerta de desvío de ruta durante viaje en curso)
+  vibration: ^2.0.0
+
+  # ── Firebase Cloud Messaging (notificaciones push) ──────────────────
+  # firebase_core: necesario para inicializar Firebase en main.dart.
+  # firebase_messaging: recibir push del backend cuando llega solicitud.
+  # flutter_local_notifications: mostrar la notificación visible en la
+  #   barra del sistema cuando la app está en foreground (FCM solo
+  #   muestra automáticamente en background).
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+  flutter_local_notifications: ^17.2.3
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # Generadores de íconos/splash (solo dev — corren localmente):
+  #   flutter pub run flutter_launcher_icons
+  #   dart run flutter_native_splash:create
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0
+
+# ─────────────────────────────────────────────────────────────────────────
+# Generador de íconos de app (paquete: flutter_launcher_icons)
+#
+# Usamos logo_splash.png como icono porque es cuadrado (1024x1024) y tiene
+# el logo Bugie centrado con buen padding — funciona bien con máscaras
+# circulares, cuadradas y de gota de Android.
+#
+# Para regenerar después de cambiar la imagen:
+#   dart run flutter_launcher_icons
+# ─────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
+# Generador de íconos de app (paquete: flutter_launcher_icons)
+#
+# Usamos logo_app_icon.png — cuadrado 1024x1024 con el wordmark "bugie"
+# centrado. Mismo asset que usa el splash nativo y el animado, para que
+# todo se vea consistente: icono en la lista de apps → splash al abrir →
+# splash animado en Flutter → Welcome.
+#
+# Para regenerar (después de cambiar este config):
+#   dart run flutter_launcher_icons
+# ─────────────────────────────────────────────────────────────────────────
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/logo_app_icon.png"
+  adaptive_icon_background: "#5B5BD6"
+  adaptive_icon_foreground: "assets/logo_app_icon.png"
+  remove_alpha_ios: true
+  # min_sdk_android: 21 # (default)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Splash screen (paquete: flutter_native_splash)
+# Pantalla que se muestra mientras la app arranca (controlada por
+# Android/iOS antes de que arranque el motor de Flutter).
+#
+# Diseño en 2 capas:
+#   1) Splash NATIVO: color sólido violeta + logo centrado. Es lo que el
+#      sistema operativo muestra antes de que arranque Flutter. Android 12+
+#      no soporta gradientes en este splash (solo color + icono), así que
+#      usamos color sólido a propósito.
+#   2) Splash ANIMADO de Flutter: aparece después con gradiente animado
+#      violeta → magenta, fade-in del logo, etc. Ver:
+#      lib/modules/auth/presentation/splash_screen.dart
+#
+# Para regenerar después de cambiar config:
+#   dart run flutter_native_splash:create
+# ─────────────────────────────────────────────────────────────────────────
+flutter_native_splash:
+  # Splash nativo SIN logo visible.
+  # Android 12+ SIEMPRE pone un ícono (por defecto el de la app) dentro de un
+  # círculo. Para ocultarlo de verdad usamos una imagen TRANSPARENTE: el
+  # sistema "muestra" el ícono, pero como es transparente no se ve nada.
+  # Resultado: solo fondo oscuro. El logo lo muestra nuestro splash de Flutter.
+  color: "#0B0F16"
+  image: "assets/transparent.png"
+  android_12:
+    image: "assets/transparent.png"
+    color: "#0B0F16"
+    icon_background_color: "#0B0F16"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+    - assets/logo.png
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf

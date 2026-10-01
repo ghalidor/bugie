@@ -1,0 +1,104 @@
+version: "3.9"
+
+# Bugie — 5 APIs + PostgreSQL
+# docker-compose up --build
+# Auth.Api     → http://localhost:5001
+# Trips.Api    → http://localhost:5002
+# Drivers.Api  → http://localhost:5003
+# Payments.Api → http://localhost:5004
+# Landing.Api  → http://localhost:5005
+#
+# Una sola base de datos "bugie" con 5 esquemas (auth, drivers, landing, payments, trips).
+# El script bugie_postgres.sql se ejecuta automaticamente la primera vez que
+# arranca el contenedor (crea esquemas, tablas y datos).
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: "bugie"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "BugiePass123!"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./bugie_postgres.sql:/docker-entrypoint-initdb.d/01-bugie.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bugie"]
+      interval: 10s
+      retries: 10
+      start_period: 30s
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: Bugie.Auth.Api/Dockerfile
+    ports: ["5001:8080"]
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=bugie;Username=postgres;Password=BugiePass123!;"
+      Jwt__Key: "BugieSecureKey2026!Trujillo#Xd9mP"
+      Jwt__Issuer: "bugie-auth"
+      Jwt__Audience: "bugie-clients"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  trips-api:
+    build:
+      context: .
+      dockerfile: Bugie.Trips.Api/Dockerfile
+    ports: ["5002:8080"]
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=bugie;Username=postgres;Password=BugiePass123!;"
+      Jwt__Key: "BugieSecureKey2026!Trujillo#Xd9mP"
+      Jwt__Issuer: "bugie-auth"
+      Jwt__Audience: "bugie-clients"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  drivers-api:
+    build:
+      context: .
+      dockerfile: Bugie.Drivers.Api/Dockerfile
+    ports: ["5003:8080"]
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=bugie;Username=postgres;Password=BugiePass123!;"
+      Jwt__Key: "BugieSecureKey2026!Trujillo#Xd9mP"
+      Jwt__Issuer: "bugie-auth"
+      Jwt__Audience: "bugie-clients"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payments-api:
+    build:
+      context: .
+      dockerfile: Bugie.Payments.Api/Dockerfile
+    ports: ["5004:8080"]
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=bugie;Username=postgres;Password=BugiePass123!;"
+      Jwt__Key: "BugieSecureKey2026!Trujillo#Xd9mP"
+      Jwt__Issuer: "bugie-auth"
+      Jwt__Audience: "bugie-clients"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  landing-api:
+    build:
+      context: .
+      dockerfile: Bugie.Landing.Api/Dockerfile
+    ports: ["5005:8080"]
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=bugie;Username=postgres;Password=BugiePass123!;"
+      Jwt__Key: "BugieSecureKey2026!Trujillo#Xd9mP"
+      Jwt__Issuer: "bugie-auth"
+      Jwt__Audience: "bugie-clients"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

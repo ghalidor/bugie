@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Bugie.Trips.Domain/Bugie.Trips.Domain.csproj" />
+    <ProjectReference Include="../Bugie.Trips.Application/Bugie.Trips.Application.csproj" />
+    <ProjectReference Include="../Bugie.Trips.Infrastructure/Bugie.Trips.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Drivers\Bugie.Drivers.Infrastructure\Bugie.Drivers.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FirebaseAdmin" Version="3.1.0" />
+    <PackageReference Include="MediatR" Version="12.2.0" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="Npgsql" Version="8.0.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Copia el service-account de Firebase al output para que FcmSender lo
+         encuentre en runtime (sin esto los push NO se envian). -->
+    <None Update="firebase-service-account.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

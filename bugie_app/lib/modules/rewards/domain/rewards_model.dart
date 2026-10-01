@@ -1,0 +1,357 @@
+/// Modelos del módulo de puntos (Rewards, puerto 5006).
+/// Espejo exacto de los DTOs de Bugie.Rewards.Api.
+
+class RewardsPointsProfile {
+  final int       totalPoints;
+  final int       availablePoints;
+  final int       redeemedPoints;
+  final String    currentLevel;
+  final String    currentLevelName;
+  final double    discountPercentage;
+  final String?   nextLevel;
+  final String?   nextLevelName;
+  final int       pointsToNextLevel;
+  final int       progressPercentage;
+  final DateTime? pointsExpiryDate;
+  final DateTime? lastActivityDate;
+
+  RewardsPointsProfile({
+    required this.totalPoints,
+    required this.availablePoints,
+    required this.redeemedPoints,
+    required this.currentLevel,
+    required this.currentLevelName,
+    required this.discountPercentage,
+    required this.pointsToNextLevel,
+    required this.progressPercentage,
+    this.nextLevel,
+    this.nextLevelName,
+    this.pointsExpiryDate,
+    this.lastActivityDate,
+  });
+
+  factory RewardsPointsProfile.fromJson(Map<String, dynamic> j) =>
+      RewardsPointsProfile(
+        totalPoints:        (j['totalPoints']     as num?)?.toInt() ?? 0,
+        availablePoints:    (j['availablePoints'] as num?)?.toInt() ?? 0,
+        redeemedPoints:     (j['redeemedPoints']  as num?)?.toInt() ?? 0,
+        currentLevel:       (j['currentLevel']     ?? 'bronze').toString(),
+        currentLevelName:   (j['currentLevelName'] ?? 'Bronce').toString(),
+        discountPercentage: (j['discountPercentage'] as num?)?.toDouble() ?? 0,
+        nextLevel:          j['nextLevel']?.toString(),
+        nextLevelName:      j['nextLevelName']?.toString(),
+        pointsToNextLevel:  (j['pointsToNextLevel']  as num?)?.toInt() ?? 0,
+        progressPercentage: (j['progressPercentage'] as num?)?.toInt() ?? 0,
+        pointsExpiryDate:   _date(j['pointsExpiryDate']),
+        lastActivityDate:   _date(j['lastActivityDate']),
+      );
+
+  /// Días que faltan para que venza el saldo. null si no hay fecha.
+  int? get daysUntilExpiry {
+    final d = pointsExpiryDate;
+    if (d == null) return null;
+    return d.difference(DateTime.now()).inDays;
+  }
+}
+
+/// Movimiento del libro de puntos.
+class RewardsTransaction {
+  final String   id;
+  final String   type;        // earn | redeem | expire | bonus
+  final int      points;
+  final String   sourceEvent;
+  final int      balanceAfter;
+  final String?  notes;
+  final DateTime createdAt;
+
+  RewardsTransaction({
+    required this.id,
+    required this.type,
+    required this.points,
+    required this.sourceEvent,
+    required this.balanceAfter,
+    required this.createdAt,
+    this.notes,
+  });
+
+  factory RewardsTransaction.fromJson(Map<String, dynamic> j) =>
+      RewardsTransaction(
+        id:           j['id'].toString(),
+        type:         (j['type'] ?? 'earn').toString(),
+        points:       (j['points']       as num?)?.toInt() ?? 0,
+        sourceEvent:  (j['sourceEvent'] ?? '').toString(),
+        balanceAfter: (j['balanceAfter'] as num?)?.toInt() ?? 0,
+        notes:        j['notes']?.toString(),
+        createdAt:    _date(j['createdAt']) ?? DateTime.now(),
+      );
+
+  /// true si el movimiento suma puntos.
+  bool get isPositive => type == 'earn' || type == 'bonus';
+}
+
+class RewardLevel {
+  final String name;
+  final String displayName;
+  final int    sortOrder;
+  final int    minPoints;
+  final double discountPercentage;
+  final int    monthlyFreeTrips;
+  final int    monthlyRaffleTickets;
+
+  RewardLevel({
+    required this.name,
+    required this.displayName,
+    required this.sortOrder,
+    required this.minPoints,
+    required this.discountPercentage,
+    required this.monthlyFreeTrips,
+    required this.monthlyRaffleTickets,
+  });
+
+  factory RewardLevel.fromJson(Map<String, dynamic> j) => RewardLevel(
+        name:                 (j['name'] ?? '').toString(),
+        displayName:          (j['displayName'] ?? '').toString(),
+        sortOrder:            (j['sortOrder'] as num?)?.toInt() ?? 0,
+        minPoints:            (j['minPoints'] as num?)?.toInt() ?? 0,
+        discountPercentage:   (j['discountPercentage']   as num?)?.toDouble() ?? 0,
+        monthlyFreeTrips:     (j['monthlyFreeTrips']     as num?)?.toInt() ?? 0,
+        monthlyRaffleTickets: (j['monthlyRaffleTickets'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Item del catálogo de canje.
+class RewardCatalogItem {
+  final String  id;
+  final String  name;
+  final String? description;
+  final int     pointsCost;
+  final String  rewardType;
+  final double? amountSoles;
+  final int?    quantity;
+  final double? percentage;
+  final int?    stock;
+  final int     validityDays;
+  final bool    canAfford;
+  final int     pointsMissing;
+  final String? blockedReason;
+
+  RewardCatalogItem({
+    required this.id,
+    required this.name,
+    required this.pointsCost,
+    required this.rewardType,
+    required this.validityDays,
+    required this.canAfford,
+    required this.pointsMissing,
+    this.description,
+    this.amountSoles,
+    this.quantity,
+    this.percentage,
+    this.stock,
+    this.blockedReason,
+  });
+
+  factory RewardCatalogItem.fromJson(Map<String, dynamic> j) =>
+      RewardCatalogItem(
+        id:            j['id'].toString(),
+        name:          (j['name'] ?? '').toString(),
+        description:   j['description']?.toString(),
+        pointsCost:    (j['pointsCost']   as num?)?.toInt() ?? 0,
+        rewardType:    (j['rewardType'] ?? '').toString(),
+        amountSoles:   (j['amountSoles']  as num?)?.toDouble(),
+        quantity:      (j['quantity']     as num?)?.toInt(),
+        percentage:    (j['percentage']   as num?)?.toDouble(),
+        stock:         (j['stock']        as num?)?.toInt(),
+        validityDays:  (j['validityDays'] as num?)?.toInt() ?? 30,
+        canAfford:     j['canAfford'] == true,
+        pointsMissing: (j['pointsMissing'] as num?)?.toInt() ?? 0,
+        blockedReason: j['blockedReason']?.toString(),
+      );
+}
+
+/// Cupón generado al canjear.
+class RewardRedemption {
+  final String    id;
+  final String    code;
+  final String    itemName;
+  final int       pointsSpent;
+  final String    rewardType;
+  final double?   amountSoles;
+  final int?      quantity;
+  final double?   percentage;
+  final String    status;      // active | used | expired | cancelled
+  final DateTime  expiresAt;
+  final DateTime? usedAt;
+  final String?   usedNote;
+  final DateTime  createdAt;
+
+  RewardRedemption({
+    required this.id,
+    required this.code,
+    required this.itemName,
+    required this.pointsSpent,
+    required this.rewardType,
+    required this.status,
+    required this.expiresAt,
+    required this.createdAt,
+    this.amountSoles,
+    this.quantity,
+    this.percentage,
+    this.usedAt,
+    this.usedNote,
+  });
+
+  factory RewardRedemption.fromJson(Map<String, dynamic> j) =>
+      RewardRedemption(
+        id:          j['id'].toString(),
+        code:        (j['code'] ?? '').toString(),
+        itemName:    (j['itemName'] ?? '').toString(),
+        pointsSpent: (j['pointsSpent'] as num?)?.toInt() ?? 0,
+        rewardType:  (j['rewardType'] ?? '').toString(),
+        amountSoles: (j['amountSoles'] as num?)?.toDouble(),
+        quantity:    (j['quantity']    as num?)?.toInt(),
+        percentage:  (j['percentage']  as num?)?.toDouble(),
+        status:      (j['status'] ?? 'active').toString(),
+        expiresAt:   _date(j['expiresAt']) ?? DateTime.now(),
+        usedAt:      _date(j['usedAt']),
+        usedNote:    j['usedNote']?.toString(),
+        createdAt:   _date(j['createdAt']) ?? DateTime.now(),
+      );
+}
+
+/// Resultado del canje: el cupón más el saldo que quedó.
+class RedeemResult {
+  final RewardRedemption redemption;
+  final int              availablePointsAfter;
+  final String           currentLevel;
+
+  RedeemResult({
+    required this.redemption,
+    required this.availablePointsAfter,
+    required this.currentLevel,
+  });
+
+  factory RedeemResult.fromJson(Map<String, dynamic> j) => RedeemResult(
+        redemption: RewardRedemption.fromJson(
+            (j['redemption'] as Map).cast<String, dynamic>()),
+        availablePointsAfter: (j['availablePointsAfter'] as num?)?.toInt() ?? 0,
+        currentLevel: (j['currentLevel'] ?? 'bronze').toString(),
+      );
+}
+
+/// Promoción vigente, ya redactada por el backend.
+class ActivePromotion {
+  final String    id;
+  final String    name;
+  final String?   description;
+  /// Qué ganas: «2x puntos» o «+50 puntos».
+  final String    reward;
+  /// Cuándo aplica: «Lun a Vie, de 12:00 a 14:00».
+  final String    when;
+  /// true si aplica justo ahora.
+  final bool      activeNow;
+  final DateTime? endDate;
+
+  ActivePromotion({
+    required this.id,
+    required this.name,
+    required this.reward,
+    required this.when,
+    required this.activeNow,
+    this.description,
+    this.endDate,
+  });
+
+  factory ActivePromotion.fromJson(Map<String, dynamic> j) => ActivePromotion(
+        id:          j['id'].toString(),
+        name:        (j['name'] ?? '').toString(),
+        description: j['description']?.toString(),
+        reward:      (j['reward'] ?? '').toString(),
+        when:        (j['when'] ?? '').toString(),
+        activeNow:   j['activeNow'] == true,
+        endDate:     _date(j['endDate']),
+      );
+}
+
+/// Sorteo visto por el usuario.
+class UserRaffle {
+  final String    id;
+  final String    name;
+  final String    raffleType;      // weekly | monthly | special
+  final String    prizeDescription;
+  final double?   prizeValue;
+  final DateTime  drawDate;
+  final String    status;          // open | closed | drawn | cancelled
+  final int       myTickets;
+  final bool      eligible;
+  final String?   notEligibleReason;
+  final bool      iWon;
+  final int?      myPrizeRank;
+  final String?   myTicketNumber;
+
+  UserRaffle({
+    required this.id,
+    required this.name,
+    required this.raffleType,
+    required this.prizeDescription,
+    required this.drawDate,
+    required this.status,
+    required this.myTickets,
+    required this.eligible,
+    required this.iWon,
+    this.prizeValue,
+    this.notEligibleReason,
+    this.myPrizeRank,
+    this.myTicketNumber,
+  });
+
+  factory UserRaffle.fromJson(Map<String, dynamic> j) => UserRaffle(
+        id:                j['id'].toString(),
+        name:              (j['name'] ?? '').toString(),
+        raffleType:        (j['raffleType'] ?? 'monthly').toString(),
+        prizeDescription:  (j['prizeDescription'] ?? '').toString(),
+        prizeValue:        (j['prizeValue'] as num?)?.toDouble(),
+        drawDate:          _date(j['drawDate']) ?? DateTime.now(),
+        status:            (j['status'] ?? 'open').toString(),
+        myTickets:         (j['myTickets'] as num?)?.toInt() ?? 0,
+        eligible:          j['eligible'] == true,
+        notEligibleReason: j['notEligibleReason']?.toString(),
+        iWon:              j['iWon'] == true,
+        myPrizeRank:       (j['myPrizeRank'] as num?)?.toInt(),
+        myTicketNumber:    j['myTicketNumber']?.toString(),
+      );
+
+  bool get isDrawn => status == 'drawn';
+
+  /// Cuánto falta para el sorteo, en texto.
+  String get countdown {
+    final d = drawDate.difference(DateTime.now()).inDays;
+    if (isDrawn) return 'Ya se sorteó';
+    if (d < 0)   return 'Pendiente de sortear';
+    if (d == 0)  return 'Se sortea hoy';
+    if (d == 1)  return 'Se sortea mañana';
+    return 'Faltan $d días';
+  }
+}
+
+/// Página de resultados del backend.
+class RewardsPage<T> {
+  final List<T> items;
+  final int     total;
+  final int     page;
+  final int     pageSize;
+
+  RewardsPage({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+  });
+
+  bool get hasMore => items.length < total;
+}
+
+DateTime? _date(dynamic v) {
+  if (v == null) return null;
+  return DateTime.tryParse(v.toString());
+}

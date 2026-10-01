@@ -1,0 +1,40 @@
+// Bugie Admin — Design Tokens (mismos colores del logo)
+:root {
+  --bugie-primary:    #5B5BD6;
+  --bugie-primary-2:  #7B5CE7;
+  --bugie-accent:     #C060C0;
+  --bugie-accent-2:   #9B4FBF;
+  --bugie-grad: linear-gradient(135deg, #5B5BD6, #9B4FBF, #C060C0);
+
+  --bugie-bg:       #f5f4fb;
+  --bugie-bg-2:     #eeedf8;
+  --bugie-surface:  #ffffff;
+  --bugie-surface-2:#fbfaff;
+  --bugie-text:     #1a1730;
+  --bugie-muted:    #6b6880;
+  --bugie-border:   #dddaf0;
+  --bugie-link:     #5B5BD6;
+  --bugie-info:     #0dcaf0;
+  --bugie-danger:   #dc3545;
+  --bugie-success:  #198754;
+
+  --bugie-radius:    14px;
+  --bugie-radius-sm: 12px;
+  --bugie-shadow:    0 1px 2px rgba(60, 40, 120, 0.06);
+  --bugie-shadow-2:  0 10px 36px rgba(60, 40, 120, 0.12);
+  --bugie-shadow-3:  0 18px 60px rgba(60, 40, 120, 0.16);
+}
+
+body[data-theme='dark'] {
+  --bugie-bg:       #100f1e;
+  --bugie-bg-2:     #0c0b18;
+  --bugie-surface:  #171628;
+  --bugie-surface-2:#120f20;
+  --bugie-text:     #e8e6f8;
+  --bugie-muted:    #9e9bb8;
+  --bugie-border:   #2e2a4a;
+  --bugie-link:     #8a84f0;
+  --bugie-shadow:   0 1px 2px rgba(0, 0, 0, 0.4);
+  --bugie-shadow-2: 0 18px 56px rgba(0, 0, 0, 0.5);
+  --bugie-shadow-3: 0 26px 80px rgba(0, 0, 0, 0.6);
+}

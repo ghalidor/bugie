@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "700496484363",
+    "project_id": "bugietest-51fb8",
+    "storage_bucket": "bugietest-51fb8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:700496484363:android:52358a0b9dc22e6c910f0e",
+        "android_client_info": {
+          "package_name": "pe.bugie.bugie_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJb2dmKxZ8apXVR7JKiEEAFbYOLbX8bjM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

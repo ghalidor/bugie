@@ -1,0 +1,1973 @@
+@use './variables';
+@import 'bootstrap/scss/bootstrap';
+
+html {
+  height: 100%;
+  overflow: hidden;       /* el scroll vive en body, no en html */
+}
+body {
+  height: 100%;
+  overflow-y: auto;       /* scroll vertical en el body */
+  overflow-x: hidden;     /* sin scroll horizontal accidental */
+}
+:root {
+  --bugie-ring: 0 0 0 4px color-mix(in srgb, var(--bugie-primary) 14%, transparent);
+  --bugie-shell: linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 94%, transparent), color-mix(in srgb, var(--bugie-surface) 98%, transparent));
+  --bugie-glass: color-mix(in srgb, var(--bugie-surface) 82%, transparent);
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--bugie-text);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--bugie-primary) 12%, transparent), transparent 34%),
+    radial-gradient(circle at 85% 10%, color-mix(in srgb, var(--bugie-accent) 10%, transparent), transparent 30%),
+    linear-gradient(180deg, var(--bugie-bg), var(--bugie-bg-2));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--bugie-link); text-decoration: none; }
+a:hover { color: color-mix(in srgb, var(--bugie-link) 82%, #000); }
+
+::selection { background: color-mix(in srgb, var(--bugie-primary) 18%, transparent); }
+
+.bugie-container { max-width: 1560px; width: min(100%, calc(100vw - 20px)); margin-inline: auto; }
+.bugie-page { padding: 24px 0 40px; }
+.bugie-section { padding: 88px 0; }
+.bugie-section-sm { padding: 64px 0; }
+.bugie-section-tight { padding: 44px 0; }
+.bugie-grid-lines { position: relative; }
+.bugie-grid-lines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--bugie-border) 58%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--bugie-border) 58%, transparent) 1px, transparent 1px);
+  background-size: 52px 52px;
+  opacity: .14;
+  pointer-events: none;
+  mask-image: radial-gradient(circle at 30% 15%, #000 0 34%, transparent 74%);
+}
+
+.bugie-brand {
+  font-weight: 900;
+  letter-spacing: -.04em;
+  text-transform: uppercase;
+  color: var(--bugie-primary);
+}
+
+.bugie-h1 {
+  font-weight: 900;
+  letter-spacing: -.05em;
+  line-height: .98;
+  font-size: clamp(2.8rem, 5.6vw, 5rem);
+}
+.bugie-h2 {
+  font-weight: 850;
+  letter-spacing: -.04em;
+  line-height: 1.04;
+  font-size: clamp(1.9rem, 3vw, 3rem);
+}
+.bugie-h3 {
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1.1;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+}
+.bugie-lead {
+  font-size: clamp(1rem, 1.4vw, 1.16rem);
+  line-height: 1.75;
+  color: color-mix(in srgb, var(--bugie-text) 82%, transparent);
+}
+.bugie-muted { color: var(--bugie-muted); }
+.bugie-gradient-text {
+  background: linear-gradient(90deg, #4F7DF5, #B85FE6, #E673D9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-bugie-accent { color: var(--bugie-accent) !important; }
+
+.bugie-topbar, .bugie-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--bugie-surface) 82%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--bugie-border) 76%, transparent);
+  box-shadow: 0 10px 30px rgba(14, 20, 38, .04);
+}
+
+.bugie-navlink {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .7rem 1rem;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--bugie-text) 72%, transparent);
+  font-weight: 600;
+  transition: .2s ease;
+}
+.bugie-navlink:hover,
+.bugie-navlink.active {
+  color: var(--bugie-primary);
+  background: color-mix(in srgb, var(--bugie-primary) 8%, transparent);
+}
+
+.bugie-search,
+.bugie-search .input-group-text,
+.bugie-search .form-control {
+  background: color-mix(in srgb, var(--bugie-surface) 90%, transparent);
+  border-color: color-mix(in srgb, var(--bugie-border) 72%, transparent);
+}
+
+.bugie-topnav-search { min-width: 0; }
+.bugie-topnav-searchbox { max-width: 560px; width: 100%; border-radius: 999px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent); background: color-mix(in srgb, var(--bugie-surface) 90%, transparent); }
+.bugie-topnav-searchbox .input-group-text,
+.bugie-topnav-searchbox .form-control { background: transparent; border: 0; }
+.bugie-search {
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+}
+.bugie-search .input-group-text,
+.bugie-search .form-control { border: 0; }
+.bugie-search .form-control:focus { box-shadow: none; }
+
+.bugie-surface,
+.bugie-card,
+.bugie-shell-card {
+  background: var(--bugie-shell);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 76%, transparent);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, .06);
+}
+.bugie-card,
+.bugie-shell-card {
+  border-radius: 24px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.bugie-card > .bugie-card-header:first-child {
+  border-top-left-radius:  calc(24px - 1px);
+  border-top-right-radius: calc(24px - 1px);
+}
+
+.bugie-route { min-width: 0; }
+
+.bugie-shell-card { padding: 1.4rem; }
+.bugie-card-header {
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--bugie-border) 70%, transparent);
+  font-weight: 800;
+  color: color-mix(in srgb, var(--bugie-text) 90%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 98%, transparent), color-mix(in srgb, var(--bugie-surface) 88%, transparent));
+  border-radius: inherit;
+}
+.bugie-card-body { padding: 1.15rem; }
+.bugie-card-subtle {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bugie-surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 68%, transparent);
+}
+
+.bugie-pill,
+.bugie-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  border-radius: 999px;
+  padding: .55rem .85rem;
+  background: color-mix(in srgb, var(--bugie-surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent);
+  color: color-mix(in srgb, var(--bugie-text) 88%, transparent);
+}
+.bugie-chip { padding: .45rem .8rem; font-size: .92rem; }
+
+.bugie-kpi {
+  position: relative;
+  overflow: hidden;
+  min-height: 122px;
+  padding: 1.1rem 1.1rem 1.2rem;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--bugie-primary) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 96%, transparent), color-mix(in srgb, var(--bugie-surface) 88%, transparent));
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 78%, transparent);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .06);
+}
+.bugie-kpi::after {
+  content: '';
+  position: absolute;
+  inset: auto -24px -24px auto;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bugie-accent) 16%, transparent);
+}
+.bugie-kpi .value { position: relative; z-index: 1; font-size: clamp(1.5rem, 2.4vw, 2.1rem); font-weight: 900; letter-spacing: -.03em; }
+.bugie-kpi .label { color: var(--bugie-muted); font-size: .92rem; }
+
+.bugie-mini-icon,
+.bugie-icon-soft {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bugie-primary) 14%, transparent), color-mix(in srgb, var(--bugie-accent) 12%, transparent));
+  color: var(--bugie-primary);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent);
+}
+.bugie-avatar {
+  width: 46px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--bugie-primary), var(--bugie-primary-2));
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(60, 40, 120, .18);
+}
+
+.bugie-feature,
+.bugie-list-item,
+.bugie-split-card {
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 74%, transparent);
+  background: color-mix(in srgb, var(--bugie-surface) 92%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .05);
+  transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease;
+}
+.bugie-feature { padding: 1.2rem; height: 100%; }
+.bugie-list-item { display: flex; align-items: center; gap: .9rem; padding: .95rem 1rem; }
+.bugie-split-card { padding: 1.4rem; }
+@media (hover:hover) {
+  .bugie-card:hover,
+  .bugie-feature:hover,
+  .bugie-list-item:hover,
+  .bugie-split-card:hover,
+  .bugie-kpi:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 48px rgba(15, 23, 42, .11);
+    border-color: color-mix(in srgb, var(--bugie-primary) 22%, var(--bugie-border));
+  }
+}
+
+.bugie-divider { height: 1px; background: color-mix(in srgb, var(--bugie-border) 72%, transparent); }
+.bugie-divider-soft { height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bugie-border) 70%, transparent), transparent); }
+.badge-bugie,
+.badge.text-bg-bugie { background: color-mix(in srgb, var(--bugie-accent) 85%, #fff) !important; color: #1b1b1b !important; }
+
+.btn-bugie,
+.btn-primary {
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: transparent;
+  --bs-btn-hover-bg: transparent;
+  --bs-btn-hover-border-color: transparent;
+  --bs-btn-active-bg: transparent;
+  --bs-btn-active-border-color: transparent;
+  background: linear-gradient(90deg, #5B5BD6 0%, #9B4FBF 50%, #C060C0 100%);
+  border: 0;
+  color: #fff !important;
+  border-radius: 999px;
+  padding-inline: 1.3rem;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(79, 125, 245, .28);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+.btn-bugie:hover,
+.btn-primary:hover {
+  background: linear-gradient(90deg, #5B5BD6 0%, #9B4FBF 50%, #C060C0 100%);
+  filter: brightness(1.06);
+  box-shadow: 0 12px 28px rgba(79, 125, 245, .36);
+  color: #fff !important;
+}
+.btn-bugie:active,
+.btn-primary:active {
+  background: linear-gradient(90deg, #5B5BD6 0%, #9B4FBF 50%, #C060C0 100%);
+  filter: brightness(.95);
+  color: #fff !important;
+}
+.btn-bugie-outline,
+.btn-outline-secondary {
+  border-radius: 999px;
+  padding-inline: 1rem;
+  font-weight: 700;
+  color: var(--bugie-text);
+  border-color: color-mix(in srgb, var(--bugie-border) 82%, transparent);
+  background: color-mix(in srgb, var(--bugie-surface) 82%, transparent);
+}
+.btn-bugie-outline:hover,
+.btn-outline-secondary:hover {
+  background: color-mix(in srgb, var(--bugie-primary) 8%, var(--bugie-surface));
+  border-color: color-mix(in srgb, var(--bugie-primary) 24%, var(--bugie-border));
+  color: var(--bugie-primary);
+}
+.bugie-icon-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+// Icono cuadrado sólido azul (referencia visual: chips ES y teléfono)
+.bugie-icon-square {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #3B7DF7;
+  color: #fff;
+  font-weight: 700;
+  border: 0;
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+  box-shadow: 0 6px 16px rgba(59, 125, 247, .28);
+}
+.bugie-icon-square:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px rgba(59, 125, 247, .36);
+  color: #fff;
+}
+.bugie-icon-square.is-active {
+  background: linear-gradient(135deg, #5B5BD6, #9B4FBF);
+}
+// Versión small para inline en navbar
+.bugie-icon-square-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: .85rem;
+}
+
+.form-control,
+.form-select,
+textarea.form-control {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--bugie-border) 74%, transparent);
+  background: color-mix(in srgb, var(--bugie-surface) 92%, transparent);
+  min-height: 50px;
+}
+textarea.form-control { min-height: 140px; }
+.form-control:focus,
+.form-select:focus {
+  border-color: color-mix(in srgb, var(--bugie-primary) 30%, var(--bugie-border));
+  box-shadow: var(--bugie-ring);
+  background: var(--bugie-surface);
+}
+.form-label { font-weight: 700; color: color-mix(in srgb, var(--bugie-text) 88%, transparent); }
+
+.bugie-offcanvas {
+  background: color-mix(in srgb, var(--bugie-surface) 92%, transparent);
+  backdrop-filter: blur(16px);
+}
+.bugie-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding: .85rem 1rem;
+  border-radius: 16px;
+  color: color-mix(in srgb, var(--bugie-text) 88%, transparent);
+  font-weight: 600;
+  transition: .18s ease;
+}
+.bugie-sidebar-link:hover,
+.bugie-sidebar-link.active {
+  background: color-mix(in srgb, var(--bugie-primary) 10%, transparent);
+  color: var(--bugie-primary);
+}
+.bugie-sticky { position: sticky; top: 88px; }
+
+/* Public landing */
+.bugie-hero {
+  position: relative;
+  overflow: clip;
+  padding: 96px 0 68px;
+}
+.bugie-hero-wrap {
+  position: relative;
+  isolation: isolate;
+  border-radius: 34px;
+  overflow: hidden;
+  padding: 1.2rem;
+  background: linear-gradient(135deg, rgba(18, 14, 50, .97), rgba(32, 20, 80, .90));
+  box-shadow: 0 30px 80px rgba(60, 40, 120, .24);
+}
+.bugie-hero-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 33px;
+  border: 1px solid rgba(255,255,255,.08);
+  pointer-events: none;
+}
+.bugie-hero-content { position: relative; z-index: 2; color: #fff; }
+.bugie-hero-copy { padding: 1.6rem 1.2rem 1.4rem; }
+.bugie-hero-copy .bugie-lead { color: rgba(255,255,255,.78); }
+.bugie-hero-media {
+  position: absolute;
+  inset: 0;
+  background: url('/bugie.png') no-repeat;
+  background-position: center 55%;
+  background-size: 88%;
+  opacity: .22;
+  pointer-events: none;
+}
+@media (max-width: 991.98px) {
+  .bugie-hero-media {
+    background-position: center 30%;
+    background-size: 95%;
+    opacity: .18;
+  }
+}
+.bugie-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(10px);
+  opacity: .5;
+  animation: bugieFloat 10s ease-in-out infinite;
+}
+.bugie-orb.orb-a { width: 300px; height: 300px; left: -90px; top: -90px; background: rgba(255,255,255,.12); }
+.bugie-orb.orb-b { width: 340px; height: 340px; right: -140px; top: 15%; background: rgba(201,164,76,.2); animation-duration: 12s; }
+.bugie-orb.orb-c { width: 200px; height: 200px; right: 28%; bottom: -80px; background: rgba(92, 179, 255, .22); }
+.bugie-hero-phone {
+  position: relative;
+  margin: 0 auto;
+  max-width: 420px;
+}
+.bugie-phone {
+  position: relative;
+  margin-inline: auto;
+  width: min(100%, 340px);
+  padding: 14px;
+  border-radius: 36px;
+  background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 30px 70px rgba(4,10,22,.35);
+  backdrop-filter: blur(18px);
+  animation: bugieFloatPhone 8s ease-in-out infinite;
+}
+.bugie-phone-notch {
+  width: 34%;
+  height: 24px;
+  margin: 0 auto 12px;
+  border-radius: 999px;
+  background: rgba(5,10,20,.45);
+}
+.bugie-phone-screen {
+  border-radius: 28px;
+  padding: 1rem;
+  min-height: 580px;
+  background: linear-gradient(180deg, rgba(248,250,252,.98), rgba(241,245,249,.94));
+  color: #0f172a;
+}
+.bugie-phone-widget {
+  padding: .95rem;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .08);
+  border: 1px solid rgba(148,163,184,.15);
+}
+.bugie-route-line {
+  position: relative;
+  height: 86px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(60, 40, 120,.08), rgba(60, 40, 120,.02));
+  overflow: hidden;
+}
+.bugie-route-line::before {
+  content: '';
+  position: absolute;
+  left: 32px;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--bugie-primary), color-mix(in srgb, var(--bugie-primary) 0%, transparent));
+}
+.bugie-route-dot {
+  position: absolute;
+  left: 24px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bugie-primary);
+  box-shadow: 0 0 0 5px rgba(60, 40, 120,.12);
+}
+.bugie-route-dot.end { bottom: 18px; background: var(--bugie-accent); box-shadow: 0 0 0 5px rgba(201,164,76,.16); }
+.bugie-hero-stat {
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12);
+  backdrop-filter: blur(12px);
+}
+.bugie-hero-stat strong { display: block; font-size: 1.45rem; font-weight: 900; }
+.bugie-marquee {
+  display: flex;
+  gap: 1rem;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.bugie-marquee-track {
+  display: flex;
+  gap: 1rem;
+  min-width: max-content;
+  animation: bugieMarquee 24s linear infinite;
+}
+.bugie-marquee-item {
+  padding: .8rem 1rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.84);
+  border: 1px solid rgba(255,255,255,.1);
+}
+.bugie-feature-grid .bugie-feature { min-height: 100%; }
+.bugie-section-title { max-width: 720px; margin-bottom: 1.4rem; }
+.bugie-story-card { min-height: 100%; padding: 1.6rem; }
+.bugie-timeline {
+  position: relative;
+  padding-left: 1rem;
+}
+.bugie-step {
+  position: relative;
+  padding-left: 3.25rem;
+  padding-bottom: 1.5rem;
+}
+.bugie-step::before {
+  content: attr(data-step);
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 2.3rem;
+  height: 2.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--bugie-primary), var(--bugie-primary-2));
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 10px 22px rgba(60, 40, 120,.18);
+}
+.bugie-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 1.08rem;
+  top: 2.55rem;
+  bottom: .4rem;
+  width: 2px;
+  background: color-mix(in srgb, var(--bugie-primary) 24%, transparent);
+}
+.bugie-stats-grid .bugie-kpi { min-height: 142px; }
+.bugie-testimonial {
+  padding: 1.6rem;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 94%, transparent), color-mix(in srgb, var(--bugie-surface) 90%, transparent));
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent);
+  min-height: 100%;
+}
+.bugie-cta-panel {
+  padding: clamp(1.4rem, 3vw, 2.4rem);
+  border-radius: 30px;
+  background:
+    linear-gradient(135deg, rgba(18, 14, 50, .97), rgba(32, 20, 80, .90)),
+    url('/bugie-degradado.png') center/cover no-repeat;
+  color: white;
+  box-shadow: 0 24px 64px rgba(60, 40, 120,.2);
+}
+.bugie-cta-panel .bugie-lead { color: rgba(255,255,255,.76); }
+
+/* Auth */
+.bugie-auth-shell {
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+  padding: 28px 0;
+}
+.bugie-auth-left,
+.bugie-auth-right {
+  position: relative;
+  border-radius: 32px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 70%, transparent);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .1);
+}
+.bugie-auth-left {
+  padding: 2rem;
+  min-height: 760px;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(18, 14, 50, .97), rgba(32, 20, 80, .88)),
+    url('/bugie-degradado.png') center/cover no-repeat;
+}
+.bugie-auth-left-bg {
+  position: absolute;
+  inset: 0;
+  opacity: .3;
+  background: radial-gradient(circle at 12% 10%, rgba(255,255,255,.12), transparent 24%), radial-gradient(circle at 84% 82%, rgba(201,164,76,.22), transparent 18%);
+}
+.bugie-auth-right {
+  padding: 1.8rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 96%, transparent), color-mix(in srgb, var(--bugie-surface) 88%, transparent));
+  min-height: 760px;
+}
+.bugie-auth-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+.bugie-auth-feature {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.08);
+  backdrop-filter: blur(12px);
+}
+.bugie-auth-panel {
+  margin-top: auto;
+  padding: 1rem;
+  border-radius: 22px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+/* App shell */
+.bugie-shell-hero {
+  display: grid;
+  gap: 1rem;
+  padding: 1.4rem;
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(18, 14, 50, .97), rgba(17,45,89,.84)),
+    url('/bugie-degradado.png') center/cover no-repeat;
+  color: #fff;
+  box-shadow: 0 22px 48px rgba(60, 40, 120,.16);
+}
+.bugie-shell-hero .subtitle,
+.bugie-shell-hero .description { color: rgba(255,255,255,.74); }
+.bugie-shell-grid { display: grid; gap: 1rem; }
+.bugie-map-placeholder {
+  min-height: 280px;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(60, 40, 120,.16), transparent 28%),
+    linear-gradient(180deg, rgba(255,255,255,.92), rgba(241,245,249,.9));
+  border: 1px dashed color-mix(in srgb, var(--bugie-primary) 18%, var(--bugie-border));
+  position: relative;
+  overflow: hidden;
+}
+.bugie-map-placeholder::before,
+.bugie-map-placeholder::after {
+  content: '';
+  position: absolute;
+  inset: auto 14% 22% 14%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--bugie-primary), transparent);
+}
+.bugie-map-placeholder::after {
+  inset: 18% 22% auto 22%;
+  transform: rotate(-18deg);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bugie-accent) 72%, transparent), transparent);
+}
+.bugie-table-card table { margin-bottom: 0; }
+.table.bugie-table,
+.table.bugie-table > :not(caption) > * > * { background: transparent; }
+.table.bugie-table thead th {
+  font-weight: 800;
+  color: color-mix(in srgb, var(--bugie-text) 84%, transparent);
+  background: color-mix(in srgb, var(--bugie-primary) 6%, var(--bugie-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent);
+}
+.table.bugie-table tbody tr:hover { background: color-mix(in srgb, var(--bugie-primary) 6%, transparent); }
+
+.bugie-footer {
+  margin-top: 4rem;
+  padding: 2.8rem 0 2rem;
+  border-top: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent);
+  background: color-mix(in srgb, var(--bugie-surface) 64%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.bugie-route { animation: bugieRouteIn .4s ease both; }
+[data-reveal] { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+[data-reveal].is-visible { opacity: 1; transform: none; }
+
+@keyframes bugieRouteIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes bugieFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(14px); } }
+@keyframes bugieFloatPhone { 0%,100% { transform: translate3d(0,0,0) rotate(-4deg); } 50% { transform: translate3d(0,-10px,0) rotate(-2deg); } }
+@keyframes bugieMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bugie-route,
+  [data-reveal],
+  .bugie-orb,
+  .bugie-phone,
+  .bugie-marquee-track { animation: none !important; transition: none !important; opacity: 1; transform: none; }
+}
+
+@media (max-width: 991.98px) {
+  .bugie-page { padding-top: 18px; }
+  .bugie-hero { padding-top: 74px; }
+  .bugie-sticky { position: static; }
+  .bugie-hero-copy { padding: 1.2rem .8rem; }
+  .bugie-phone-screen { min-height: auto; }
+  .bugie-auth-left, .bugie-auth-right { min-height: auto; }
+}
+
+@media (max-width: 575.98px) {
+  .bugie-h1 { font-size: 2.45rem; }
+  .bugie-hero-wrap { border-radius: 28px; }
+  .bugie-card, .bugie-shell-card, .bugie-feature, .bugie-list-item { border-radius: 20px; }
+  .bugie-auth-right { padding: 1.3rem; }
+}
+
+
+.bugie-app-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  gap: 1rem;
+  align-items: start;
+}
+.bugie-main-column,
+.bugie-center-column,
+.bugie-right-column,
+.bugie-left-column { min-width: 0; }
+
+.bugie-sidebar-link {
+  min-height: 52px;
+  color: var(--bugie-text);
+}
+
+body[data-theme='dark'] .bugie-topbar,
+body[data-theme='dark'] .bugie-navbar {
+  background: color-mix(in srgb, var(--bugie-surface) 92%, rgba(6,10,16,.35));
+  box-shadow: 0 10px 30px rgba(0,0,0,.24);
+}
+body[data-theme='dark'] .bugie-card,
+body[data-theme='dark'] .bugie-shell-card,
+body[data-theme='dark'] .bugie-surface,
+body[data-theme='dark'] .bugie-kpi,
+body[data-theme='dark'] .bugie-feature,
+body[data-theme='dark'] .bugie-list-item,
+body[data-theme='dark'] .bugie-split-card,
+body[data-theme='dark'] .bugie-card-subtle,
+body[data-theme='dark'] .bugie-search,
+body[data-theme='dark'] .bugie-search .input-group-text,
+body[data-theme='dark'] .bugie-search .form-control {
+  color: var(--bugie-text);
+}
+body[data-theme='dark'] .bugie-sidebar-link,
+body[data-theme='dark'] .bugie-navlink,
+body[data-theme='dark'] .btn-bugie-outline,
+body[data-theme='dark'] .bugie-icon-btn,
+body[data-theme='dark'] .form-control,
+body[data-theme='dark'] .form-select,
+body[data-theme='dark'] .input-group-text {
+  color: var(--bugie-text);
+}
+body[data-theme='dark'] .bugie-sidebar-link:hover,
+body[data-theme='dark'] .bugie-sidebar-link.active,
+body[data-theme='dark'] .bugie-navlink:hover,
+body[data-theme='dark'] .bugie-navlink.active {
+  color: #fff;
+  background: color-mix(in srgb, var(--bugie-primary) 34%, transparent);
+}
+body[data-theme='dark'] .bugie-muted,
+body[data-theme='dark'] .text-muted,
+body[data-theme='dark'] .small.bugie-muted { color: #aeb8c4 !important; }
+body[data-theme='dark'] .bugie-card-header { color: #f3f7fb; }
+body[data-theme='dark'] .offcanvas,
+body[data-theme='dark'] .bugie-offcanvas { color: var(--bugie-text); background: var(--bugie-surface); }
+body[data-theme='dark'] .offcanvas .btn-close {
+  filter: invert(1) grayscale(1);
+}
+body[data-theme='dark'] .badge-bugie { color: #151515; }
+body[data-theme='dark'] .bugie-chip { color: #dde6ef; }
+
+@media (max-width: 1199.98px) {
+  .bugie-app-layout { grid-template-columns: 260px minmax(0, 1fr) 280px; }
+}
+@media (max-width: 991.98px) {
+  .bugie-container { width: min(100%, calc(100vw - 18px)); }
+  .bugie-app-layout { grid-template-columns: minmax(0, 1fr); }
+  .bugie-page { padding-top: 16px; }
+}
+
+
+/* Stability + stronger dark mode */
+body { overflow-x: hidden; }
+
+body[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+body[data-theme='dark'] .bugie-card,
+body[data-theme='dark'] .bugie-shell-card,
+body[data-theme='dark'] .bugie-surface,
+body[data-theme='dark'] .bugie-kpi,
+body[data-theme='dark'] .bugie-feature,
+body[data-theme='dark'] .bugie-list-item,
+body[data-theme='dark'] .bugie-split-card,
+body[data-theme='dark'] .bugie-card-subtle,
+body[data-theme='dark'] .bugie-search,
+body[data-theme='dark'] .bugie-search .input-group-text,
+body[data-theme='dark'] .bugie-search .form-control,
+body[data-theme='dark'] .bugie-chip {
+  background: #131c28 !important;
+  border-color: #2a3a50 !important;
+  color: #edf3fb !important;
+}
+
+body[data-theme='dark'] .bugie-card-header {
+  background: #101824 !important;
+  border-bottom-color: #2a3a50 !important;
+  color: #f5f9ff !important;
+  border-radius: inherit !important;
+}
+
+body[data-theme='dark'] .bugie-sidebar-link,
+body[data-theme='dark'] .bugie-navlink {
+  color: #dbe7f4 !important;
+}
+
+body[data-theme='dark'] .bugie-sidebar-link:hover,
+body[data-theme='dark'] .bugie-sidebar-link.active,
+body[data-theme='dark'] .bugie-navlink:hover,
+body[data-theme='dark'] .bugie-navlink.active {
+  color: #ffffff !important;
+  background: rgba(33, 92, 168, .35) !important;
+}
+
+body[data-theme='dark'] .bugie-muted,
+body[data-theme='dark'] .text-muted,
+body[data-theme='dark'] .small.bugie-muted,
+body[data-theme='dark'] .label,
+body[data-theme='dark'] .form-text {
+  color: #b7c4d3 !important;
+}
+
+body[data-theme='dark'] .form-control,
+body[data-theme='dark'] .form-select,
+body[data-theme='dark'] .input-group-text,
+body[data-theme='dark'] textarea.form-control {
+  background: #0f1722 !important;
+  border-color: #314256 !important;
+  color: #eef4fb !important;
+}
+
+body[data-theme='dark'] .form-control::placeholder { color: #92a3b7; }
+
+body[data-theme='dark'] .btn-bugie-outline,
+body[data-theme='dark'] .btn-outline-secondary,
+body[data-theme='dark'] .bugie-icon-btn {
+  background: #131c28 !important;
+  border-color: #314256 !important;
+  color: #eef4fb !important;
+}
+
+@media (min-width: 1400px) {
+  .bugie-app-layout { grid-template-columns: 310px minmax(0, 1fr) 330px; gap: 1.25rem; }
+}
+
+@media (max-width: 1199.98px) {
+  .bugie-app-layout { grid-template-columns: 280px minmax(0, 1fr) 290px; }
+}
+
+
+/* Responsive hardening */
+*, *::before, *::after { box-sizing: border-box; }
+img, svg, video, canvas, iframe { max-width: 100%; height: auto; }
+.table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.bugie-route, .bugie-card, .bugie-shell-card, .bugie-feature, .bugie-list-item, .bugie-split-card, .bugie-kpi, .bugie-shell-hero { min-width: 0; }
+.bugie-card-body, .bugie-card-header { min-width: 0; }
+.bugie-list-item { flex-wrap: wrap; }
+.bugie-list-item > .flex-grow-1 { min-width: 0; }
+.bugie-list-item .btn, .bugie-list-item .bugie-chip { flex-shrink: 0; }
+.bugie-shell-hero .btn { max-width: 100%; }
+
+@media (max-width: 1399.98px) {
+  .bugie-container { width: min(100%, calc(100vw - 24px)); }
+}
+
+@media (max-width: 1199.98px) {
+  .bugie-page { padding-inline: 0; }
+  .bugie-app-layout { grid-template-columns: minmax(0, 1fr); gap: .9rem; }
+  .bugie-left-column, .bugie-right-column { display: none !important; }
+  .bugie-shell-hero { border-radius: 24px; }
+  .bugie-shell-hero .d-flex.justify-content-between,
+  .bugie-shell-hero .d-flex.align-items-start.justify-content-between { align-items: stretch !important; }
+}
+
+@media (max-width: 991.98px) {
+  .bugie-container { width: 100%; max-width: none; padding-inline: 12px; }
+  .bugie-page { padding-top: 14px; padding-bottom: 24px; }
+  .bugie-section { padding: 52px 0; }
+  .bugie-section-sm { padding: 40px 0; }
+  .bugie-section-tight { padding: 28px 0; }
+  .bugie-hero { padding: 74px 0 44px; }
+  .bugie-hero-wrap { padding: .85rem; border-radius: 26px; }
+  .bugie-hero-copy { padding: 1rem .75rem; }
+  .bugie-hero-stat { min-height: 100%; }
+  .bugie-marquee { mask-image: none; }
+  .bugie-auth-shell { padding: 14px 0; }
+  .bugie-auth-left, .bugie-auth-right { min-height: auto; border-radius: 24px; }
+  .bugie-auth-left { padding: 1.25rem; }
+  .bugie-auth-right { padding: 1.25rem; }
+  .bugie-phone { width: min(100%, 320px); }
+  .bugie-phone-screen { min-height: 440px; }
+  .bugie-map-placeholder { min-height: 220px; }
+  .bugie-shell-hero .actions, .bugie-shell-hero [data-actions] { width: 100%; }
+  .bugie-shell-hero .btn,
+  .bugie-card .btn,
+  .bugie-list-item .btn { width: 100%; justify-content: center; }
+  .bugie-list-item .d-flex.gap-2,
+  .bugie-list-item .d-flex.flex-wrap.gap-2 { width: 100%; flex-wrap: wrap; }
+}
+
+@media (max-width: 767.98px) {
+  .bugie-h1 { font-size: clamp(2rem, 9vw, 2.8rem); }
+  .bugie-h2 { font-size: clamp(1.5rem, 7vw, 2.2rem); }
+  .bugie-h3 { font-size: 1.1rem; }
+  .bugie-topbar .container,
+  .bugie-navbar .container { align-items: center; }
+  .bugie-search { display: none !important; }
+  .bugie-shell-hero { padding: 1rem; }
+  .bugie-shell-hero .h3 { font-size: 1.6rem; }
+  .bugie-card, .bugie-shell-card, .bugie-feature, .bugie-split-card { border-radius: 20px; }
+  .bugie-card-body, .bugie-card-header { padding-inline: 1rem; }
+  .bugie-step { padding-left: 2.8rem; }
+  .bugie-step::before { width: 2rem; height: 2rem; }
+  .bugie-step:not(:last-child)::after { left: .95rem; }
+  .bugie-kpi { min-height: 110px; }
+}
+
+@media (max-width: 575.98px) {
+  .bugie-container { padding-inline: 10px; }
+  .bugie-page { padding-top: 12px; }
+  .bugie-hero-wrap { border-radius: 22px; }
+  .bugie-phone { width: 100%; border-radius: 28px; }
+  .bugie-phone-screen { min-height: 380px; padding: .85rem; border-radius: 22px; }
+  .bugie-search { display: none !important; }
+  .bugie-navlink, .bugie-chip, .bugie-pill { max-width: 100%; }
+}
+
+
+/* Layout + icon system fixes */
+.bugie-app-frame {
+  width: 100%;
+  max-width: none;
+  padding-inline: 16px;
+  margin-inline: 0;
+}
+.bugie-app-layout {
+  grid-template-columns: 292px minmax(0, 1fr) 292px;
+  gap: 16px;
+  width: 100%;
+}
+.bugie-sidebar-link {
+  justify-content: flex-start;
+}
+.bugie-sidebar-icon,
+.bugie-sidebar-link i {
+  width: 20px;
+  min-width: 20px;
+  text-align: center;
+  font-size: 1rem;
+  opacity: .95;
+}
+.bugie-right-column .bugie-card,
+.bugie-left-column .bugie-card,
+.bugie-left-column .bugie-shell-card,
+.bugie-right-column .bugie-shell-card {
+  width: 100%;
+}
+body[data-theme="dark"] .bugie-sidebar-icon,
+body[data-theme="dark"] .bugie-sidebar-link i,
+body[data-theme="dark"] .bugie-icon-btn i,
+body[data-theme="dark"] .bugie-mini-icon i { color: inherit !important; }
+body[data-theme="dark"] .bugie-chip i { color: var(--bugie-accent) !important; }
+@media (min-width: 1400px) {
+  .bugie-app-frame { padding-inline: 18px; }
+  .bugie-app-layout { grid-template-columns: 304px minmax(0, 1fr) 304px; }
+}
+@media (max-width: 1399.98px) {
+  .bugie-app-layout { grid-template-columns: 280px minmax(0, 1fr) 280px; }
+}
+@media (max-width: 1199.98px) {
+  .bugie-app-frame { padding-inline: 14px; }
+  .bugie-app-layout { grid-template-columns: 270px minmax(0, 1fr); }
+  .bugie-right-column { display: none !important; }
+}
+@media (max-width: 991.98px) {
+  .bugie-app-frame { padding-inline: 12px; }
+  .bugie-app-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .bugie-left-column { display: none !important; }
+  .bugie-right-column { display: none !important; }
+}
+@media (max-width: 767.98px) {
+  .bugie-app-frame { padding-inline: 8px; }
+  .bugie-page { padding-top: 12px; padding-bottom: 20px; }
+}
+
+/* ═══════════════════════════════════════════
+   BUGIE — Actualización de marca y animaciones
+   Colores: logo azul-violeta → magenta
+   ═══════════════════════════════════════════ */
+
+/* Gradiente azul→rosa para títulos hero */
+.bugie-gradient-text {
+  background: linear-gradient(90deg, #4F7DF5, #B85FE6, #E673D9) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+
+/* Botón principal con gradiente azul-rosa */
+.btn-bugie,
+.btn-primary {
+  background: linear-gradient(90deg, #5B5BD6 0%, #9B4FBF 50%, #C060C0 100%) !important;
+  border: none !important;
+  --bs-btn-hover-bg: none;
+  --bs-btn-hover-border-color: none;
+  background-size: 200% !important;
+  transition: background-position .35s ease, box-shadow .25s ease, transform .18s ease !important;
+}
+.btn-bugie:hover,
+.btn-primary:hover {
+  background-position: right center !important;
+  box-shadow: 0 12px 28px rgba(79, 125, 245, .36) !important;
+  transform: translateY(-1px);
+}
+.btn-bugie:active,
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Mini-icon con gradiente */
+.bugie-mini-icon,
+.bugie-icon-soft {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--bugie-primary) 16%, transparent),
+    color-mix(in srgb, var(--bugie-accent) 14%, transparent)) !important;
+  color: var(--bugie-primary) !important;
+}
+
+/* Avatar con gradiente del logo */
+.bugie-avatar {
+  background: var(--bugie-grad) !important;
+}
+
+/* Step numbers con gradiente */
+.bugie-step::before {
+  background: var(--bugie-grad) !important;
+}
+
+/* Acento de texto */
+.text-bugie-accent { color: var(--bugie-accent) !important; }
+
+/* KPI orb con accent */
+.bugie-kpi::after {
+  background: color-mix(in srgb, var(--bugie-accent) 18%, transparent) !important;
+}
+
+/* ─── Animaciones de entrada de secciones ───── */
+
+/* Fade + slide-up con stagger automático */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity .65s cubic-bezier(.22,.61,.36,1), transform .65s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Stagger en grids — hijos directos */
+[data-reveal-group] > *:nth-child(1) { transition-delay: .05s; }
+[data-reveal-group] > *:nth-child(2) { transition-delay: .12s; }
+[data-reveal-group] > *:nth-child(3) { transition-delay: .19s; }
+[data-reveal-group] > *:nth-child(4) { transition-delay: .26s; }
+[data-reveal-group] > *:nth-child(5) { transition-delay: .33s; }
+[data-reveal-group] > *:nth-child(6) { transition-delay: .40s; }
+
+/* Slide-in desde izquierda/derecha */
+[data-reveal-left] {
+  opacity: 0;
+  transform: translateX(-28px);
+  transition: opacity .65s cubic-bezier(.22,.61,.36,1), transform .65s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal-left].is-visible { opacity: 1; transform: none; }
+
+[data-reveal-right] {
+  opacity: 0;
+  transform: translateX(28px);
+  transition: opacity .65s cubic-bezier(.22,.61,.36,1), transform .65s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal-right].is-visible { opacity: 1; transform: none; }
+
+/* Pulse suave en badges/pills de seguridad */
+@keyframes bugiePulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bugie-primary) 30%, transparent); }
+  50%       { box-shadow: 0 0 0 7px color-mix(in srgb, var(--bugie-primary) 0%, transparent); }
+}
+.bugie-pill-pulse {
+  animation: bugiePulse 2.4s ease-in-out infinite;
+}
+
+/* Shimmer en cards al hover */
+.bugie-card,
+.bugie-feature,
+.bugie-split-card,
+.bugie-kpi {
+  position: relative;
+  overflow: hidden;
+}
+.bugie-card::before,
+.bugie-feature::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent,
+    color-mix(in srgb, var(--bugie-primary) 5%, transparent) 50%,
+    transparent
+  );
+  transition: left .55s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+@media (hover: hover) {
+  .bugie-card:hover::before,
+  .bugie-feature:hover::before {
+    left: 140%;
+  }
+}
+
+/* Orbs — colores del logo */
+.bugie-orb.orb-a { background: color-mix(in srgb, var(--bugie-primary) 22%, transparent) !important; }
+.bugie-orb.orb-b { background: color-mix(in srgb, var(--bugie-accent) 22%, transparent) !important; }
+.bugie-orb.orb-c { background: color-mix(in srgb, var(--bugie-primary-2) 18%, transparent) !important; }
+
+/* Navlink activo con acento del logo */
+.bugie-navlink:hover,
+.bugie-navlink.active {
+  color: var(--bugie-primary) !important;
+  background: color-mix(in srgb, var(--bugie-primary) 9%, transparent) !important;
+}
+
+/* Sidebar activo */
+.bugie-sidebar-link:hover,
+.bugie-sidebar-link.active {
+  color: var(--bugie-primary) !important;
+  background: color-mix(in srgb, var(--bugie-primary) 10%, transparent) !important;
+}
+
+/* Borde activo en sidebar con gradiente */
+.bugie-sidebar-link.active {
+  border-left: 3px solid var(--bugie-primary);
+  padding-left: calc(1rem - 3px);
+}
+
+/* Hero background con tono del logo */
+.bugie-hero-wrap,
+.bugie-cta-panel,
+.bugie-auth-left,
+.bugie-shell-hero {
+  background:
+    linear-gradient(135deg, rgba(18, 14, 50, .97), rgba(60, 20, 90, .90)) !important;
+}
+
+/* Marquee items con tinte violeta */
+.bugie-marquee-item {
+  border-color: rgba(91, 91, 214, .2) !important;
+  background: rgba(91, 91, 214, .08) !important;
+}
+
+/* Scroll reveal también para data-reveal-group */
+[data-reveal-group] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity .6s cubic-bezier(.22,.61,.36,1), transform .6s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal-group].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Reducción de movimiento — respeta preferencia del SO */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal-left],
+  [data-reveal-right],
+  [data-reveal-group],
+  .bugie-pill-pulse,
+  .bugie-card::before,
+  .bugie-feature::before {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ─── Dark mode — ajustes con nuevos colores ─ */
+body[data-theme='dark'] .bugie-card,
+body[data-theme='dark'] .bugie-shell-card,
+body[data-theme='dark'] .bugie-surface,
+body[data-theme='dark'] .bugie-kpi,
+body[data-theme='dark'] .bugie-feature,
+body[data-theme='dark'] .bugie-list-item,
+body[data-theme='dark'] .bugie-split-card,
+body[data-theme='dark'] .bugie-card-subtle,
+body[data-theme='dark'] .bugie-chip {
+  background: #1a1830 !important;
+  border-color: #2e2a4a !important;
+  color: #e8e6f8 !important;
+}
+body[data-theme='dark'] .bugie-card-header {
+  background: #14122a !important;
+  border-bottom-color: #2e2a4a !important;
+  color: #f0eeff !important;
+}
+body[data-theme='dark'] .bugie-sidebar-link,
+body[data-theme='dark'] .bugie-navlink {
+  color: #cec9f0 !important;
+}
+body[data-theme='dark'] .bugie-sidebar-link:hover,
+body[data-theme='dark'] .bugie-sidebar-link.active,
+body[data-theme='dark'] .bugie-navlink:hover,
+body[data-theme='dark'] .bugie-navlink.active {
+  color: #ffffff !important;
+  background: rgba(91, 91, 214, .28) !important;
+}
+body[data-theme='dark'] .form-control,
+body[data-theme='dark'] .form-select,
+body[data-theme='dark'] .input-group-text {
+  background: #110f22 !important;
+  border-color: #2e2a4a !important;
+  color: #e8e6f8 !important;
+}
+body[data-theme='dark'] .btn-bugie-outline,
+body[data-theme='dark'] .btn-outline-secondary,
+body[data-theme='dark'] .bugie-icon-btn {
+  background: #1a1830 !important;
+  border-color: #3a3460 !important;
+  color: #e8e6f8 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUGIE — EFECTOS INMERSIVOS MODERNOS
+   Scroll-driven animations, 3D, parallax, glassmorphism
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Reveal con múltiples efectos ─────────────────────────── */
+[data-reveal-scale] {
+  opacity: 0;
+  transform: scale(.92) translateY(20px);
+  transition: opacity .7s cubic-bezier(.22,.61,.36,1), transform .7s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal-scale].is-visible { opacity: 1; transform: none; }
+
+[data-reveal-rotate] {
+  opacity: 0;
+  transform: rotateX(12deg) translateY(24px);
+  transform-origin: top center;
+  transition: opacity .7s cubic-bezier(.22,.61,.36,1), transform .7s cubic-bezier(.22,.61,.36,1);
+}
+[data-reveal-rotate].is-visible { opacity: 1; transform: none; }
+
+[data-reveal-blur] {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(16px);
+  transition: opacity .8s ease, filter .8s ease, transform .8s ease;
+}
+[data-reveal-blur].is-visible { opacity: 1; filter: none; transform: none; }
+
+/* Stagger extendido */
+[data-reveal-group] > *:nth-child(7)  { transition-delay: .47s; }
+[data-reveal-group] > *:nth-child(8)  { transition-delay: .54s; }
+[data-reveal-group] > *:nth-child(9)  { transition-delay: .61s; }
+[data-reveal-group] > *:nth-child(10) { transition-delay: .68s; }
+
+/* ── Parallax layers ─────────────────────────────────────── */
+.bugie-parallax-slow  { will-change: transform; }
+.bugie-parallax-med   { will-change: transform; }
+.bugie-parallax-fast  { will-change: transform; }
+
+/* ── 3D Card tilt ────────────────────────────────────────── */
+.bugie-tilt {
+  transform-style: preserve-3d;
+  transform: perspective(1000px);
+  transition: transform .12s ease;
+  will-change: transform;
+}
+.bugie-tilt-inner {
+  transform: translateZ(20px);
+}
+.bugie-tilt:hover .bugie-tilt-badge {
+  transform: translateZ(40px);
+}
+
+/* ── Glassmorphism mejorado ──────────────────────────────── */
+.bugie-glass-card {
+  background: color-mix(in srgb, var(--bugie-surface) 65%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 60%, transparent);
+  box-shadow:
+    0 4px 24px color-mix(in srgb, var(--bugie-primary) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+}
+
+/* ── Glow en hover de cards ──────────────────────────────── */
+@media (hover: hover) {
+  .bugie-card:hover,
+  .bugie-feature:hover {
+    box-shadow:
+      0 8px 32px color-mix(in srgb, var(--bugie-primary) 14%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--bugie-primary) 18%, transparent);
+    transform: translateY(-6px);
+  }
+  .bugie-glass-card:hover {
+    box-shadow:
+      0 16px 48px color-mix(in srgb, var(--bugie-primary) 18%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--bugie-primary) 22%, transparent);
+    transform: translateY(-8px) scale(1.01);
+    background: color-mix(in srgb, var(--bugie-surface) 75%, transparent);
+  }
+}
+
+/* ── Gradiente de sección inmersivo ──────────────────────── */
+.bugie-section-immersive {
+  position: relative;
+  overflow: hidden;
+}
+.bugie-section-immersive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 50%, color-mix(in srgb, var(--bugie-primary) 10%, transparent), transparent),
+    radial-gradient(ellipse 60% 80% at 80% 50%, color-mix(in srgb, var(--bugie-accent) 8%, transparent), transparent);
+  pointer-events: none;
+}
+
+/* ── Borde animado en cards destacadas ───────────────────── */
+@property --bugie-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes bugieRotateBorder {
+  to { --bugie-angle: 360deg; }
+}
+.bugie-card-animated-border {
+  position: relative;
+  border-radius: var(--bugie-radius);
+}
+.bugie-card-animated-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--bugie-angle),
+    var(--bugie-primary),
+    var(--bugie-accent),
+    var(--bugie-primary)
+  );
+  animation: bugieRotateBorder 4s linear infinite;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.bugie-card-animated-border:hover::before { opacity: 1; }
+
+/* ── Texto con gradiente animado ─────────────────────────── */
+@keyframes bugieGradShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.bugie-gradient-text-animated {
+  background: linear-gradient(
+    270deg,
+    #4F7DF5,
+    #B85FE6,
+    #E673D9,
+    #4F7DF5
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: bugieGradShift 6s ease infinite;
+}
+
+/* ── Partículas de fondo decorativas ─────────────────────── */
+.bugie-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bugie-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--bugie-primary);
+  opacity: .04;
+  animation: bugieParticleFloat linear infinite;
+}
+@keyframes bugieParticleFloat {
+  0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+  10%  { opacity: .06; }
+  90%  { opacity: .06; }
+  100% { transform: translateY(-20vh) scale(1); opacity: 0; }
+}
+
+/* ── Línea de scroll progress ────────────────────────────── */
+.bugie-scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--bugie-grad);
+  z-index: 9999;
+  transform-origin: left;
+  transition: width .1s linear;
+}
+
+/* ── Hero con profundidad ────────────────────────────────── */
+.bugie-hero-depth {
+  perspective: 1200px;
+}
+.bugie-hero-depth .bugie-phone-mockup {
+  transform: rotateY(-8deg) rotateX(4deg);
+  transition: transform .6s cubic-bezier(.22,.61,.36,1);
+}
+.bugie-hero-depth:hover .bugie-phone-mockup {
+  transform: rotateY(-2deg) rotateX(1deg);
+}
+
+/* ── Contador animado ────────────────────────────────────── */
+.bugie-counter {
+  font-variant-numeric: tabular-nums;
+  transition: all .1s ease;
+}
+
+/* ── Beam de luz ─────────────────────────────────────────── */
+@keyframes bugieBeam {
+  0%   { transform: translateX(-100%) skewX(-12deg); opacity: 0; }
+  20%  { opacity: .6; }
+  80%  { opacity: .6; }
+  100% { transform: translateX(200%) skewX(-12deg); opacity: 0; }
+}
+.bugie-btn-beam {
+  position: relative;
+  overflow: hidden;
+}
+.bugie-btn-beam::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
+  animation: bugieBeam 3s ease-in-out infinite;
+}
+
+/* ── Scroll snap para secciones ──────────────────────────── */
+.bugie-snap-container {
+  scroll-snap-type: y proximity;
+}
+.bugie-snap-section {
+  scroll-snap-align: start;
+  scroll-margin-top: 80px;
+}
+
+/* ── Reduce motion respeto ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal-scale],
+  [data-reveal-rotate],
+  [data-reveal-blur],
+  [data-reveal-left],
+  [data-reveal-right] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  .bugie-gradient-text-animated,
+  .bugie-particle,
+  .bugie-btn-beam::after,
+  .bugie-card-animated-border::before {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+ * SIDEBAR COLAPSABLE (DESKTOP)
+ * Agregar estos estilos al final de src/styles/index.scss
+ * ============================================================ */
+
+/* Aplicar transición a las 3 columnas del layout */
+.bugie-app-layout {
+  transition: grid-template-columns 0.3s ease;
+}
+
+.bugie-left-column {
+  transition: transform 0.3s ease, opacity 0.25s ease, width 0.3s ease;
+  overflow: hidden;
+}
+
+/* Estado: sidebar oculto en desktop */
+@media (min-width: 992px) {
+  .bugie-app-layout.bugie-sidebar-hidden {
+    /* Sin columna izquierda: solo centro + columna derecha */
+    grid-template-columns: 0 minmax(0, 1fr) 320px;
+  }
+  .bugie-app-layout.bugie-sidebar-hidden .bugie-left-column {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .bugie-app-layout.bugie-sidebar-hidden {
+    grid-template-columns: 0 minmax(0, 1fr) 330px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * SCROLLBAR PERSONALIZADA (Bugie) — sin blancos.
+ *
+ * En Chrome/Windows, el scrollbar de la VENTANA usa el color del body para
+ * los "huecos" laterales del track. Si el body solo tiene background-image
+ * (gradient) sin background-color, Chrome rellena con un blanco/gris nativo.
+ * Por eso forzamos un background-color sólido en html + body con !important.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* color-scheme: indica al SO que la página es oscura/clara. Sin esto,
+   Windows pinta los bordes del scrollbar raíz con el estilo nativo. */
+body[data-theme='dark'] { color-scheme: dark; }
+body:not([data-theme='dark']) { color-scheme: light; }
+
+/* Fondo sólido detrás del scrollbar de la ventana.
+   Si no se pone, Chrome rellena con su color de sistema. */
+html, body {
+  background-color: var(--bugie-bg-2) !important;
+}
+
+/* Firefox */
+html, body, * {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--bugie-primary) var(--bugie-bg-2) !important;
+}
+
+/* Chrome / Edge / Safari */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width:  10px !important;
+  height: 10px !important;
+  background: var(--bugie-bg-2) !important;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: var(--bugie-bg-2) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: var(--bugie-primary) !important;
+  border-radius: 10px !important;
+  border: none !important;
+  transition: background 0.2s ease;
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--bugie-accent) !important;
+}
+
+html::-webkit-scrollbar-thumb:active,
+body::-webkit-scrollbar-thumb:active,
+*::-webkit-scrollbar-thumb:active {
+  background: var(--bugie-accent-2) !important;
+}
+
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: var(--bugie-bg-2) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * MEJORAS DE RESPONSIVE (audit Mayo 2026)
+ *
+ * Cubre los gaps que tenía la landing en pantallas chicas y medianas.
+ * Cada bloque está organizado por breakpoint, de mayor a menor, para
+ * que la cascada haga lo correcto.
+ *
+ * Breakpoints Bootstrap usados:
+ *   xxl ≥ 1400px       — pantallas grandes
+ *   xl  ≥ 1200px       — laptops grandes
+ *   lg  ≥ 992px        — laptops chicas / tablets landscape
+ *   md  ≥ 768px        — tablets portrait
+ *   sm  ≥ 576px        — móviles grandes
+ *   xs  < 576px        — móviles chicos (lo que más sufría)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* ───── 1200-1399 px (laptops chicas) ────────────────────────────────── */
+@media (max-width: 1399.98px) {
+  .bugie-section          { padding: 72px 0; }
+  .bugie-section-tight    { padding: 36px 0; }
+  .bugie-section-sm       { padding: 52px 0; }
+  .bugie-hero             { padding: 80px 0 56px; }
+}
+
+/* ───── 992-1199 px (tablets landscape) ──────────────────────────────── */
+@media (max-width: 1199.98px) {
+  .bugie-section          { padding: 64px 0; }
+  .bugie-section-tight    { padding: 32px 0; }
+  .bugie-hero             { padding: 68px 0 48px; }
+  .bugie-hero-wrap        { padding: 1rem; border-radius: 28px; }
+  .bugie-cta-panel        { padding: 2rem; }
+}
+
+/* ───── 768-991 px (tablets portrait) ────────────────────────────────── */
+@media (max-width: 991.98px) {
+  .bugie-section          { padding: 52px 0; }
+  .bugie-section-tight    { padding: 28px 0; }
+  .bugie-section-sm       { padding: 40px 0; }
+  .bugie-hero             { padding: 56px 0 40px; }
+  .bugie-hero-wrap        { padding: .9rem; }
+  .bugie-hero-copy        { padding: 1.2rem 1rem 1rem; }
+
+  /* Container con menos padding lateral para aprovechar pantalla */
+  .bugie-container        { padding-inline: 16px; }
+
+  /* CTA panel más compacto */
+  .bugie-cta-panel        { padding: 1.5rem; border-radius: 22px; }
+
+  /* Stats / metrics más compactas */
+  .bugie-kpi              { padding: 1rem; }
+}
+
+/* ───── 576-767 px (móviles grandes) ─────────────────────────────────── */
+@media (max-width: 767.98px) {
+  .bugie-section          { padding: 44px 0; }
+  .bugie-section-tight    { padding: 24px 0; }
+  .bugie-section-sm       { padding: 32px 0; }
+  .bugie-hero             { padding: 40px 0 32px; }
+
+  /* El wrap del hero más compacto, sin tanto margen visual */
+  .bugie-hero-wrap        { padding: .7rem; border-radius: 22px; }
+  .bugie-hero-copy        { padding: 1rem .9rem .8rem; }
+
+  /* Features y cards con padding reducido para que el texto respire mejor */
+  .bugie-feature          { padding: 1rem; border-radius: 18px; }
+  .bugie-story-card       { padding: 1.2rem; }
+
+  /* Padding lateral del container más chico para que tarjetas tengan más ancho */
+  .bugie-container        { padding-inline: 14px; }
+
+  /* Sección con título: margen inferior más chico */
+  .bugie-section-title    { margin-bottom: 1rem; }
+
+  /* CTA panel mínima */
+  .bugie-cta-panel        { padding: 1.25rem; border-radius: 18px; }
+  .bugie-cta-panel h2     { font-size: 1.6rem; }
+
+  /* Botones CTA: que ocupen ancho útil sin desbordarse */
+  .bugie-hero .btn,
+  .bugie-cta-panel .btn   { padding: .7rem 1.2rem; font-size: .95rem; }
+
+  /* Footer con padding reducido */
+  footer { padding-block: 2.5rem !important; }
+}
+
+/* ───── < 576 px (móviles chicos: iPhone SE, Android baratos) ───────── */
+@media (max-width: 575.98px) {
+  .bugie-section          { padding: 36px 0; }
+  .bugie-section-tight    { padding: 20px 0; }
+  .bugie-section-sm       { padding: 28px 0; }
+  .bugie-hero             { padding: 32px 0 24px; }
+  .bugie-hero-wrap        { padding: .5rem; border-radius: 18px; }
+  .bugie-hero-copy        { padding: .8rem .7rem .6rem; }
+
+  /* Container con padding lateral mínimo */
+  .bugie-container        { padding-inline: 12px; }
+
+  /* Headings con un poquito menos que los clamps por defecto.
+     El clamp() ya escala, pero para los más chicos tightenamos. */
+  .bugie-h2               { line-height: 1.1; }
+  .bugie-h3               { line-height: 1.15; }
+
+  /* Lead: line-height más compacto en móvil chico */
+  .bugie-lead             { line-height: 1.55; }
+
+  /* Stats / KPI más compactos */
+  .bugie-kpi              { padding: .85rem; border-radius: 14px; }
+  .bugie-kpi .value       { font-size: 1.5rem; }
+  .bugie-kpi .label       { font-size: .82rem; }
+
+  /* Features: padding mínimo */
+  .bugie-feature          { padding: .9rem; border-radius: 16px; }
+  .bugie-feature h3       { font-size: 1.05rem; }
+
+  /* CTA panel mini */
+  .bugie-cta-panel        { padding: 1rem; }
+  .bugie-cta-panel h2     { font-size: 1.4rem; line-height: 1.15; }
+
+  /* Botones CTA con ancho cómodo */
+  .bugie-cta-panel .btn,
+  .bugie-hero .btn        { width: 100%; max-width: 320px; padding: .65rem 1rem; }
+
+  /* Story cards más compactas */
+  .bugie-story-card       { padding: 1rem; }
+
+  /* Footer y links: spacing más cerrado */
+  footer { padding-block: 2rem !important; }
+  footer h6, footer h5 { margin-bottom: .5rem !important; }
+
+  /* Phone mockup del hero más chico para que no domine */
+  .bugie-phone            { width: min(100%, 280px); padding: 10px; border-radius: 28px; }
+  .bugie-phone-screen     { gap: .65rem !important; }
+  .bugie-phone-widget     { padding: .7rem; border-radius: 14px; }
+
+  /* Marquee (banda animada) con menos altura */
+  .bugie-marquee          { padding: .6rem 0; }
+  .bugie-marquee-item     { padding: 0 1rem; font-size: .85rem; }
+}
+
+/* ───── < 380 px (pantallas extra chicas, iPhone SE 1ra gen) ────────── */
+@media (max-width: 379.98px) {
+  .bugie-section          { padding: 28px 0; }
+  .bugie-section-tight    { padding: 16px 0; }
+  .bugie-hero             { padding: 24px 0 20px; }
+  .bugie-container        { padding-inline: 10px; }
+
+  .bugie-cta-panel .btn,
+  .bugie-hero .btn        { font-size: .9rem; padding: .6rem .9rem; }
+
+  /* Más espacio entre cards si están en columna */
+  .row.g-4                { --bs-gutter-y: 1rem; }
+  .row.g-3                { --bs-gutter-y: .75rem; }
+}
+
+/* ───── Reglas universales útiles para todas las pantallas ──────────── */
+
+/* Evita que imágenes y videos rompan el layout en móvil */
+.bugie-page img,
+.bugie-page video,
+.bugie-page iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Botones con `gap` para que íconos no se peguen al texto en pantalla chica */
+.btn .fa-solid,
+.btn .fa-brands,
+.btn .fa-regular { margin-right: .35rem; }
+.btn .fa-solid:last-child,
+.btn .fa-brands:last-child,
+.btn .fa-regular:last-child { margin-right: 0; margin-left: .35rem; }
+
+/* Container interno: hace fallback al normal de Bootstrap si no se aplica
+   el ancho fluido. Útil cuando alguna página usa solo .container. */
+@media (max-width: 575.98px) {
+  .container { padding-inline: 12px; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * DROPDOWN DE IDIOMA (header público)
+ *
+ * Doble especificidad: combinamos la clase Bugie con la clase Bootstrap
+ * (.bugie-lang-menu.dropdown-menu) para vencer al CSS de Bootstrap.
+ * Sin esto, los estilos de bootstrap.min.css ganaban por orden de carga.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+.dropdown-menu.bugie-lang-menu {
+  min-width: 170px;
+  background: var(--bugie-surface);
+  border: 1px solid var(--bugie-border);
+  border-radius: 12px;
+  padding: .4rem;
+  box-shadow: 0 12px 32px rgba(60, 40, 120, .18);
+  margin-top: .4rem;
+}
+
+body[data-theme='dark'] .dropdown-menu.bugie-lang-menu {
+  background: var(--bugie-surface);
+  border-color: color-mix(in srgb, var(--bugie-primary) 35%, transparent);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
+}
+
+.dropdown-item.bugie-lang-item {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .6rem .75rem;
+  border-radius: 8px;
+  font-size: .88rem;
+  color: var(--bugie-text);
+  background: transparent;
+  transition: background .15s ease, color .15s ease;
+  cursor: pointer;
+}
+
+/* Hover: fondo violeta soft notable */
+.dropdown-item.bugie-lang-item:hover,
+.dropdown-item.bugie-lang-item:focus {
+  background: color-mix(in srgb, var(--bugie-primary) 18%, transparent);
+  color: var(--bugie-primary);
+}
+
+/* Modo oscuro: hover más fuerte porque el fondo ya es oscuro */
+body[data-theme='dark'] .dropdown-item.bugie-lang-item:hover,
+body[data-theme='dark'] .dropdown-item.bugie-lang-item:focus {
+  background: color-mix(in srgb, var(--bugie-primary) 28%, transparent);
+  color: #fff;
+}
+
+/* Item activo: gradiente violeta del logo */
+.dropdown-item.bugie-lang-item.active {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--bugie-primary) 24%, transparent),
+    color-mix(in srgb, var(--bugie-accent) 24%, transparent));
+  color: var(--bugie-primary);
+  font-weight: 600;
+}
+body[data-theme='dark'] .dropdown-item.bugie-lang-item.active {
+  color: #fff;
+}
+
+.dropdown-item.bugie-lang-item .fa-check {
+  font-size: .75rem;
+  margin-left: auto;
+  color: var(--bugie-primary);
+}
+body[data-theme='dark'] .dropdown-item.bugie-lang-item .fa-check {
+  color: #fff;
+}
+
+/* ─── Botones del header: ALTURA UNIFORME e iconos centrados ──────────
+ *
+ * Todos los botones del header (dropdown idioma, theme toggle, ingresar)
+ * tienen la MISMA altura (36px). Sin esto, btn-sm queda ~32px y bugie-icon-btn
+ * queda 40px, y se ven escalonados.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* Base común para todos los botones del topbar.
+   IMPORTANTE: no tocamos `display` porque eso pisaría los utilitarios
+   d-none / d-sm-inline-flex / etc. de Bootstrap. Solo controlamos altura,
+   alineación interna (cuando son flex) y padding. */
+.bugie-topbar .btn {
+  align-items: center !important;
+  justify-content: center !important;
+  height: 36px !important;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Botón cuadrado solo para iconos (theme toggle) — mismo alto, ancho fijo.
+   Todos los paddings a 0 para que el icono quede 100% centrado por el
+   inline-flex del padre. Si el icono trae margen (por ej. de Bootstrap),
+   lo reseteo abajo. */
+.bugie-topbar-icon-btn {
+  width: 36px !important;
+  min-width: 36px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Iconos dentro del botón cuadrado: SIN márgenes laterales para evitar
+   que se corran al lado. Usamos doble clase para ganar especificidad sobre
+   la regla genérica `.bugie-topbar .btn > .fa-solid` de arriba. */
+.bugie-topbar .bugie-topbar-icon-btn > .fa-solid,
+.bugie-topbar .bugie-topbar-icon-btn > .fa-brands,
+.bugie-topbar .bugie-topbar-icon-btn > .fa-regular {
+  margin: 0 !important;
+  font-size: .95rem !important;
+}
+
+/* Iconos dentro de cualquier botón del header: alineados al centro */
+.bugie-topbar .btn > .fa-solid,
+.bugie-topbar .btn > .fa-brands,
+.bugie-topbar .btn > .fa-regular {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  font-size: .9em !important;
+}
+
+/* Flechita del dropdown alineada al medio */
+.bugie-topbar .dropdown-toggle::after {
+  border-top-color: currentColor;
+  opacity: .65;
+  margin-left: .45rem;
+  vertical-align: middle;
+  position: relative;
+  top: 1px;
+}
+
+
+/* ─── Iconos dentro de bugie-icon-btn (footer, etc) ─────────────────────
+ * Sin margins laterales para que el icono quede 100% centrado.
+ * Bootstrap aplica margin a iconos dentro de botones por defecto, lo
+ * reseteamos acá. */
+.bugie-icon-btn > .fa-solid,
+.bugie-icon-btn > .fa-brands,
+.bugie-icon-btn > .fa-regular {
+  margin: 0 !important;
+  line-height: 1 !important;
+  display: inline-block !important;
+}
+
+/* ─── Línea divisoria del footer con colores Bugie ──────────────────── */
+/* Antes era blanca (border-top default). Ahora usamos border-image para
+   pintarla con gradiente violeta del logo SIN cambiar el layout del div
+   (que es un `border-top` de Bootstrap usado como divisor). */
+footer .border-top {
+  border-top: 1px solid transparent !important;
+  border-image: linear-gradient(90deg,
+    transparent 0%,
+    var(--bugie-primary) 25%,
+    var(--bugie-accent) 50%,
+    var(--bugie-primary) 75%,
+    transparent 100%) 1 !important;
+  border-image-slice: 1 !important;
+}
