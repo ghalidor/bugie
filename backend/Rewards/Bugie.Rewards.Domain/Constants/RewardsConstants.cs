@@ -26,6 +26,9 @@ public static class SourceEvents
     public const string Promotion         = "promotion";
     public const string Referral          = "referral";
     public const string ReferralQualified = "referral_qualified";
+    public const string Streak            = "streak";
+    public const string WeeklyGoal        = "weekly_goal";
+    public const string Anniversary       = "anniversary";
 }
 
 /// <summary>Claves de rewards.settings.</summary>
@@ -49,6 +52,12 @@ public static class SettingKeys
     public const string ReferralPointsDriver    = "referral_points_driver";
     public const string ReferralQualifyTrips    = "referral_qualify_trips";
     public const string ReferralQualifyPoints   = "referral_qualify_points";
+    public const string StreakDays              = "streak_days";
+    public const string StreakPoints            = "streak_points";
+    public const string WeeklyGoalPassenger     = "weekly_goal_trips_passenger";
+    public const string WeeklyGoalDriver        = "weekly_goal_trips_driver";
+    public const string WeeklyGoalPoints        = "weekly_goal_points";
+    public const string AnniversaryMultiplier   = "anniversary_multiplier";
 }
 
 /// <summary>Como se decide el nivel del usuario.</summary>

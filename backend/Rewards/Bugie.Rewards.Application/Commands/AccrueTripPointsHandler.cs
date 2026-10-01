@@ -65,6 +65,13 @@ public class AccrueTripPointsHandler
                 cmd.DriverId.Value, UserTypes.Driver, cmd, options,
                 localTime, promosUsadas, ct);
 
+        // Logros personales: racha y meta semanal. Igual que el conteo de
+        // referidos, va aparte: si falla, los puntos del viaje ya se
+        // acreditaron y no se revierten.
+        await EvaluateMilestonesAsync(cmd.PassengerId, localTime, ct);
+        if (cmd.DriverId.HasValue)
+            await EvaluateMilestonesAsync(cmd.DriverId.Value, localTime, ct);
+
         // Si el pasajero o el conductor fueron referidos por alguien, este
         // viaje cuenta para su meta. Va aparte de los puntos del viaje: que
         // falle el conteo no puede impedir que se acrediten los puntos.
@@ -74,6 +81,19 @@ public class AccrueTripPointsHandler
         return new AccrueTripPointsResultDto(
             cmd.TripId, passengerPoints, driverPoints, false, null,
             promosUsadas.Distinct().ToList());
+    }
+
+    private async Task EvaluateMilestonesAsync(
+        Guid userId, DateTime localTime, CancellationToken ct)
+    {
+        try
+        {
+            await _mediator.Send(new EvaluateMilestonesCommand(userId, localTime), ct);
+        }
+        catch
+        {
+            // Los puntos del viaje ya están. Un fallo acá no los revierte.
+        }
     }
 
     private async Task CountForReferralAsync(Guid userId, CancellationToken ct)
@@ -121,6 +141,19 @@ public class AccrueTripPointsHandler
                     live, userType, DateTime.UtcNow,
                     new TripContext(cmd.Amount, cmd.PaymentMethod, localTime, isFirstTrip));
             }
+        }
+
+        // Mes de aniversario: es PERSONAL, no una promoción, así que no pasa
+        // por el motor de promociones. Se suma al multiplicador como lo hacen
+        // las promociones aditivas: un 3x aporta +2.
+        if (options.AnniversaryMultiplier > 1
+            && MilestoneRules.IsAnniversaryMonth(profile.CreatedAt.AddHours(options.TimezoneOffsetHours), localTime))
+        {
+            promo = promo with
+            {
+                TotalMultiplier = promo.TotalMultiplier + (options.AnniversaryMultiplier - 1m),
+            };
+            promosUsadas.Add("Mes de aniversario");
         }
 
         var points = PromotionEngine.ApplyTo(cmd.Amount, rate, promo);

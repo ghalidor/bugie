@@ -43,6 +43,12 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
                     throw new ArgumentException("Debe ser true o false.");
                 break;
 
+            case SettingKeys.AnniversaryMultiplier:
+                if (!decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var am)
+                    || am < 1 || am > 10)
+                    throw new ArgumentException("El multiplicador debe estar entre 1 y 10. Con 1 se desactiva.");
+                break;
+
             case SettingKeys.RatePassenger:
             case SettingKeys.RateDriver:
                 if (!decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var rate)
@@ -50,6 +56,11 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
                     throw new ArgumentException("La tasa debe ser un numero mayor a 0 y menor o igual a 1000. Use punto decimal.");
                 break;
 
+            case SettingKeys.StreakDays:
+            case SettingKeys.StreakPoints:
+            case SettingKeys.WeeklyGoalPassenger:
+            case SettingKeys.WeeklyGoalDriver:
+            case SettingKeys.WeeklyGoalPoints:
             case SettingKeys.ReferralPointsPassenger:
             case SettingKeys.ReferralPointsDriver:
             case SettingKeys.ReferralQualifyPoints:

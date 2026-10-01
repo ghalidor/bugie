@@ -103,6 +103,15 @@ public class RewardsController : ControllerBase
             new GetMyRedemptionsQuery(CurrentUserId, status, page, pageSize), ct));
 
     /// <summary>
+    /// GET /api/rewards/me/ranking
+    /// Ranking entre amigos: yo contra quienes invité y quien me invitó,
+    /// por puntos del mes.
+    /// </summary>
+    [HttpGet("me/ranking")]
+    public async Task<IActionResult> MyRanking(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetFriendsRankingQuery(CurrentUserId), ct));
+
+    /// <summary>
     /// GET /api/rewards/me/referral
     /// Mi código de invitación y cómo me va: a cuántos invité, cuántos ya
     /// completaron sus viajes y qué gané. El código se crea la primera vez

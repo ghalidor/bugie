@@ -170,6 +170,47 @@ public class ReferralRepository : IReferralRepository
         return rows.ToList();
     }
 
+    /* ── Ranking entre amigos ────────────────────────────────────────── */
+
+    /// <summary>
+    /// A quienes invitó MÁS quien lo invitó a él. Una sola consulta con UNION,
+    /// para no hacer dos viajes a la base.
+    /// </summary>
+    public async Task<List<Guid>> GetFriendIdsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<Guid>(@"
+            SELECT ReferredUserId FROM rewards.Referrals WHERE ReferrerUserId = @Id
+            UNION
+            SELECT ReferrerUserId FROM rewards.Referrals WHERE ReferredUserId = @Id",
+            new { Id = userId });
+        return rows.ToList();
+    }
+
+    public async Task<List<FriendPoints>> GetMonthlyPointsAsync(
+        IEnumerable<Guid> userIds, DateTime monthStartUtc, DateTime monthEndUtc,
+        CancellationToken ct = default)
+    {
+        var ids = userIds.Distinct().ToArray();
+        if (ids.Length == 0) return new List<FriendPoints>();
+
+        var rows = await _db.QueryAsync<FriendPoints>(@"
+            SELECT p.UserId,
+                   u.FullName,
+                   p.CurrentLevel AS Level,
+                   COALESCE(SUM(t.Points) FILTER (WHERE t.Type = 'earn'), 0) AS Points,
+                   COUNT(*)       FILTER (WHERE t.SourceEvent = 'trip_completed') AS Trips
+            FROM rewards.PointsProfiles p
+            LEFT JOIN auth.Users u ON u.Id = p.UserId
+            LEFT JOIN rewards.PointsTransactions t
+                   ON t.ProfileId = p.Id
+                  AND t.CreatedAt >= @From
+                  AND t.CreatedAt <  @To
+            WHERE p.UserId = ANY(@Ids)
+            GROUP BY p.UserId, u.FullName, p.CurrentLevel",
+            new { Ids = ids, From = monthStartUtc, To = monthEndUtc });
+        return rows.ToList();
+    }
+
     public Task MarkInvitationAcceptedAsync(string email, string code, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE rewards.ReferralInvitations

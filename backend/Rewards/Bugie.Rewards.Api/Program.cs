@@ -24,6 +24,7 @@ builder.Services.AddScoped<IPromotionRepository,         PromotionRepository>();
 builder.Services.AddScoped<IRaffleRepository,            RaffleRepository>();
 builder.Services.AddScoped<IRaffleEligibilityRepository, RaffleEligibilityRepository>();
 builder.Services.AddScoped<IReferralRepository,          ReferralRepository>();
+builder.Services.AddScoped<IMilestoneRepository,         MilestoneRepository>();
 
 // Correo: mismos campos de configuración que usa Auth.
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));

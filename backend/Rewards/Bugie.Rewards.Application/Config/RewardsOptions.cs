@@ -20,6 +20,20 @@ public sealed class RewardsOptions
     public int     ReferralQualifyTrips    { get; init; } = 5;
     public int     ReferralQualifyPoints   { get; init; } = 200;
 
+    // ── Logros personales ──
+    public int     StreakDays              { get; init; } = 7;
+    public int     StreakPoints            { get; init; } = 150;
+    public int     WeeklyGoalPassenger     { get; init; } = 0;
+    public int     WeeklyGoalDriver        { get; init; } = 50;
+    public int     WeeklyGoalPoints        { get; init; } = 200;
+
+    /// <summary>Multiplicador del mes de aniversario. 1 lo desactiva.</summary>
+    public decimal AnniversaryMultiplier   { get; init; } = 3m;
+
+    /// <summary>Meta semanal según el tipo de cuenta.</summary>
+    public int WeeklyGoalFor(string userType) =>
+        userType == UserTypes.Driver ? WeeklyGoalDriver : WeeklyGoalPassenger;
+
     /// <summary>Puntos del mes que dan un ticket extra. 0 lo desactiva.</summary>
     public int     RafflePointsPerTicket  { get; init; } = 500;
 
@@ -51,6 +65,12 @@ public sealed class RewardsOptions
         ReferralPointsDriver    = IntOrZero(settings, SettingKeys.ReferralPointsDriver, 375),
         ReferralQualifyTrips    = IntOrZero(settings, SettingKeys.ReferralQualifyTrips, 5),
         ReferralQualifyPoints   = IntOrZero(settings, SettingKeys.ReferralQualifyPoints, 200),
+        StreakDays              = IntOrZero(settings, SettingKeys.StreakDays, 7),
+        StreakPoints            = IntOrZero(settings, SettingKeys.StreakPoints, 150),
+        WeeklyGoalPassenger     = IntOrZero(settings, SettingKeys.WeeklyGoalPassenger, 0),
+        WeeklyGoalDriver        = IntOrZero(settings, SettingKeys.WeeklyGoalDriver, 50),
+        WeeklyGoalPoints        = IntOrZero(settings, SettingKeys.WeeklyGoalPoints, 200),
+        AnniversaryMultiplier   = Dec(settings, SettingKeys.AnniversaryMultiplier, 3m),
         RafflePointsPerTicket = IntOrZero(settings, SettingKeys.RafflePointsPerTicket, 500),
         TimezoneOffsetHours   = Offset(settings, SettingKeys.TimezoneOffsetHours, -5),
         ExpiryWarningMilestones = Milestones(settings, SettingKeys.ExpiryWarningDays),

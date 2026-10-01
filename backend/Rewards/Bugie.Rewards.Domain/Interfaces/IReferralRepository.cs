@@ -52,4 +52,25 @@ public interface IReferralRepository
     /// porque el admin necesita saber de quién habla.
     /// </summary>
     Task<List<TopReferrerRow>> GetTopReferrersAsync(int take, CancellationToken ct = default);
+
+    // ── Ranking entre amigos ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Los usuarios conectados a este por referidos: a quienes invitó y quien
+    /// lo invitó a él. Esos son sus "amigos" dentro de Bugie.
+    /// </summary>
+    Task<List<Guid>> GetFriendIdsAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>Puntos y viajes de esos usuarios en el mes indicado.</summary>
+    Task<List<FriendPoints>> GetMonthlyPointsAsync(
+        IEnumerable<Guid> userIds, DateTime monthStartUtc, DateTime monthEndUtc,
+        CancellationToken ct = default);
 }
+
+/// <summary>Puntos de un usuario en el mes, para el ranking.</summary>
+public record FriendPoints(
+    Guid    UserId,
+    string? FullName,
+    string  Level,
+    int     Points,
+    int     Trips);

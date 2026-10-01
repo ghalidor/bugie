@@ -46,3 +46,22 @@ public record TopReferrerDto(
     int      Qualified,
     int      PointsEarned,
     DateTime LastAt);
+
+/// <summary>Una posición del ranking entre amigos.</summary>
+public record RankingEntryDto(
+    int      Position,
+    Guid     UserId,
+    string?  FullName,
+    string   Level,
+    int      PointsThisMonth,
+    int      Trips,
+    /// <summary>true si es el propio usuario, para resaltarlo.</summary>
+    bool     IsMe,
+    /// <summary>Cómo entró al ranking: «te invitó» o «lo invitaste».</summary>
+    string   Relation);
+
+public record FriendsRankingDto(
+    int    MyPosition,
+    int    MyPointsThisMonth,
+    string MonthLabel,
+    List<RankingEntryDto> Entries);
