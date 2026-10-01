@@ -334,6 +334,75 @@ class UserRaffle {
   }
 }
 
+/// Una persona que invité.
+class ReferredPerson {
+  final String   userType;
+  final String   status;          // pending | qualified
+  final int      tripsCompleted;
+  final int      pointsEarned;
+  final DateTime joinedAt;
+
+  ReferredPerson({
+    required this.userType,
+    required this.status,
+    required this.tripsCompleted,
+    required this.pointsEarned,
+    required this.joinedAt,
+  });
+
+  factory ReferredPerson.fromJson(Map<String, dynamic> j) => ReferredPerson(
+        userType:       (j['userType'] ?? 'passenger').toString(),
+        status:         (j['status'] ?? 'pending').toString(),
+        tripsCompleted: (j['tripsCompleted'] as num?)?.toInt() ?? 0,
+        pointsEarned:   (j['pointsEarned']   as num?)?.toInt() ?? 0,
+        joinedAt:       _date(j['joinedAt']) ?? DateTime.now(),
+      );
+
+  bool get isQualified => status == 'qualified';
+}
+
+/// Mi código de invitación y cómo me va.
+class MyReferral {
+  final String  code;
+  final bool    enabled;
+  final int     totalInvited;
+  final int     qualified;
+  final int     pointsEarned;
+  final int     pointsPerPassenger;
+  final int     pointsPerDriver;
+  final int     qualifyTrips;
+  final int     qualifyPoints;
+  final List<ReferredPerson> people;
+
+  MyReferral({
+    required this.code,
+    required this.enabled,
+    required this.totalInvited,
+    required this.qualified,
+    required this.pointsEarned,
+    required this.pointsPerPassenger,
+    required this.pointsPerDriver,
+    required this.qualifyTrips,
+    required this.qualifyPoints,
+    required this.people,
+  });
+
+  factory MyReferral.fromJson(Map<String, dynamic> j) => MyReferral(
+        code:               (j['code'] ?? '').toString(),
+        enabled:            j['enabled'] != false,
+        totalInvited:       (j['totalInvited']       as num?)?.toInt() ?? 0,
+        qualified:          (j['qualified']          as num?)?.toInt() ?? 0,
+        pointsEarned:       (j['pointsEarned']       as num?)?.toInt() ?? 0,
+        pointsPerPassenger: (j['pointsPerPassenger'] as num?)?.toInt() ?? 0,
+        pointsPerDriver:    (j['pointsPerDriver']    as num?)?.toInt() ?? 0,
+        qualifyTrips:       (j['qualifyTrips']       as num?)?.toInt() ?? 0,
+        qualifyPoints:      (j['qualifyPoints']      as num?)?.toInt() ?? 0,
+        people: ((j['people'] as List?) ?? [])
+            .map((e) => ReferredPerson.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+      );
+}
+
 /// Página de resultados del backend.
 class RewardsPage<T> {
   final List<T> items;

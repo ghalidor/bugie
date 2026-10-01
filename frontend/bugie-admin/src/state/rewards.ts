@@ -148,6 +148,27 @@ export interface RaffleMaintenanceResult {
   messages:       string[];
 }
 
+export interface TopReferrer {
+  userId:       string;
+  fullName:     string | null;
+  email:        string | null;
+  invited:      number;
+  qualified:    number;
+  pointsEarned: number;
+  lastAt:       string;
+}
+
+export interface ReferralStats {
+  totalReferrals:      number;
+  qualified:           number;
+  pending:             number;
+  pointsGiven:         number;
+  codesIssued:         number;
+  invitationsSent:     number;
+  invitationsAccepted: number;
+  topReferrers:        TopReferrer[];
+}
+
 export interface ExpirationResult {
   warned:     number;
   expired:    number;
@@ -245,6 +266,10 @@ export const rewardsAdminApi = {
 
   deletePromotion: (id: string) =>
     apiFetch<{ message: string }>(`${base()}/promotions/${id}`, { method: 'DELETE' }),
+
+  // Referidos
+  referralStats: () =>
+    apiFetch<ReferralStats>(`${base()}/referrals`),
 
   // Sorteos
   raffles: () =>

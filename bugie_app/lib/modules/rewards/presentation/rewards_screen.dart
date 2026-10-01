@@ -62,7 +62,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
                                  onGoToCatalog: () => setState(() => _tab = 1)),
                 1 => _CatalogTab(key: ValueKey('c$_reload'), onRedeemed: _onRedeemed),
                 2 => _CouponsTab(key: ValueKey('u$_reload'), highlight: _lastCode),
-                _ => _ExtrasTab(key: ValueKey('x$_reload')),
+                3 => _ExtrasTab(key: ValueKey('x$_reload')),
+                _ => _ReferralTab(key: ValueKey('r$_reload')),
               },
             ),
           ],
@@ -84,6 +85,7 @@ class _Tabs extends StatelessWidget {
     _TabItem(Icons.card_giftcard, 'Canjear'),
     _TabItem(Icons.confirmation_number_outlined, 'Cupones'),
     _TabItem(Icons.bolt, 'Promos'),
+    _TabItem(Icons.person_add_alt, 'Invita'),
   ];
 
   @override
@@ -1291,6 +1293,309 @@ class _RaffleCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/* ── Pestaña 5: invita y gana ──────────────────────────────────────────── */
+
+class _ReferralTab extends StatefulWidget {
+  const _ReferralTab({super.key});
+
+  @override
+  State<_ReferralTab> createState() => _ReferralTabState();
+}
+
+class _ReferralTabState extends State<_ReferralTab> {
+  final _emailCtrl = TextEditingController();
+
+  MyReferral? _data;
+  bool _loading = true;
+  bool _sending = false;
+  String? _error;
+  String? _sentTo;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final data = await context.read<RewardsRepository>().getMyReferral();
+      if (!mounted) return;
+      setState(() { _data = data; _loading = false; });
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'No se pudo cargar tu código de invitación.';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _invite() async {
+    final email = _emailCtrl.text.trim();
+    setState(() { _sending = true; _sentTo = null; });
+    try {
+      await context.read<RewardsRepository>().invite(email);
+      if (!mounted) return;
+      _emailCtrl.clear();
+      setState(() => _sentTo = email);
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: BugieColors.danger));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo enviar la invitación.')));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_data == null) return _ErrorView(message: _error ?? 'No se pudo cargar.', onRetry: _load);
+
+    final d = _data!;
+
+    if (!d.enabled) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Text('El programa de invitaciones no está activo por ahora.',
+              textAlign: TextAlign.center, style: TextStyle(color: c.textMuted)),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        children: [
+          // ── El código ──
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: c.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: c.border, style: BorderStyle.solid),
+            ),
+            child: Column(children: [
+              Text('Tu código', style: TextStyle(fontSize: 12, color: c.textMuted)),
+              const SizedBox(height: 8),
+              Text(
+                d.code,
+                style: const TextStyle(
+                  fontSize: 30, fontWeight: FontWeight.w800,
+                  letterSpacing: 5, color: BugieColors.primary,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: d.code));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Código copiado'),
+                        duration: Duration(seconds: 2),
+                      ));
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copiar'),
+                ),
+              ]),
+            ]),
+          ),
+
+          const SizedBox(height: 14),
+          Text(
+            'Compártelo por donde quieras. Quien lo use al crear su cuenta te hace ganar puntos.',
+            style: TextStyle(fontSize: 12.5, color: c.textMuted),
+          ),
+
+          const SizedBox(height: 14),
+          _Bullet('Te damos ${formatPoints(d.pointsPerPassenger)} puntos cuando un pasajero '
+                  'se registra con tu código.'),
+          _Bullet('${formatPoints(d.pointsPerDriver)} puntos si quien se registra es conductor.'),
+          if (d.qualifyTrips > 0 && d.qualifyPoints > 0)
+            _Bullet('${formatPoints(d.qualifyPoints)} puntos extra cuando esa persona '
+                    'completa ${d.qualifyTrips} viajes.'),
+
+          const SizedBox(height: 22),
+
+          // ── Totales ──
+          Row(children: [
+            _MiniStat(label: 'Invitados', value: d.totalInvited),
+            _MiniStat(label: 'Activos',   value: d.qualified),
+            _MiniStat(label: 'Puntos',    value: d.pointsEarned),
+          ]),
+
+          const SizedBox(height: 22),
+
+          // ── Invitar por correo ──
+          _SectionTitle('Invitar por correo'),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  hintText: 'correo@ejemplo.com',
+                  prefixIcon: Icon(Icons.mail_outline),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            FilledButton(
+              onPressed: _sending ? null : _invite,
+              child: _sending
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Enviar'),
+            ),
+          ]),
+
+          if (_sentTo != null) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              const Icon(Icons.check_circle, size: 16, color: BugieColors.success),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('Invitación enviada a $_sentTo',
+                    style: const TextStyle(fontSize: 12.5, color: BugieColors.success)),
+              ),
+            ]),
+          ],
+
+          // ── A quiénes invité ──
+          if (d.people.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            _SectionTitle('A quiénes invitaste'),
+            const SizedBox(height: 8),
+            ...d.people.map((p) => _ReferredRow(person: p, qualifyTrips: d.qualifyTrips)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Bullet extends StatelessWidget {
+  final String text;
+  const _Bullet(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('·  ', style: TextStyle(fontWeight: FontWeight.w800)),
+        Expanded(child: Text(text, style: const TextStyle(fontSize: 12.5))),
+      ]),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final String label;
+  final int value;
+  const _MiniStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.border),
+        ),
+        child: Column(children: [
+          Text(label, style: TextStyle(fontSize: 11, color: c.textMuted)),
+          const SizedBox(height: 3),
+          Text(formatPoints(value),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _ReferredRow extends StatelessWidget {
+  final ReferredPerson person;
+  final int qualifyTrips;
+  const _ReferredRow({required this.person, required this.qualifyTrips});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final esConductor = person.userType == 'driver';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: c.border)),
+      ),
+      child: Row(children: [
+        Icon(esConductor ? Icons.directions_car_filled_outlined : Icons.person_outline,
+            size: 18, color: c.textMuted),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(esConductor ? 'Conductor' : 'Pasajero',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text(
+                person.isQualified
+                    ? 'Ya completó sus viajes'
+                    : qualifyTrips > 0
+                        ? '${person.tripsCompleted} de $qualifyTrips viajes para el bono extra'
+                        : '${person.tripsCompleted} viajes',
+                style: TextStyle(fontSize: 11.5, color: c.textMuted),
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text('+${formatPoints(person.pointsEarned)}',
+                style: const TextStyle(
+                    color: BugieColors.success, fontWeight: FontWeight.w800, fontSize: 14)),
+            if (!person.isQualified && qualifyTrips > 0)
+              Text('pendiente el extra',
+                  style: TextStyle(fontSize: 10.5, color: c.textMuted)),
+          ],
+        ),
+      ]),
     );
   }
 }

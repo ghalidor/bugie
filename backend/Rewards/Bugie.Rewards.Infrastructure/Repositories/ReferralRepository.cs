@@ -119,6 +119,57 @@ public class ReferralRepository : IReferralRepository
             WHERE ReferrerUserId = @Id AND SentAt >= date_trunc('day', now())",
             new { Id = referrerUserId });
 
+    /* ── Admin ───────────────────────────────────────────────────────── */
+
+    private sealed class StatsRow
+    {
+        public int Total     { get; set; }
+        public int Qualified { get; set; }
+        public int Points    { get; set; }
+        public int Codes     { get; set; }
+        public int Sent      { get; set; }
+        public int Accepted  { get; set; }
+    }
+
+    /// <summary>
+    /// Todo en una consulta con subconsultas, en vez de seis viajes a la base.
+    /// </summary>
+    public async Task<(int, int, int, int, int, int)> GetStatsAsync(CancellationToken ct = default)
+    {
+        var r = await _db.QuerySingleAsync<StatsRow>(@"
+            SELECT
+              (SELECT COUNT(*) FROM rewards.Referrals)                          AS Total,
+              (SELECT COUNT(*) FROM rewards.Referrals WHERE Status = 'qualified') AS Qualified,
+              (SELECT COALESCE(SUM(SignupPoints + QualifyPoints), 0)
+                 FROM rewards.Referrals)                                        AS Points,
+              (SELECT COUNT(*) FROM rewards.ReferralCodes)                      AS Codes,
+              (SELECT COUNT(*) FROM rewards.ReferralInvitations)                AS Sent,
+              (SELECT COUNT(*) FROM rewards.ReferralInvitations
+                 WHERE AcceptedAt IS NOT NULL)                                  AS Accepted");
+
+        return (r.Total, r.Qualified, r.Points, r.Codes, r.Sent, r.Accepted);
+    }
+
+    public async Task<List<TopReferrerRow>> GetTopReferrersAsync(
+        int take, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<TopReferrerRow>(@"
+            SELECT r.ReferrerUserId                                   AS UserId,
+                   u.FullName,
+                   u.Email,
+                   COUNT(*)                                           AS Invited,
+                   COUNT(*) FILTER (WHERE r.Status = 'qualified')     AS Qualified,
+                   COALESCE(SUM(r.SignupPoints + r.QualifyPoints), 0) AS PointsEarned,
+                   MAX(r.CreatedAt)                                   AS LastAt
+            FROM rewards.Referrals r
+            LEFT JOIN auth.Users u ON u.Id = r.ReferrerUserId
+            GROUP BY r.ReferrerUserId, u.FullName, u.Email
+            ORDER BY COUNT(*) DESC, MAX(r.CreatedAt) DESC
+            LIMIT @Take",
+            new { Take = take });
+        return rows.ToList();
+    }
+
     public Task MarkInvitationAcceptedAsync(string email, string code, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE rewards.ReferralInvitations

@@ -32,6 +32,8 @@ class AuthRepository {
     required String role, // 'passenger' o 'driver'
     bool acceptedTerms = true,
     String? signatureImage,
+    /// Codigo de invitacion. Opcional: si viene vacio no se manda.
+    String? referralCode,
   }) async {
     final json = await _api.post(
       '${ApiConfig.auth}/auth/register',
@@ -43,6 +45,9 @@ class AuthRepository {
         'role': role,
         'acceptedTerms': acceptedTerms,
         'signatureImage': signatureImage,
+        // Solo se envia si tiene algo: asi el backend lo trata como ausente.
+        if (referralCode != null && referralCode.trim().isNotEmpty)
+          'referralCode': referralCode.trim().toUpperCase(),
       },
     );
     final auth = AuthResponse.fromJson(json, email);

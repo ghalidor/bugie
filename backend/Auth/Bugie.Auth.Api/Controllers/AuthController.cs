@@ -25,7 +25,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register([FromBody] RegisterRequest req, CancellationToken ct) =>
         Ok(await _mediator.Send(
             new RegisterUserCommand(req.FullName, req.Email, req.Password, req.Phone, req.Role,
-                req.AcceptedTerms, req.SignatureImage), ct));
+                req.AcceptedTerms, req.SignatureImage, req.ReferralCode), ct));
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req, CancellationToken ct) =>

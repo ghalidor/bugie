@@ -24,6 +24,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailCtrl     = TextEditingController();
   final _phoneCtrl     = TextEditingController();
   final _passwordCtrl  = TextEditingController();
+  final _referralCtrl  = TextEditingController();
   String _role = 'passenger';
   bool _loading = false;
   bool _accepted = false;
@@ -101,6 +102,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         role: _role,
         acceptedTerms: _accepted,
         signatureImage: signature,
+        referralCode: _referralCtrl.text,
       );
       if (!mounted) return;
       if (auth.role == UserRole.driver) {
@@ -124,6 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
     _passwordCtrl.dispose();
+    _referralCtrl.dispose();
     _sigController.dispose();
     super.dispose();
   }
@@ -233,6 +236,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     prefixIcon: Icon(Icons.lock_outline),
                   ),
                   validator: _validatePassword,
+                ),
+                const SizedBox(height: 14),
+
+                // Codigo de invitacion. Va aca y no dentro de la app ya
+                // registrado: si no, cualquiera se autorreferiria creando una
+                // segunda cuenta.
+                TextFormField(
+                  controller: _referralCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 12,
+                  decoration: const InputDecoration(
+                    labelText: 'Código de invitación (opcional)',
+                    hintText: 'Ej. ANA4K7MP',
+                    prefixIcon: Icon(Icons.card_giftcard_outlined),
+                    helperText: 'Si alguien te invitó, pon su código y le damos puntos.',
+                    counterText: '',
+                  ),
                 ),
                 const SizedBox(height: 14),
 

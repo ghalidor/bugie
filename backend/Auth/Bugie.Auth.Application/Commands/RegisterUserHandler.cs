@@ -15,6 +15,7 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
     private readonly IEmailService _email;
     private readonly IDriversClient _driversClient;
     private readonly ILandingSettingsClient _settings;
+    private readonly IRewardsClient _rewardsClient;
 
     public RegisterUserHandler(
         IUserRepository users,
@@ -22,7 +23,8 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
         IPasswordHasher hasher,
         IEmailService email,
         IDriversClient driversClient,
-        ILandingSettingsClient settings)
+        ILandingSettingsClient settings,
+        IRewardsClient rewardsClient)
     {
         _users = users;
         _tokens = tokens;
@@ -30,6 +32,7 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
         _email = email;
         _driversClient = driversClient;
         _settings = settings;
+        _rewardsClient = rewardsClient;
     }
 
     public async Task<AuthResponse> Handle(RegisterUserCommand cmd, CancellationToken ct)
@@ -60,6 +63,16 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
                 throw new InvalidOperationException(
                     "No se pudo completar el registro del conductor. Intenta de nuevo.");
             }
+        }
+
+        // Si vino con codigo de invitacion, avisar a Rewards.
+        // Va DESPUES de crear el usuario y sin revertir nada si falla: un
+        // referido perdido es una molestia, un registro perdido es un cliente
+        // perdido.
+        if(!string.IsNullOrWhiteSpace(cmd.ReferralCode))
+        {
+            await _rewardsClient.RegisterReferralAsync(
+                user.Id, user.Role, cmd.ReferralCode!.Trim(), user.Email, ct);
         }
 
         // 3. Obtener la ciudad configurada (con fallback automático si Landing está caído)

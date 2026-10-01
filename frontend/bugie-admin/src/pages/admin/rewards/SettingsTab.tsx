@@ -43,6 +43,21 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
+    title: 'Referidos', icon: 'fa-solid fa-user-plus', color: '#38bdf8',
+    fields: [
+      { key: 'referrals_enabled',         kind: 'bool',   label: 'Referidos activos',
+        help: 'Apagado, el código deja de dar puntos. Los ya acreditados no se tocan.' },
+      { key: 'referral_points_passenger', kind: 'number', label: 'Puntos por referir un pasajero',
+        help: 'Se acreditan cuando el invitado crea su cuenta con el código.' },
+      { key: 'referral_points_driver',    kind: 'number', label: 'Puntos por referir un conductor',
+        help: 'Suele ser menor que el de pasajero: hay menos conductores pero valen más.' },
+      { key: 'referral_qualify_trips',    kind: 'number', label: 'Viajes que debe completar el invitado',
+        help: 'Para el bono extra. Con 0 se desactiva ese bono.' },
+      { key: 'referral_qualify_points',   kind: 'number', label: 'Bono extra al completarlos',
+        help: 'Premia que el invitado se quede, no solo que se registre.' },
+    ],
+  },
+  {
     title: 'Sorteos', icon: 'fa-solid fa-dice', color: '#34d399',
     fields: [
       { key: 'raffles_enabled',          kind: 'bool',   label: 'Sorteos activos',

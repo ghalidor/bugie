@@ -46,6 +46,21 @@ builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 // ── Cliente HTTP a Drivers (para crear perfil al registrar conductor) ────
 builder.Services.Configure<DriversClientOptions>(
     builder.Configuration.GetSection("DriversClient"));
+// ── Cliente HTTP a Rewards (para avisar de los referidos al registrarse) ──
+// Mismo esquema de configuracion que DriversClient. El token interno sale de
+// la clave InternalToken que Auth ya tiene, y debe coincidir con el de Rewards.
+builder.Services.Configure<RewardsClientOptions>(opt =>
+{
+    opt.BaseUrl       = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://localhost:5006";
+    opt.InternalToken = builder.Configuration["InternalToken"] ?? string.Empty;
+});
+builder.Services.AddHttpClient<IRewardsClient, RewardsClient>(c =>
+{
+    var baseUrl = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://localhost:5006";
+    c.BaseAddress = new Uri(baseUrl);
+    c.Timeout = TimeSpan.FromSeconds(10);
+});
+
 builder.Services.AddHttpClient<IDriversClient, DriversClient>(c =>
 {
     var baseUrl = builder.Configuration["DriversClient:BaseUrl"] ?? "http://localhost:5003";

@@ -1,7 +1,12 @@
 namespace Bugie.Auth.Application.DTOs;
 
 public record RegisterRequest(string FullName, string Email, string Password, string Phone, string Role,
-    bool AcceptedTerms, string SignatureImage);
+    bool AcceptedTerms, string SignatureImage,
+    /// <summary>
+    /// Código de invitación. Opcional y al final, para no romper a los
+    /// clientes que no lo envían.
+    /// </summary>
+    string? ReferralCode = null);
 public record LoginRequest(string Email, string Password);
 public record AuthResponse(string Token, string Role, string FullName, Guid UserId);
 

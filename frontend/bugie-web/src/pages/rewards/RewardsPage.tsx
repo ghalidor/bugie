@@ -4,15 +4,17 @@ import RewardsSummary from './RewardsSummary';
 import RewardsCatalog from './RewardsCatalog';
 import RewardsCoupons from './RewardsCoupons';
 import RewardsExtras from './RewardsExtras';
+import RewardsReferral from './RewardsReferral';
 import type { RedeemResult } from '../../state/rewards';
 
-type Tab = 'resumen' | 'canjear' | 'cupones' | 'extras';
+type Tab = 'resumen' | 'canjear' | 'cupones' | 'extras' | 'invita';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'resumen', label: 'Mis puntos',   icon: 'fa-solid fa-star' },
   { key: 'canjear', label: 'Canjear',      icon: 'fa-solid fa-gift' },
   { key: 'cupones', label: 'Mis cupones',  icon: 'fa-solid fa-ticket' },
   { key: 'extras',  label: 'Promos y sorteos', icon: 'fa-solid fa-bolt' },
+  { key: 'invita',  label: 'Invita y gana',    icon: 'fa-solid fa-user-plus' },
 ];
 
 /// Pagina de puntos. La usan pasajero y conductor: el backend sabe quien es
@@ -57,6 +59,7 @@ export default function RewardsPage() {
       {tab === 'resumen' && <RewardsSummary key={`s${refreshKey}`} onGoToCatalog={() => setTab('canjear')} />}
       {tab === 'canjear' && <RewardsCatalog key={`c${refreshKey}`} onRedeemed={handleRedeemed} />}
       {tab === 'extras' && <RewardsExtras key={`e${refreshKey}`} />}
+      {tab === 'invita' && <RewardsReferral key={`r${refreshKey}`} />}
       {tab === 'cupones' && (
         <RewardsCoupons
           key={`u${refreshKey}`}

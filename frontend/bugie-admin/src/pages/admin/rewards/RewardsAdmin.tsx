@@ -6,8 +6,9 @@ import CatalogTab from './CatalogTab';
 import RedemptionsTab from './RedemptionsTab';
 import PromotionsTab from './PromotionsTab';
 import RafflesTab from './RafflesTab';
+import ReferralsTab from './ReferralsTab';
 
-type Tab = 'config' | 'niveles' | 'catalogo' | 'canjes' | 'promos' | 'sorteos';
+type Tab = 'config' | 'niveles' | 'catalogo' | 'canjes' | 'promos' | 'sorteos' | 'referidos';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'config',   label: 'Configuración', icon: 'fa-solid fa-sliders' },
@@ -16,6 +17,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'canjes',   label: 'Canjes',        icon: 'fa-solid fa-ticket' },
   { key: 'promos',   label: 'Promociones',   icon: 'fa-solid fa-bullhorn' },
   { key: 'sorteos',  label: 'Sorteos',       icon: 'fa-solid fa-dice' },
+  { key: 'referidos', label: 'Referidos',    icon: 'fa-solid fa-user-plus' },
 ];
 
 /// Administracion del programa de puntos. Todo lo que se cambia aca toma
@@ -61,6 +63,7 @@ export default function RewardsAdmin() {
       {tab === 'canjes'   && <RedemptionsTab />}
       {tab === 'promos'   && <PromotionsTab />}
       {tab === 'sorteos'  && <RafflesTab />}
+      {tab === 'referidos' && <ReferralsTab />}
     </>
   );
 }

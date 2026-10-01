@@ -240,6 +240,17 @@ public class RewardsAdminController : ControllerBase
         catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
 
+    // ────────────────────────── REFERIDOS ──────────────────────────
+
+    /// <summary>
+    /// GET /api/rewards/admin/referrals
+    /// Cómo va el programa: cuántos referidos hay, cuántos ya completaron sus
+    /// viajes, cuántos puntos se regalaron y quiénes más invitaron.
+    /// </summary>
+    [HttpGet("referrals")]
+    public async Task<IActionResult> ReferralStats(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetReferralStatsQuery(), ct));
+
     // ─────────────────────────── SORTEOS ───────────────────────────
 
     /// <summary>GET /api/rewards/admin/raffles — todos, con sus ganadores.</summary>

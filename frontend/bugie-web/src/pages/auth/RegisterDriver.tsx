@@ -41,7 +41,8 @@ export default function RegisterDriver() {
   const navigate = useNavigate();
   const [d, setD] = useState(FALLBACK);
   const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', phone: '', password: '', city: 'Trujillo',
+    firstName: '', lastName: '', email: '', phone: '', password: '',
+    referralCode: '', city: 'Trujillo',
   });
   const [acceptTerms, setAcceptTerms] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
@@ -93,6 +94,8 @@ export default function RegisterDriver() {
           phone: form.phone, role: 'driver',
           acceptedTerms: true,
           signatureImage: sigRef.current?.toDataURL() ?? '',
+          // Opcional: si viene vacío se manda null y el backend lo ignora.
+          referralCode: form.referralCode.trim() || null,
         }),
       });
       saveSession(data.token, {
@@ -179,6 +182,39 @@ export default function RegisterDriver() {
             </Link>
           </label>
         </div>
+
+        {/* Código de invitación. Opcional: si alguien te invitó, al ponerlo
+
+            esa persona gana puntos. Va acá y no dentro de la app ya registrado,
+
+            porque si no cualquiera se autorreferiría con una segunda cuenta. */}
+
+        <div className="mb-3">
+
+          <label className="form-label">
+
+            Código de invitación <span className="bugie-muted">(opcional)</span>
+
+          </label>
+
+          <input className="form-control text-uppercase"
+
+                 placeholder="Ej. ANA4K7MP"
+
+                 maxLength={12}
+
+                 value={form.referralCode}
+
+                 onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} />
+
+          <div className="form-text">
+
+            Si alguien te invitó a Bugie, pon su código y le damos puntos por traerte.
+
+          </div>
+
+        </div>
+
 
         {/* Firma digital */}
         <div>

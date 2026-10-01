@@ -2,6 +2,16 @@ using Bugie.Rewards.Domain.Entities;
 
 namespace Bugie.Rewards.Domain.Interfaces;
 
+/// <summary>Fila del ranking de quienes más invitaron.</summary>
+public record TopReferrerRow(
+    Guid     UserId,
+    string?  FullName,
+    string?  Email,
+    int      Invited,
+    int      Qualified,
+    int      PointsEarned,
+    DateTime LastAt);
+
 public interface IReferralRepository
 {
     // ── Código ───────────────────────────────────────────────────────────
@@ -30,4 +40,16 @@ public interface IReferralRepository
     Task AddInvitationAsync(ReferralInvitation invitation, CancellationToken ct = default);
     Task<int> CountInvitationsTodayAsync(Guid referrerUserId, CancellationToken ct = default);
     Task MarkInvitationAcceptedAsync(string email, string code, CancellationToken ct = default);
+
+    // ── Admin ────────────────────────────────────────────────────────────
+
+    /// <summary>Totales del programa, en una sola consulta.</summary>
+    Task<(int Total, int Qualified, int Points, int Codes, int Sent, int Accepted)>
+        GetStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Quiénes más invitaron. Trae el nombre y el correo desde auth.users,
+    /// porque el admin necesita saber de quién habla.
+    /// </summary>
+    Task<List<TopReferrerRow>> GetTopReferrersAsync(int take, CancellationToken ct = default);
 }

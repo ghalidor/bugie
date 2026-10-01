@@ -120,6 +120,27 @@ export interface UserRaffle {
   myTicketNumber:    string | null;
 }
 
+export interface ReferredPerson {
+  userType:       string;
+  status:         'pending' | 'qualified';
+  tripsCompleted: number;
+  pointsEarned:   number;
+  joinedAt:       string;
+}
+
+export interface MyReferral {
+  code:               string;
+  enabled:            boolean;
+  totalInvited:       number;
+  qualified:          number;
+  pointsEarned:       number;
+  pointsPerPassenger: number;
+  pointsPerDriver:    number;
+  qualifyTrips:       number;
+  qualifyPoints:      number;
+  people:             ReferredPerson[];
+}
+
 export interface Paged<T> {
   items:    T[];
   total:    number;
@@ -151,6 +172,15 @@ export const rewardsApi = {
     apiFetch<RedeemResult>(`${base()}/redeem`, {
       method: 'POST',
       body: JSON.stringify({ catalogItemId }),
+    }),
+
+  myReferral: () =>
+    apiFetch<MyReferral>(`${base()}/me/referral`),
+
+  invite: (email: string) =>
+    apiFetch<{ message: string }>(`${base()}/me/referral/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
     }),
 
   promotions: () =>
