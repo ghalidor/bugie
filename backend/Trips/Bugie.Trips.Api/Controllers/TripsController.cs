@@ -25,11 +25,13 @@ public class TripsController : ControllerBase
     private readonly ITripProposalRepository _proposals;
     private readonly IPassengerAcceptanceCancellationRepository _cancellations;
     private readonly ITripNotificationService _notify;
+    private readonly IRewardsClient _rewardsClient;
 
     public TripsController(IMediator mediator, ITripRepository trips,
         IHttpClientFactory httpFactory, ITripProposalRepository proposals,
         IPassengerAcceptanceCancellationRepository cancellations,
-        ITripNotificationService notify)
+        ITripNotificationService notify,
+        IRewardsClient rewardsClient)
     {
         _mediator = mediator;
         _trips = trips;
@@ -37,6 +39,7 @@ public class TripsController : ControllerBase
         _proposals = proposals;
         _cancellations = cancellations;
         _notify = notify;
+        _rewardsClient = rewardsClient;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -447,7 +450,12 @@ public class TripsController : ControllerBase
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
 
-        var finalFare = req?.FinalFare ?? trip.EstimatedFare;
+        // Si el viaje trae cupon, se cobra la tarifa YA DESCONTADA. El
+        // conductor ve ese monto y es lo que recibe en mano.
+        var tarifaBase = req?.FinalFare ?? trip.EstimatedFare;
+        var finalFare  = trip.HasCoupon
+            ? Math.Max(0, tarifaBase - (trip.DiscountAmount ?? 0))
+            : tarifaBase;
         var result = await _mediator.Send(new CompleteTripCommand(id, finalFare), ct);
 
         // Crear pago automáticamente al completar el viaje
@@ -474,7 +482,59 @@ public class TripsController : ControllerBase
             catch { /* No bloquear si payments falla */ }
         }
 
+        // Consumir el cupon, si lo habia. Va DESPUES de completar: si el viaje
+        // se hubiera cancelado, el cupon seguiria disponible.
+        //
+        // Si Rewards no responde, el viaje igual queda completado y cobrado con
+        // el descuento. El cupon quedaria sin marcar como usado, que es mejor
+        // que tumbar el cierre de un viaje real.
+        if(trip.HasCoupon)
+        {
+            try
+            {
+                await _rewardsClient.UseCouponAsync(trip.CouponCode!, trip.Id, ct);
+            }
+            catch { /* el viaje ya se cerro */ }
+        }
+
         return Ok(result);
+    }
+
+    public record ApplyCouponRequest(string Code);
+
+    /// <summary>
+    /// POST /api/trips/{id}/coupon
+    /// El pasajero aplica uno de sus cupones al precio de este viaje.
+    ///
+    /// El cupon NO se consume aca: se consume al completar el viaje. Si el
+    /// viaje se cancela, el cupon queda libre para otra vez.
+    /// </summary>
+    [HttpPost("{id:guid}/coupon")]
+    public async Task<IActionResult> ApplyCoupon(
+        Guid id, [FromBody] ApplyCouponRequest body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _mediator.Send(
+                new ApplyCouponCommand(id, CurrentUserId, body.Code ?? string.Empty), ct));
+        }
+        catch (KeyNotFoundException ex)         { return NotFound(new { error = ex.Message }); }
+        catch (UnauthorizedAccessException ex)  { return StatusCode(403, new { error = ex.Message }); }
+        catch (InvalidOperationException ex)    { return BadRequest(new { error = ex.Message }); }
+    }
+
+    /// <summary>DELETE /api/trips/{id}/coupon</summary>
+    [HttpDelete("{id:guid}/coupon")]
+    public async Task<IActionResult> RemoveCoupon(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await _mediator.Send(new RemoveCouponCommand(id, CurrentUserId), ct);
+            return Ok(new { message = "Cupon quitado." });
+        }
+        catch (KeyNotFoundException ex)        { return NotFound(new { error = ex.Message }); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(403, new { error = ex.Message }); }
+        catch (InvalidOperationException ex)   { return BadRequest(new { error = ex.Message }); }
     }
 
     [HttpPut("{id:guid}/cancel")]

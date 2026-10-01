@@ -58,6 +58,19 @@ class RewardsRepository {
     return RedeemResult.fromJson(json as Map<String, dynamic>);
   }
 
+  /// GET /api/rewards/me/progress
+  /// Racha y meta semanal en curso.
+  Future<Progress> getProgress() async {
+    final json = await _api.get('$_base/me/progress');
+    return Progress.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/rewards/me/ranking
+  Future<FriendsRanking> getRanking() async {
+    final json = await _api.get('$_base/me/ranking');
+    return FriendsRanking.fromJson(json as Map<String, dynamic>);
+  }
+
   /// GET /api/rewards/me/referral
   /// Mi código de invitación. Se crea la primera vez que se pide.
   Future<MyReferral> getMyReferral() async {

@@ -19,6 +19,18 @@ public class Trip
     public decimal? ProposedFare { get; set; }  // Tarifa propuesta por conductor
     public Guid? ProposedDriverId { get; set; }  // Conductor que propuso
     public decimal? FinalFare { get; set; }
+
+    // -- Cupon aplicado --
+    public string?  CouponCode         { get; set; }
+    public decimal? DiscountAmount     { get; set; }
+    /// <summary>Tarifa antes del descuento. Sin esto no se puede auditar nada.</summary>
+    public decimal? FareBeforeDiscount { get; set; }
+    /// <summary>Lo que la plataforma le queda debiendo al conductor.</summary>
+    public decimal? PlatformOwesDriver { get; set; }
+
+    /// <summary>Lo que el pasajero paga de verdad, ya con el descuento.</summary>
+    public decimal AmountToPay =>
+        (FinalFare ?? ProposedFare ?? EstimatedFare) - (DiscountAmount ?? 0);
     public string PaymentMethod { get; set; } = string.Empty;
     public TripStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -167,6 +179,36 @@ public class Trip
         CancelledBy = cancelledBy;
         CancelReason = reason;
     }
+
+    /// <summary>
+    /// Deja el cupon anotado en el viaje. NO lo consume: eso pasa al
+    /// completar. Si el viaje se cancela, el cupon queda libre.
+    /// </summary>
+    public void ApplyCoupon(string code, decimal discount, decimal fareBefore,
+                            decimal owedToDriver)
+    {
+        if(discount <= 0)
+            throw new InvalidOperationException("El descuento debe ser mayor a cero.");
+
+        if(discount > fareBefore)
+            throw new InvalidOperationException(
+                "El descuento no puede ser mayor que la tarifa.");
+
+        CouponCode         = code;
+        DiscountAmount     = discount;
+        FareBeforeDiscount = fareBefore;
+        PlatformOwesDriver = owedToDriver > 0 ? owedToDriver : null;
+    }
+
+    public void RemoveCoupon()
+    {
+        CouponCode         = null;
+        DiscountAmount     = null;
+        FareBeforeDiscount = null;
+        PlatformOwesDriver = null;
+    }
+
+    public bool HasCoupon => !string.IsNullOrWhiteSpace(CouponCode);
 
     public void ActivateSos() => Status = TripStatus.SosActive;
 

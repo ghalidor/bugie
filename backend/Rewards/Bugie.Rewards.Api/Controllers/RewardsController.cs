@@ -103,6 +103,15 @@ public class RewardsController : ControllerBase
             new GetMyRedemptionsQuery(CurrentUserId, status, page, pageSize), ct));
 
     /// <summary>
+    /// GET /api/rewards/me/progress
+    /// Cómo voy con mis logros EN CURSO: racha, meta semanal y aniversario.
+    /// A diferencia del historial, esto dice lo que falta, no lo ya ganado.
+    /// </summary>
+    [HttpGet("me/progress")]
+    public async Task<IActionResult> MyProgress(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetMyProgressQuery(CurrentUserId), ct));
+
+    /// <summary>
     /// GET /api/rewards/me/ranking
     /// Ranking entre amigos: yo contra quienes invité y quien me invitó,
     /// por puntos del mes.

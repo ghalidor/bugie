@@ -22,6 +22,16 @@ public interface IPointsProfileRepository
     Task<List<PointsProfile>> GetExpiredAsync(int limit, CancellationToken ct = default);
 
     /// <summary>
+    /// Guarda un ajuste manual: perfil, movimiento y auditoría, en una sola
+    /// transacción. Con control de concurrencia como el canje: si el saldo
+    /// cambió entre la lectura y la escritura, devuelve false.
+    /// </summary>
+    Task<bool> ApplyAdjustmentAsync(
+        PointsProfile profile, PointsTransaction transaction,
+        int expectedBalance, string reason, Guid? adminId,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Perfiles con saldo a los que les vence dentro de 'withinDays' y a los
     /// que todavia no se les aviso por esa fecha.
     /// </summary>

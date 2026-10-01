@@ -157,9 +157,9 @@ public class ReferralRepository : IReferralRepository
             SELECT r.ReferrerUserId                                   AS UserId,
                    u.FullName,
                    u.Email,
-                   COUNT(*)                                           AS Invited,
-                   COUNT(*) FILTER (WHERE r.Status = 'qualified')     AS Qualified,
-                   COALESCE(SUM(r.SignupPoints + r.QualifyPoints), 0) AS PointsEarned,
+                   COUNT(*)::int                                           AS Invited,
+                   COUNT(*) FILTER (WHERE r.Status = 'qualified')::int      AS Qualified,
+                   COALESCE(SUM(r.SignupPoints + r.QualifyPoints), 0)::int  AS PointsEarned,
                    MAX(r.CreatedAt)                                   AS LastAt
             FROM rewards.Referrals r
             LEFT JOIN auth.Users u ON u.Id = r.ReferrerUserId
@@ -197,8 +197,8 @@ public class ReferralRepository : IReferralRepository
             SELECT p.UserId,
                    u.FullName,
                    p.CurrentLevel AS Level,
-                   COALESCE(SUM(t.Points) FILTER (WHERE t.Type = 'earn'), 0) AS Points,
-                   COUNT(*)       FILTER (WHERE t.SourceEvent = 'trip_completed') AS Trips
+                   COALESCE(SUM(t.Points) FILTER (WHERE t.Type = 'earn'), 0)::int AS Points,
+                   COUNT(*)       FILTER (WHERE t.SourceEvent = 'trip_completed')::int AS Trips
             FROM rewards.PointsProfiles p
             LEFT JOIN auth.Users u ON u.Id = p.UserId
             LEFT JOIN rewards.PointsTransactions t

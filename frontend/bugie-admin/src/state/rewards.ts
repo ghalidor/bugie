@@ -169,6 +169,87 @@ export interface ReferralStats {
   topReferrers:        TopReferrer[];
 }
 
+export interface UserSearch {
+  userId:           string;
+  fullName:         string | null;
+  email:            string | null;
+  phone:            string | null;
+  role:             string | null;
+  /** false = nunca ganó puntos. Suele ser la respuesta al reclamo. */
+  hasProfile:       boolean;
+  userType:         string | null;
+  currentLevel:     string | null;
+  availablePoints:  number;
+  totalPoints:      number;
+  lastActivityDate: string | null;
+}
+
+export interface ProfileSummary {
+  availablePoints:  number;
+  totalPoints:      number;
+  redeemedPoints:   number;
+  currentLevel:     string;
+  pointsExpiryDate: string | null;
+  memberSince:      string;
+}
+
+export interface UserTransaction {
+  id:           string;
+  type:         string;
+  points:       number;
+  sourceEvent:  string;
+  referenceId:  string | null;
+  balanceAfter: number;
+  expiryDate:   string | null;
+  notes:        string | null;
+  createdAt:    string;
+}
+
+export interface UserRewardsDetail {
+  user:             UserSearch;
+  profile:          ProfileSummary | null;
+  history:          UserTransaction[];
+  redemptions:      Redemption[];
+  invited:          number;
+  invitedQualified: number;
+  milestones:       string[];
+}
+
+export interface AdjustmentResult {
+  pointsApplied: number;
+  balanceBefore: number;
+  balanceAfter:  number;
+  newLevel:      string;
+  warning:       string | null;
+}
+
+export interface SourceBreakdown {
+  sourceEvent:  string;
+  label:        string;
+  transactions: number;
+  points:       number;
+}
+
+export interface MonthlyPoints {
+  month:    string;
+  issued:   number;
+  redeemed: number;
+}
+
+export interface ProgramBalance {
+  profiles:           number;
+  profilesWithPoints: number;
+  pointsIssued:       number;
+  /** Lo que los usuarios pueden canjear hoy. Esto es la deuda. */
+  pointsAvailable:    number;
+  pointsRedeemed:     number;
+  pointsExpired:      number;
+  activeRedemptions:  number;
+  redemptionRate:     number;
+  bySource:           SourceBreakdown[];
+  byMonth:            MonthlyPoints[];
+}
+
 export interface ExpirationResult {
   warned:     number;
   expired:    number;
@@ -267,6 +348,23 @@ export const rewardsAdminApi = {
   deletePromotion: (id: string) =>
     apiFetch<{ message: string }>(`${base()}/promotions/${id}`, { method: 'DELETE' }),
 
+  // Soporte de usuarios
+  searchUsers: (q: string) =>
+    apiFetch<UserSearch[]>(`${base()}/users?q=${encodeURIComponent(q)}`),
+
+  getUser: (userId: string) =>
+    apiFetch<UserRewardsDetail>(`${base()}/users/${userId}`),
+
+  adjustPoints: (userId: string, points: number, reason: string) =>
+    apiFetch<AdjustmentResult>(`${base()}/users/${userId}/adjust`, {
+      method: 'POST',
+      body: JSON.stringify({ points, reason }),
+    }),
+
+  // Balance
+  balance: () =>
+    apiFetch<ProgramBalance>(`${base()}/balance`),
+
   // Referidos
   referralStats: () =>
     apiFetch<ReferralStats>(`${base()}/referrals`),
@@ -346,7 +444,12 @@ export const STATUS_COLOR: Record<string, string> = {
   cancelled: '#ef4444',
 };
 
-export const fmtPoints = (n: number) => n.toLocaleString('es-PE');
+/**
+ * Un dato faltante de la API no debe tumbar la pantalla entera: sin esta
+ * guarda, un null en cualquier campo numérico deja el admin en blanco.
+ */
+export const fmtPoints = (n: number | null | undefined) =>
+  (n ?? 0).toLocaleString('es-PE');
 
 export const fmtDate = (iso: string | null, withTime = false) => {
   if (!iso) return '—';

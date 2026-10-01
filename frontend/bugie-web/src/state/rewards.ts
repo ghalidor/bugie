@@ -141,6 +141,48 @@ export interface MyReferral {
   people:             ReferredPerson[];
 }
 
+export interface ProgressDay {
+  date:    string;
+  hasTrip: boolean;
+  isToday: boolean;
+}
+
+export interface Progress {
+  streakDays:     number;
+  streakTarget:   number;
+  streakPoints:   number;
+  streakDaysToGo: number;
+  traveledToday:  boolean;
+  days:           ProgressDay[];
+
+  weeklyTrips:    number;
+  /** 0 = la meta semanal no aplica a este tipo de cuenta. */
+  weeklyGoal:     number;
+  weeklyPoints:   number;
+
+  isAnniversaryMonth:    boolean;
+  anniversaryMultiplier: number;
+  memberSince:           string | null;
+}
+
+export interface RankingEntry {
+  position:        number;
+  userId:          string;
+  fullName:        string | null;
+  level:           string;
+  pointsThisMonth: number;
+  trips:           number;
+  isMe:            boolean;
+  relation:        string;
+}
+
+export interface FriendsRanking {
+  myPosition:        number;
+  myPointsThisMonth: number;
+  monthLabel:        string;
+  entries:           RankingEntry[];
+}
+
 export interface Paged<T> {
   items:    T[];
   total:    number;
@@ -173,6 +215,12 @@ export const rewardsApi = {
       method: 'POST',
       body: JSON.stringify({ catalogItemId }),
     }),
+
+  progress: () =>
+    apiFetch<Progress>(`${base()}/me/progress`),
+
+  ranking: () =>
+    apiFetch<FriendsRanking>(`${base()}/me/ranking`),
 
   myReferral: () =>
     apiFetch<MyReferral>(`${base()}/me/referral`),

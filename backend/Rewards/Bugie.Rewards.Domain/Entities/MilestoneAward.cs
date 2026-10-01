@@ -5,6 +5,7 @@ public static class MilestoneTypes
     public const string Streak      = "streak";
     public const string WeeklyGoal  = "weekly_goal";
     public const string Anniversary = "anniversary";
+    public const string NoCancellations = "no_cancellations";
 }
 
 /// <summary>Un logro pagado. El par (perfil, tipo, periodo) es único.</summary>

@@ -47,3 +47,20 @@ public record RedeemResultDto(
     RedemptionDto Redemption,
     int           AvailablePointsAfter,
     string        CurrentLevel);
+
+/// <summary>Respuesta a Trips cuando pregunta si un cupón sirve para un viaje.</summary>
+public record CouponValidationDto(
+    bool     Valid,
+    string?  Code,
+    string?  ItemName,
+    string?  RewardType,
+    /// <summary>Lo que de verdad se descuenta, ya recortado si hizo falta.</summary>
+    decimal  DiscountAmount,
+    /// <summary>Lo que el cupón valía antes del recorte.</summary>
+    decimal  FullDiscount,
+    /// <summary>Lo que la plataforma le queda debiendo al conductor.</summary>
+    decimal  OwedToDriver,
+    /// <summary>Por qué no se puede usar. Null si sí se puede.</summary>
+    string?  Reason,
+    /// <summary>Aviso cuando se aplicó menos de lo que valía.</summary>
+    string?  Warning);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
+import RewardsRanking from './RewardsRanking';
 import { rewardsApi, MyReferral, fmtPoints, fmtDate } from '../../state/rewards';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -171,6 +172,11 @@ export default function RewardsReferral() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Ranking entre amigos ── */}
+      <div className="col-12">
+        <RewardsRanking />
       </div>
 
       {/* ── A quiénes invité ── */}

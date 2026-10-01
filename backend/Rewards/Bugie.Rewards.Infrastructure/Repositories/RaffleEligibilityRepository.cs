@@ -30,7 +30,7 @@ public class RaffleEligibilityRepository : IRaffleEligibilityRepository
                    p.UserType,
                    p.CurrentLevel,
                    p.CreatedAt  AS ProfileCreatedAt,
-                   COALESCE(m.Puntos, 0) AS PointsEarnedThisMonth
+                   COALESCE(m.Puntos, 0)::int AS PointsEarnedThisMonth
             FROM rewards.PointsProfiles p
             LEFT JOIN (
                 SELECT ProfileId, SUM(Points) AS Puntos

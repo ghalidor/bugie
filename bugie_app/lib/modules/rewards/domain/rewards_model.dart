@@ -403,6 +403,133 @@ class MyReferral {
       );
 }
 
+/// Un día de la tira de racha.
+class ProgressDay {
+  final DateTime date;
+  final bool     hasTrip;
+  final bool     isToday;
+
+  ProgressDay({required this.date, required this.hasTrip, required this.isToday});
+
+  factory ProgressDay.fromJson(Map<String, dynamic> j) => ProgressDay(
+        date:    _date(j['date']) ?? DateTime.now(),
+        hasTrip: j['hasTrip'] == true,
+        isToday: j['isToday'] == true,
+      );
+}
+
+/// Logros EN CURSO: lo que falta, no lo ya ganado.
+class Progress {
+  final int  streakDays;
+  final int  streakTarget;
+  final int  streakPoints;
+  final int  streakDaysToGo;
+  final bool traveledToday;
+  final List<ProgressDay> days;
+
+  final int  weeklyTrips;
+  /// 0 significa que la meta semanal no aplica a este tipo de cuenta.
+  final int  weeklyGoal;
+  final int  weeklyPoints;
+
+  final bool      isAnniversaryMonth;
+  final double    anniversaryMultiplier;
+  final DateTime? memberSince;
+
+  Progress({
+    required this.streakDays,
+    required this.streakTarget,
+    required this.streakPoints,
+    required this.streakDaysToGo,
+    required this.traveledToday,
+    required this.days,
+    required this.weeklyTrips,
+    required this.weeklyGoal,
+    required this.weeklyPoints,
+    required this.isAnniversaryMonth,
+    required this.anniversaryMultiplier,
+    this.memberSince,
+  });
+
+  factory Progress.fromJson(Map<String, dynamic> j) => Progress(
+        streakDays:     (j['streakDays']     as num?)?.toInt() ?? 0,
+        streakTarget:   (j['streakTarget']   as num?)?.toInt() ?? 0,
+        streakPoints:   (j['streakPoints']   as num?)?.toInt() ?? 0,
+        streakDaysToGo: (j['streakDaysToGo'] as num?)?.toInt() ?? 0,
+        traveledToday:  j['traveledToday'] == true,
+        days: ((j['days'] as List?) ?? [])
+            .map((e) => ProgressDay.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+        weeklyTrips:  (j['weeklyTrips']  as num?)?.toInt() ?? 0,
+        weeklyGoal:   (j['weeklyGoal']   as num?)?.toInt() ?? 0,
+        weeklyPoints: (j['weeklyPoints'] as num?)?.toInt() ?? 0,
+        isAnniversaryMonth:    j['isAnniversaryMonth'] == true,
+        anniversaryMultiplier: (j['anniversaryMultiplier'] as num?)?.toDouble() ?? 1,
+        memberSince:           _date(j['memberSince']),
+      );
+
+  /// true si no hay nada que mostrar: ni racha, ni meta, ni aniversario.
+  bool get isEmpty =>
+      streakTarget <= 0 && weeklyGoal <= 0 && !isAnniversaryMonth;
+}
+
+/// Una posición del ranking entre amigos.
+class RankingEntry {
+  final int    position;
+  final String userId;
+  final String fullName;
+  final String level;
+  final int    pointsThisMonth;
+  final int    trips;
+  final bool   isMe;
+  final String relation;
+
+  RankingEntry({
+    required this.position,
+    required this.userId,
+    required this.fullName,
+    required this.level,
+    required this.pointsThisMonth,
+    required this.trips,
+    required this.isMe,
+    required this.relation,
+  });
+
+  factory RankingEntry.fromJson(Map<String, dynamic> j) => RankingEntry(
+        position:        (j['position'] as num?)?.toInt() ?? 0,
+        userId:          j['userId'].toString(),
+        fullName:        (j['fullName'] ?? 'Usuario').toString(),
+        level:           (j['level'] ?? 'bronze').toString(),
+        pointsThisMonth: (j['pointsThisMonth'] as num?)?.toInt() ?? 0,
+        trips:           (j['trips'] as num?)?.toInt() ?? 0,
+        isMe:            j['isMe'] == true,
+        relation:        (j['relation'] ?? '').toString(),
+      );
+}
+
+class FriendsRanking {
+  final int    myPosition;
+  final int    myPointsThisMonth;
+  final String monthLabel;
+  final List<RankingEntry> entries;
+
+  FriendsRanking({
+    required this.myPosition,
+    required this.myPointsThisMonth,
+    required this.monthLabel,
+    required this.entries,
+  });
+
+  factory FriendsRanking.fromJson(Map<String, dynamic> j) => FriendsRanking(
+        myPosition:        (j['myPosition']        as num?)?.toInt() ?? 0,
+        myPointsThisMonth: (j['myPointsThisMonth'] as num?)?.toInt() ?? 0,
+        monthLabel:        (j['monthLabel'] ?? '').toString(),
+        entries: ((j['entries'] as List?) ?? [])
+            .map((e) => RankingEntry.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+      );
+}
+
 /// Página de resultados del backend.
 class RewardsPage<T> {
   final List<T> items;

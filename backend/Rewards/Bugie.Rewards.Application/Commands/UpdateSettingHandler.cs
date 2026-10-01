@@ -39,6 +39,8 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
             case SettingKeys.PromotionsEnabled:
             case SettingKeys.RafflesEnabled:
             case SettingKeys.RatingRequireFiveStars:
+            case SettingKeys.CouponsApplyToFare:
+            case SettingKeys.CouponMaxIsCommission:
             case SettingKeys.ReferralsEnabled:
                 if (!bool.TryParse(value, out _))
                     throw new ArgumentException("Debe ser true o false.");
@@ -59,6 +61,8 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
 
             case SettingKeys.RatingPointsPassenger:
             case SettingKeys.RatingPointsDriver:
+            case SettingKeys.NoCancelMinTrips:
+            case SettingKeys.NoCancelPoints:
             case SettingKeys.StreakDays:
             case SettingKeys.StreakPoints:
             case SettingKeys.WeeklyGoalPassenger:

@@ -120,6 +120,92 @@ public class PointsProfileRepository : IPointsProfileRepository
         return rows.ToList();
     }
 
+    /// <summary>
+    /// Ajuste manual del administrador. Tres escrituras en una transacción:
+    /// el saldo del perfil, el movimiento en el libro, y la auditoría de quién
+    /// lo hizo y por qué.
+    ///
+    /// El WHERE exige que el saldo siga siendo el que leímos: si el usuario
+    /// ganó o gastó puntos entre medio, el ajuste se rechaza y el admin lo
+    /// vuelve a intentar con el saldo correcto. Sin eso, dos ajustes a la vez
+    /// se pisarían.
+    /// </summary>
+    public async Task<bool> ApplyAdjustmentAsync(
+        PointsProfile profile, PointsTransaction movement,
+        int expectedBalance, string reason, Guid? adminId,
+        CancellationToken ct = default)
+    {
+        var wasClosed = _db.State != ConnectionState.Open;
+        if (wasClosed) _db.Open();
+
+        using var trx = _db.BeginTransaction();
+        try
+        {
+            var updated = await _db.ExecuteAsync(@"
+                UPDATE rewards.PointsProfiles SET
+                    TotalPoints     = @TotalPoints,
+                    AvailablePoints = @AvailablePoints,
+                    CurrentLevel    = @CurrentLevel,
+                    UpdatedAt       = @UpdatedAt
+                WHERE Id = @Id
+                  AND AvailablePoints = @ExpectedBalance",
+                new
+                {
+                    profile.Id,
+                    profile.TotalPoints,
+                    profile.AvailablePoints,
+                    profile.CurrentLevel,
+                    profile.UpdatedAt,
+                    ExpectedBalance = expectedBalance,
+                }, trx);
+
+            if (updated == 0)
+            {
+                // El saldo cambió mientras tanto. Nada se escribe.
+                trx.Rollback();
+                return false;
+            }
+
+            await _db.ExecuteAsync(@"
+                INSERT INTO rewards.PointsTransactions
+                    (Id, ProfileId, Type, Points, SourceEvent, ReferenceId,
+                     BalanceBefore, BalanceAfter, ExpiryDate, Notes, CreatedAt)
+                VALUES
+                    (@Id, @ProfileId, @Type, @Points, @SourceEvent, @ReferenceId,
+                     @BalanceBefore, @BalanceAfter, @ExpiryDate, @Notes, @CreatedAt)",
+                movement, trx);
+
+            // El signo del ajuste se guarda acá, donde sí se permite negativo.
+            var signo = movement.Type == "adjust_sub" ? -movement.Points : movement.Points;
+
+            await _db.ExecuteAsync(@"
+                INSERT INTO rewards.PointsAdjustments
+                    (ProfileId, TransactionId, Points, Reason, AdminId, CreatedAt)
+                VALUES
+                    (@ProfileId, @TransactionId, @Points, @Reason, @AdminId, now())",
+                new
+                {
+                    ProfileId     = profile.Id,
+                    TransactionId = movement.Id,
+                    Points        = signo,
+                    Reason        = reason,
+                    AdminId       = adminId,
+                }, trx);
+
+            trx.Commit();
+            return true;
+        }
+        catch
+        {
+            trx.Rollback();
+            throw;
+        }
+        finally
+        {
+            if (wasClosed && _db.State == ConnectionState.Open) _db.Close();
+        }
+    }
+
     public async Task<bool> ApplyExpirationAsync(
         PointsProfile profile, PointsTransaction movement, CancellationToken ct = default)
     {

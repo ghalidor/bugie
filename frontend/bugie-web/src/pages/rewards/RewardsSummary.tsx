@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
+import RewardsProgress from './RewardsProgress';
 import {
   rewardsApi, PointsProfile, PointsTransaction, RewardLevel,
   TX_LABEL, SOURCE_LABEL, LEVEL_COLOR, fmtPoints, fmtDate, daysUntil,
@@ -33,6 +34,9 @@ export default function RewardsSummary({ onGoToCatalog }: { onGoToCatalog: () =>
 
   return (
     <>
+      {/* Racha y meta semanal: lo que falta, antes de lo ya conseguido. */}
+      <RewardsProgress />
+
       {/* Nivel y progreso: el elemento principal de la pantalla */}
       <div className="bugie-card mb-3" style={{ borderLeft: `4px solid ${color}` }}>
         <div className="bugie-card-body">

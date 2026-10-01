@@ -2,14 +2,20 @@ using Bugie.Rewards.Domain.Entities;
 
 namespace Bugie.Rewards.Domain.Interfaces;
 
-/// <summary>Datos de un participante para repartir tickets.</summary>
-public record RaffleCandidate(
-    Guid     UserId,
-    Guid     ProfileId,
-    string   UserType,
-    string   CurrentLevel,
-    DateTime ProfileCreatedAt,
-    int      PointsEarnedThisMonth);
+/// <summary>
+/// Datos de un participante para repartir tickets.
+///
+/// Con propiedades y no como record posicional: lo materializa Dapper.
+/// </summary>
+public class RaffleCandidate
+{
+    public Guid     UserId                { get; set; }
+    public Guid     ProfileId             { get; set; }
+    public string   UserType              { get; set; } = string.Empty;
+    public string   CurrentLevel          { get; set; } = string.Empty;
+    public DateTime ProfileCreatedAt      { get; set; }
+    public int      PointsEarnedThisMonth { get; set; }
+}
 
 public interface IRaffleEligibilityRepository
 {

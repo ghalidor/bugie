@@ -25,6 +25,7 @@ builder.Services.AddScoped<IRaffleRepository,            RaffleRepository>();
 builder.Services.AddScoped<IRaffleEligibilityRepository, RaffleEligibilityRepository>();
 builder.Services.AddScoped<IReferralRepository,          ReferralRepository>();
 builder.Services.AddScoped<IMilestoneRepository,         MilestoneRepository>();
+builder.Services.AddScoped<IAdminQueryRepository,        AdminQueryRepository>();
 
 // Correo: mismos campos de configuración que usa Auth.
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
@@ -74,6 +75,22 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
 builder.Services.Configure<PointsExpirationOptions>(
     builder.Configuration.GetSection("PointsExpiration"));
 builder.Services.AddHostedService<PointsExpirationService>();
+
+// Cliente a Trips, solo para el resumen diario de conductores.
+builder.Services.Configure<TripsClientOptions>(opt =>
+{
+    opt.BaseUrl       = builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/";
+    opt.InternalToken = builder.Configuration["InternalToken"] ?? string.Empty;
+});
+builder.Services.AddHttpClient<ITripsStatsClient, TripsStatsClient>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/");
+    c.Timeout     = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.Configure<NoCancellationsOptions>(
+    builder.Configuration.GetSection("NoCancellations"));
+builder.Services.AddHostedService<NoCancellationsService>();
 
 builder.Services.Configure<RaffleMaintenanceOptions>(
     builder.Configuration.GetSection("RaffleMaintenance"));

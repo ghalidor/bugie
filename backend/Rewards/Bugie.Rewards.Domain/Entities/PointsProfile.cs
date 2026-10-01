@@ -133,6 +133,41 @@ public class PointsProfile
     }
 
     /// <summary>Deja constancia del hito avisado para la fecha vigente.</summary>
+    /// <summary>
+    /// Resta puntos por un ajuste del administrador.
+    ///
+    /// No toca TotalPoints ni RedeemedPoints: el histórico de lo ganado no se
+    /// reescribe, y esto no es un canje. Solo baja el saldo disponible.
+    ///
+    /// Nunca deja el saldo en negativo: si el ajuste pide más de lo que hay,
+    /// se descuenta lo que haya. Devuelve cuánto se descontó de verdad.
+    /// </summary>
+    public int AdjustDown(int points)
+    {
+        if (points <= 0) return 0;
+
+        var real = Math.Min(points, AvailablePoints);
+        AvailablePoints -= real;
+        UpdatedAt = DateTime.UtcNow;
+        return real;
+    }
+
+    /// <summary>
+    /// Suma puntos por un ajuste del administrador.
+    ///
+    /// A diferencia de Earn, NO renueva la fecha de vencimiento: un ajuste es
+    /// una corrección, no actividad del usuario. Si la renovara, un ajuste de
+    /// 1 punto le regalaría 12 meses más de vigencia a todo su saldo.
+    /// </summary>
+    public void AdjustUp(int points)
+    {
+        if (points <= 0) return;
+
+        TotalPoints     += points;
+        AvailablePoints += points;
+        UpdatedAt        = DateTime.UtcNow;
+    }
+
     public void MarkExpiryWarningSent(int milestoneDays)
     {
         ExpiryWarningSentFor       = PointsExpiryDate;

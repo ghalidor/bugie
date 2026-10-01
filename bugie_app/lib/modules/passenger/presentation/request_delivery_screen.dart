@@ -81,7 +81,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
   // Submit
   bool _submitting = false;
 
-  // ---- Datos del paquete (envío) ----
+  // ---- Datos del paquete (envÃ­o) ----
   final _pkgDescCtrl = TextEditingController();
   final _pkgWeightCtrl = TextEditingController();
   final _pkgDetailsCtrl = TextEditingController();
@@ -400,8 +400,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
 
   Future<void> _onMapTap(LatLng pos) async {
     final rev = await _geocoding.reverse(pos.latitude, pos.longitude);
-    // Al tocar el mapa sí dejamos coords como respaldo si el reverse falla,
-    // porque el usuario eligió ese punto explícitamente.
+    // Al tocar el mapa sÃ­ dejamos coords como respaldo si el reverse falla,
+    // porque el usuario eligiÃ³ ese punto explÃ­citamente.
     final shortAddr = rev.isNotEmpty
         ? rev
         : '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
@@ -535,7 +535,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
           _error = 'La tarifa mÃ­nima permitida es S/ ${_minFare!.toStringAsFixed(2)}.');
       return;
     }
-    // Envío: validar datos mínimos del paquete.
+    // EnvÃ­o: validar datos mÃ­nimos del paquete.
     if (_pkgPhotos.isEmpty) {
       setState(() => _error = 'Agrega al menos una foto del paquete.');
       return;
@@ -576,7 +576,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
             ? null
             : _pkgDetailsCtrl.text.trim(),
       );
-      // Subir las fotos del paquete al envío recién creado.
+      // Subir las fotos del paquete al envÃ­o reciÃ©n creado.
       await repo.uploadPackagePhotos(
           trip.id, _pkgPhotos.map((x) => x.path).toList());
       if (!mounted) return;

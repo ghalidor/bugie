@@ -2,15 +2,22 @@ using Bugie.Rewards.Domain.Entities;
 
 namespace Bugie.Rewards.Domain.Interfaces;
 
-/// <summary>Fila del ranking de quienes más invitaron.</summary>
-public record TopReferrerRow(
-    Guid     UserId,
-    string?  FullName,
-    string?  Email,
-    int      Invited,
-    int      Qualified,
-    int      PointsEarned,
-    DateTime LastAt);
+/// <summary>
+/// Fila del ranking de quienes mas invitaron.
+///
+/// Con propiedades y no como record posicional: Dapper lo materializa desde
+/// SQL, y asi mapea por nombre en vez de depender del orden de las columnas.
+/// </summary>
+public class TopReferrerRow
+{
+    public Guid     UserId       { get; set; }
+    public string?  FullName     { get; set; }
+    public string?  Email        { get; set; }
+    public int      Invited      { get; set; }
+    public int      Qualified    { get; set; }
+    public int      PointsEarned { get; set; }
+    public DateTime LastAt       { get; set; }
+}
 
 public interface IReferralRepository
 {
@@ -68,9 +75,11 @@ public interface IReferralRepository
 }
 
 /// <summary>Puntos de un usuario en el mes, para el ranking.</summary>
-public record FriendPoints(
-    Guid    UserId,
-    string? FullName,
-    string  Level,
-    int     Points,
-    int     Trips);
+public class FriendPoints
+{
+    public Guid    UserId   { get; set; }
+    public string? FullName { get; set; }
+    public string  Level    { get; set; } = string.Empty;
+    public int     Points   { get; set; }
+    public int     Trips    { get; set; }
+}

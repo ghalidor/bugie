@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Rewards.Application.Commands;
 using Bugie.Rewards.Application.Queries;
+using Bugie.Rewards.Application.DTOs;
 
 namespace Bugie.Rewards.Api.Controllers;
 
@@ -239,6 +240,70 @@ public class RewardsAdminController : ControllerBase
         }
         catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
     }
+
+    // ─────────────────────── SOPORTE DE USUARIOS ───────────────────────
+
+    /// <summary>
+    /// GET /api/rewards/admin/users?q=texto
+    /// Busca por correo, nombre o teléfono. Incluye usuarios SIN perfil de
+    /// puntos: si alguien reclama que no le acreditaron nada, es justamente
+    /// el caso que hay que poder encontrar.
+    /// </summary>
+    [HttpGet("users")]
+    public async Task<IActionResult> SearchUsers(
+        [FromQuery] string q, CancellationToken ct) =>
+        Ok(await _mediator.Send(new SearchUsersQuery(q ?? string.Empty), ct));
+
+    /// <summary>
+    /// GET /api/rewards/admin/users/{userId}
+    /// Saldo, historial, canjes, referidos y logros de una persona.
+    /// </summary>
+    [HttpGet("users/{userId:guid}")]
+    public async Task<IActionResult> GetUser(Guid userId, CancellationToken ct)
+    {
+        try   { return Ok(await _mediator.Send(new GetUserRewardsQuery(userId), ct)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+    }
+
+    public record AdjustRequest(int Points, string Reason);
+
+    /// <summary>
+    /// POST /api/rewards/admin/users/{userId}/adjust
+    /// Corrige los puntos. Positivo suma, negativo resta. El motivo es
+    /// obligatorio y queda registrado junto con el administrador que lo hizo.
+    /// </summary>
+    [HttpPost("users/{userId:guid}/adjust")]
+    public async Task<IActionResult> AdjustPoints(
+        Guid userId, [FromBody] AdjustRequest body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _mediator.Send(new AdjustUserPointsCommand(
+                userId, body.Points, body.Reason, CurrentUserId), ct));
+        }
+        catch (ArgumentException ex)         { return BadRequest(new { error = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    /// <summary>
+    /// POST /api/rewards/admin/no-cancellations/run?date=2026-10-08
+    /// Paga el bono de trabajar sin cancelar. Corre solo cada madrugada para
+    /// el día anterior; esto es para probarlo sin esperar.
+    /// </summary>
+    [HttpPost("no-cancellations/run")]
+    public async Task<IActionResult> RunNoCancellations(
+        [FromQuery] DateTime? date, CancellationToken ct) =>
+        Ok(await _mediator.Send(new AwardNoCancellationsCommand(date), ct));
+
+    // ────────────────────────── BALANCE ──────────────────────────
+
+    /// <summary>
+    /// GET /api/rewards/admin/balance
+    /// Cuánto se emitió, cuánto se canjeó y cuánto se debe.
+    /// </summary>
+    [HttpGet("balance")]
+    public async Task<IActionResult> Balance(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetProgramBalanceQuery(), ct));
 
     // ────────────────────────── REFERIDOS ──────────────────────────
 

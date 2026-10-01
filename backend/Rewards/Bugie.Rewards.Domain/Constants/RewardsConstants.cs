@@ -15,7 +15,9 @@ public static class TransactionTypes
     public const string Earn   = "earn";    // suma puntos
     public const string Redeem = "redeem";  // resta por canje
     public const string Expire = "expire";  // resta por vencimiento
-    public const string Bonus  = "bonus";   // suma por ajuste manual o promocion
+    public const string Bonus     = "bonus";       // suma por devolucion de canje
+    public const string AdjustAdd = "adjust_add";  // suma por ajuste manual del admin
+    public const string AdjustSub = "adjust_sub";  // resta por ajuste manual del admin
 }
 
 /// <summary>Evento que origino la transaccion. Sirve para trazabilidad.</summary>
@@ -30,6 +32,8 @@ public static class SourceEvents
     public const string WeeklyGoal        = "weekly_goal";
     public const string Anniversary       = "anniversary";
     public const string Rating            = "rating";
+    public const string AdminAdjustment   = "admin_adjustment";
+    public const string NoCancellations   = "no_cancellations";
 }
 
 /// <summary>Claves de rewards.settings.</summary>
@@ -62,6 +66,10 @@ public static class SettingKeys
     public const string RatingPointsPassenger   = "rating_points_passenger";
     public const string RatingPointsDriver      = "rating_points_driver";
     public const string RatingRequireFiveStars  = "rating_require_five_stars";
+    public const string CouponsApplyToFare      = "coupons_apply_to_fare";
+    public const string CouponMaxIsCommission   = "coupon_max_is_commission";
+    public const string NoCancelMinTrips        = "no_cancel_min_trips";
+    public const string NoCancelPoints          = "no_cancel_points";
 }
 
 /// <summary>Como se decide el nivel del usuario.</summary>

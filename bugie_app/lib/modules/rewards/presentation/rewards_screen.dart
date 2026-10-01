@@ -144,6 +144,7 @@ class _SummaryTab extends StatefulWidget {
 
 class _SummaryTabState extends State<_SummaryTab> {
   RewardsPointsProfile? _profile;
+  Progress?             _progress;
   List<RewardLevel>     _levels = [];
   List<RewardsTransaction> _history = [];
   int  _historyTotal = 0;
@@ -166,12 +167,15 @@ class _SummaryTabState extends State<_SummaryTab> {
         repo.getProfile(),
         repo.getLevels(),
         repo.getHistory(page: 1, pageSize: 15),
+        // El progreso es complementario: si falla, la pantalla igual sirve.
+        repo.getProgress().then<Progress?>((p) => p).catchError((_) => null),
       ]);
       if (!mounted) return;
       final page = results[2] as RewardsPage<RewardsTransaction>;
       setState(() {
         _profile      = results[0] as RewardsPointsProfile;
         _levels       = results[1] as List<RewardLevel>;
+        _progress     = results[3] as Progress?;
         _history      = page.items;
         _historyTotal = page.total;
         _historyPage  = 1;
@@ -221,6 +225,9 @@ class _SummaryTabState extends State<_SummaryTab> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
+          // La racha va primero: es lo que falta, y motiva más que lo ya ganado.
+          if (_progress != null && !_progress!.isEmpty)
+            _ProgressSection(progress: _progress!),
           _LevelCard(profile: p),
           const SizedBox(height: 12),
           if (p.availablePoints > 0 && p.pointsExpiryDate != null)
@@ -1297,6 +1304,211 @@ class _RaffleCard extends StatelessWidget {
   }
 }
 
+/* ── Racha, meta semanal y aniversario ─────────────────────────────────── */
+
+class _ProgressSection extends StatelessWidget {
+  final Progress progress;
+  const _ProgressSection({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (progress.streakTarget > 0) _StreakCard(progress: progress),
+        if (progress.weeklyGoal > 0) ...[
+          const SizedBox(height: 10),
+          _WeeklyGoalCard(progress: progress),
+        ],
+        if (progress.isAnniversaryMonth) ...[
+          const SizedBox(height: 10),
+          _AnniversaryBanner(multiplier: progress.anniversaryMultiplier),
+        ],
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+class _StreakCard extends StatelessWidget {
+  final Progress progress;
+  const _StreakCard({required this.progress});
+
+  static const _fuego = Color(0xFFF97316);
+  static const _diaCorto = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final p = progress;
+
+    // El mensaje es lo que convierte el dato en una invitación a viajar.
+    final mensaje = !p.traveledToday && p.streakDays == 0
+        ? 'Viaja hoy para empezar una racha.'
+        : p.streakDaysToGo == 0
+            ? '¡Completaste ${p.streakDays} días! Ganaste ${formatPoints(p.streakPoints)} puntos.'
+            : 'Viaja ${p.streakDaysToGo} ${p.streakDaysToGo == 1 ? "día" : "días"} más '
+              'y ganas ${formatPoints(p.streakPoints)} puntos.';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.local_fire_department,
+                color: p.traveledToday ? _fuego : c.textMuted, size: 19),
+            const SizedBox(width: 8),
+            const Text('Tu racha',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+            const Spacer(),
+            Text('${p.streakDays}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19)),
+            Text(' / ${p.streakTarget} días',
+                style: TextStyle(fontSize: 12, color: c.textMuted)),
+          ]),
+          const SizedBox(height: 12),
+
+          Row(
+            children: p.days.map((d) {
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: Column(children: [
+                    Container(
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: d.hasTrip ? _fuego : c.bg,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: d.isToday ? BugieColors.primary : c.border,
+                          width: d.isToday ? 2 : 1,
+                        ),
+                      ),
+                      child: d.hasTrip
+                          ? const Icon(Icons.check, size: 15, color: Colors.white)
+                          : Icon(Icons.circle, size: 4, color: c.textMuted),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_diaCorto[d.date.weekday % 7],
+                        style: TextStyle(fontSize: 10, color: c.textMuted)),
+                  ]),
+                ),
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: 10),
+          Text(mensaje, style: const TextStyle(fontSize: 12.5)),
+
+          if (!p.traveledToday && p.streakDays == 0) ...[
+            const SizedBox(height: 3),
+            Text('La racha se corta si pasas un día sin viajar.',
+                style: TextStyle(fontSize: 11.5, color: c.textMuted)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WeeklyGoalCard extends StatelessWidget {
+  final Progress progress;
+  const _WeeklyGoalCard({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final p = progress;
+    final faltan  = (p.weeklyGoal - p.weeklyTrips).clamp(0, p.weeklyGoal);
+    final lograda = faltan == 0;
+    final pct     = (p.weeklyTrips / p.weeklyGoal).clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.adjust,
+                color: lograda ? BugieColors.success : BugieColors.primary, size: 19),
+            const SizedBox(width: 8),
+            const Text('Meta de la semana',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+            const Spacer(),
+            Text('${p.weeklyTrips}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19)),
+            Text(' / ${p.weeklyGoal}',
+                style: TextStyle(fontSize: 12, color: c.textMuted)),
+          ]),
+          const SizedBox(height: 10),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 8,
+              backgroundColor: c.border,
+              valueColor: AlwaysStoppedAnimation(
+                  lograda ? BugieColors.success : BugieColors.primary),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          Text(
+            lograda
+                ? 'Meta cumplida. Ganaste ${formatPoints(p.weeklyPoints)} puntos.'
+                : 'Te faltan $faltan ${faltan == 1 ? "viaje" : "viajes"} '
+                  'para ganar ${formatPoints(p.weeklyPoints)} puntos.',
+            style: const TextStyle(fontSize: 12.5),
+          ),
+          const SizedBox(height: 3),
+          Text('La semana se reinicia el lunes.',
+              style: TextStyle(fontSize: 11.5, color: c.textMuted)),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnniversaryBanner extends StatelessWidget {
+  final double multiplier;
+  const _AnniversaryBanner({required this.multiplier});
+
+  @override
+  Widget build(BuildContext context) {
+    final texto = multiplier % 1 == 0 ? multiplier.toInt().toString() : multiplier.toString();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BugieColors.warning.withOpacity(.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BugieColors.warning.withOpacity(.35)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.cake_outlined, color: BugieColors.warning, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Es tu mes de aniversario en Bugie. Ganas ${texto}x puntos en todos '
+            'tus viajes hasta fin de mes.',
+            style: const TextStyle(fontSize: 12.5, height: 1.35),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
 /* ── Pestaña 5: invita y gana ──────────────────────────────────────────── */
 
 class _ReferralTab extends StatefulWidget {
@@ -1309,7 +1521,8 @@ class _ReferralTab extends StatefulWidget {
 class _ReferralTabState extends State<_ReferralTab> {
   final _emailCtrl = TextEditingController();
 
-  MyReferral? _data;
+  MyReferral?     _data;
+  FriendsRanking? _ranking;
   bool _loading = true;
   bool _sending = false;
   String? _error;
@@ -1330,9 +1543,13 @@ class _ReferralTabState extends State<_ReferralTab> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final data = await context.read<RewardsRepository>().getMyReferral();
+      final repo = context.read<RewardsRepository>();
+      final data = await repo.getMyReferral();
+      // El ranking es complementario: si falla, la pantalla igual sirve.
+      final ranking = await repo.getRanking().then<FriendsRanking?>((r) => r)
+          .catchError((_) => null);
       if (!mounted) return;
-      setState(() { _data = data; _loading = false; });
+      setState(() { _data = data; _ranking = ranking; _loading = false; });
     } on ApiException catch (e) {
       if (mounted) setState(() { _error = e.message; _loading = false; });
     } catch (_) {
@@ -1491,6 +1708,17 @@ class _ReferralTabState extends State<_ReferralTab> {
             ]),
           ],
 
+          // ── Ranking entre amigos ──
+          if (_ranking != null && _ranking!.entries.length > 1) ...[
+            const SizedBox(height: 24),
+            _SectionTitle('Ranking entre amigos'),
+            const SizedBox(height: 4),
+            Text('Puntos de ${_ranking!.monthLabel}',
+                style: TextStyle(fontSize: 11.5, color: c.textMuted)),
+            const SizedBox(height: 8),
+            ..._ranking!.entries.map((e) => _RankingRow(entry: e)),
+          ],
+
           // ── A quiénes invité ──
           if (d.people.isNotEmpty) ...[
             const SizedBox(height: 24),
@@ -1500,6 +1728,65 @@ class _ReferralTabState extends State<_ReferralTab> {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _RankingRow extends StatelessWidget {
+  final RankingEntry entry;
+  const _RankingRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final color = levelColor(entry.level);
+    const dorado = Color(0xFFF5B400);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: entry.isMe ? BugieColors.primary.withOpacity(.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: entry.isMe ? BugieColors.primary : Colors.transparent),
+      ),
+      child: Row(children: [
+        SizedBox(
+          width: 24,
+          child: entry.position == 1
+              ? const Icon(Icons.emoji_events, size: 16, color: dorado)
+              : Text('${entry.position}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: entry.position <= 3 ? dorado : c.textMuted)),
+        ),
+        const SizedBox(width: 8),
+        Icon(Icons.workspace_premium, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(entry.fullName,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text(entry.relation,
+                  style: TextStyle(fontSize: 11, color: c.textMuted)),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(formatPoints(entry.pointsThisMonth),
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+            Text('${entry.trips} ${entry.trips == 1 ? "viaje" : "viajes"}',
+                style: TextStyle(fontSize: 11, color: c.textMuted)),
+          ],
+        ),
+      ]),
     );
   }
 }

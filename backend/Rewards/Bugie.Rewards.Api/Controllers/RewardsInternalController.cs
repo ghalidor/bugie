@@ -164,6 +164,34 @@ public class RewardsInternalController : ControllerBase
             : Ok(dto);
     }
 
+    public record ValidateCouponRequest(
+        string  Code,
+        Guid    UserId,
+        decimal Fare,
+        decimal PlatformFee);
+
+    /// <summary>
+    /// POST /api/rewards/internal/coupon/validate
+    /// Lo pregunta Trips antes de tocar la tarifa: si el cupón sirve para ese
+    /// viaje y cuánto descuenta de verdad.
+    ///
+    /// Siempre responde 200. El campo "valid" dice si se puede, y "reason"
+    /// explica por qué no, para mostrárselo al pasajero tal cual.
+    /// </summary>
+    [HttpPost("coupon/validate")]
+    public async Task<IActionResult> ValidateCoupon(
+        [FromBody] ValidateCouponRequest req,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
+    {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
+
+        var dto = await _mediator.Send(new ValidateCouponForTripQuery(
+            req.Code ?? string.Empty, req.UserId, req.Fare, req.PlatformFee), ct);
+
+        return Ok(dto);
+    }
+
     public record UseCouponRequest(Guid? ReferenceId, string? Note);
 
     /// <summary>

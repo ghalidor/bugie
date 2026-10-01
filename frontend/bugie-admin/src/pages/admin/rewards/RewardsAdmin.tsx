@@ -7,10 +7,14 @@ import RedemptionsTab from './RedemptionsTab';
 import PromotionsTab from './PromotionsTab';
 import RafflesTab from './RafflesTab';
 import ReferralsTab from './ReferralsTab';
+import BalanceTab from './BalanceTab';
+import SupportTab from './SupportTab';
 
-type Tab = 'config' | 'niveles' | 'catalogo' | 'canjes' | 'promos' | 'sorteos' | 'referidos';
+type Tab = 'balance' | 'soporte' | 'config' | 'niveles' | 'catalogo' | 'canjes' | 'promos' | 'sorteos' | 'referidos';
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'balance',  label: 'Balance',       icon: 'fa-solid fa-scale-balanced' },
+  { key: 'soporte',  label: 'Buscar usuario', icon: 'fa-solid fa-user-magnifying-glass' },
   { key: 'config',   label: 'Configuración', icon: 'fa-solid fa-sliders' },
   { key: 'niveles',  label: 'Niveles',       icon: 'fa-solid fa-medal' },
   { key: 'catalogo', label: 'Catálogo',      icon: 'fa-solid fa-gift' },
@@ -23,7 +27,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 /// Administracion del programa de puntos. Todo lo que se cambia aca toma
 /// efecto en el acto, sin recompilar ni reiniciar el servicio.
 export default function RewardsAdmin() {
-  const [tab, setTab] = useState<Tab>('config');
+  const [tab, setTab] = useState<Tab>('balance');
 
   return (
     <>
@@ -57,6 +61,8 @@ export default function RewardsAdmin() {
         ))}
       </div>
 
+      {tab === 'balance'  && <BalanceTab />}
+      {tab === 'soporte'  && <SupportTab />}
       {tab === 'config'   && <SettingsTab />}
       {tab === 'niveles'  && <LevelsTab />}
       {tab === 'catalogo' && <CatalogTab />}
