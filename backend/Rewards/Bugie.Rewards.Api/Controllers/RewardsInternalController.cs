@@ -27,6 +27,30 @@ public class RewardsInternalController : ControllerBase
         _log      = log;
     }
 
+    public record TripRatedRequest(
+        Guid TripId,
+        Guid PassengerId,
+        Guid DriverId,
+        byte Stars);
+
+    /// <summary>
+    /// POST /api/rewards/internal/trip-rated
+    /// Lo manda la bandeja de salida de Trips cuando el pasajero califica.
+    /// </summary>
+    [HttpPost("trip-rated")]
+    public async Task<IActionResult> TripRated(
+        [FromBody] TripRatedRequest req, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new AccrueRatingPointsCommand(
+            req.TripId, req.PassengerId, req.DriverId, req.Stars), ct);
+
+        _log.LogInformation(
+            "Calificación del viaje {TripId}: {P} puntos al pasajero, {D} al conductor",
+            req.TripId, result.PassengerPoints, result.DriverPoints);
+
+        return Ok(result);
+    }
+
     public record ReferralRequest(
         Guid    NewUserId,
         string  NewUserType,

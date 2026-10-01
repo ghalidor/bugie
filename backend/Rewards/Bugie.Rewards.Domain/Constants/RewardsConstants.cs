@@ -29,6 +29,7 @@ public static class SourceEvents
     public const string Streak            = "streak";
     public const string WeeklyGoal        = "weekly_goal";
     public const string Anniversary       = "anniversary";
+    public const string Rating            = "rating";
 }
 
 /// <summary>Claves de rewards.settings.</summary>
@@ -58,6 +59,9 @@ public static class SettingKeys
     public const string WeeklyGoalDriver        = "weekly_goal_trips_driver";
     public const string WeeklyGoalPoints        = "weekly_goal_points";
     public const string AnniversaryMultiplier   = "anniversary_multiplier";
+    public const string RatingPointsPassenger   = "rating_points_passenger";
+    public const string RatingPointsDriver      = "rating_points_driver";
+    public const string RatingRequireFiveStars  = "rating_require_five_stars";
 }
 
 /// <summary>Como se decide el nivel del usuario.</summary>

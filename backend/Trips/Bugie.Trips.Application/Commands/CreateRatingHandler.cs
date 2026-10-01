@@ -34,17 +34,20 @@ public class CreateRatingHandler : IRequestHandler<CreateRatingCommand, TripRati
     private readonly ITripRatingRepository _ratings;
     private readonly IDriversClient _drivers;
     private readonly IAuthClient _auth;
+    private readonly IOutboxRepository _outbox;
 
     public CreateRatingHandler(
         ITripRepository trips,
         ITripRatingRepository ratings,
         IDriversClient drivers,
-        IAuthClient auth)
+        IAuthClient auth,
+        IOutboxRepository outbox)
     {
         _trips = trips;
         _ratings = ratings;
         _drivers = drivers;
         _auth = auth;
+        _outbox = outbox;
     }
 
     public async Task<TripRatingDto> Handle(CreateRatingCommand cmd, CancellationToken ct)
@@ -83,7 +86,23 @@ public class CreateRatingHandler : IRequestHandler<CreateRatingCommand, TripRati
         // Si falla, no abortamos: el rating ya está en BD.
         await _drivers.AddDriverRatingAsync(trip.DriverId.Value, cmd.Stars, ct);
 
-        // 4. Resolver el nombre del pasajero (el conductor lo verá en su historial).
+        // 4. Avisar a Rewards por la bandeja de salida.
+        //    Va en try/catch: la calificacion ya quedo guardada y no se puede
+        //    perder por culpa del programa de puntos.
+        try
+        {
+            await _outbox.AddAsync(OutboxEvent.TripRated(
+                tripId:      saved.TripId,
+                passengerId: saved.PassengerId,
+                driverId:    saved.DriverId,
+                stars:       saved.Stars), ct);
+        }
+        catch
+        {
+            // Sin puntos por esta calificacion, pero la calificacion esta.
+        }
+
+        // 5. Resolver el nombre del pasajero (el conductor lo verá en su historial).
         var users = await _auth.GetUsersByIdsAsync(new[] { cmd.PassengerId }, ct);
         var passengerName = users.TryGetValue(cmd.PassengerId, out var u)
             ? u.FullName

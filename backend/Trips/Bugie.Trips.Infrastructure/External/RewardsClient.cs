@@ -25,6 +25,7 @@ public class RewardsClient : IRewardsClient
         var path = eventType switch
         {
             "trip.completed" => "api/rewards/internal/trip-completed",
+            "trip.rated"     => "api/rewards/internal/trip-rated",
             _                => null
         };
 

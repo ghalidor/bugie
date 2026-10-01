@@ -38,6 +38,7 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
             case SettingKeys.ExpiryEnabled:
             case SettingKeys.PromotionsEnabled:
             case SettingKeys.RafflesEnabled:
+            case SettingKeys.RatingRequireFiveStars:
             case SettingKeys.ReferralsEnabled:
                 if (!bool.TryParse(value, out _))
                     throw new ArgumentException("Debe ser true o false.");
@@ -56,6 +57,8 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
                     throw new ArgumentException("La tasa debe ser un numero mayor a 0 y menor o igual a 1000. Use punto decimal.");
                 break;
 
+            case SettingKeys.RatingPointsPassenger:
+            case SettingKeys.RatingPointsDriver:
             case SettingKeys.StreakDays:
             case SettingKeys.StreakPoints:
             case SettingKeys.WeeklyGoalPassenger:

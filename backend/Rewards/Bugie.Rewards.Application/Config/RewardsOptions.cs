@@ -30,6 +30,17 @@ public sealed class RewardsOptions
     /// <summary>Multiplicador del mes de aniversario. 1 lo desactiva.</summary>
     public decimal AnniversaryMultiplier   { get; init; } = 3m;
 
+    // ── Calificaciones ──
+    public int     RatingPointsPassenger   { get; init; } = 30;
+    public int     RatingPointsDriver      { get; init; } = 50;
+
+    /// <summary>
+    /// Si es true, el pasajero solo cobra cuando pone 5 estrellas. Es lo que
+    /// pide el PDF, pero sesga las calificaciones: con false cobra por
+    /// calificar sin importar la nota.
+    /// </summary>
+    public bool    RatingRequireFiveStars  { get; init; } = true;
+
     /// <summary>Meta semanal según el tipo de cuenta.</summary>
     public int WeeklyGoalFor(string userType) =>
         userType == UserTypes.Driver ? WeeklyGoalDriver : WeeklyGoalPassenger;
@@ -71,6 +82,9 @@ public sealed class RewardsOptions
         WeeklyGoalDriver        = IntOrZero(settings, SettingKeys.WeeklyGoalDriver, 50),
         WeeklyGoalPoints        = IntOrZero(settings, SettingKeys.WeeklyGoalPoints, 200),
         AnniversaryMultiplier   = Dec(settings, SettingKeys.AnniversaryMultiplier, 3m),
+        RatingPointsPassenger   = IntOrZero(settings, SettingKeys.RatingPointsPassenger, 30),
+        RatingPointsDriver      = IntOrZero(settings, SettingKeys.RatingPointsDriver, 50),
+        RatingRequireFiveStars  = Bool(settings, SettingKeys.RatingRequireFiveStars, true),
         RafflePointsPerTicket = IntOrZero(settings, SettingKeys.RafflePointsPerTicket, 500),
         TimezoneOffsetHours   = Offset(settings, SettingKeys.TimezoneOffsetHours, -5),
         ExpiryWarningMilestones = Milestones(settings, SettingKeys.ExpiryWarningDays),

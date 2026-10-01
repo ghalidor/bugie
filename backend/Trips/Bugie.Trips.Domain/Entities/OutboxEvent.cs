@@ -13,6 +13,7 @@ namespace Bugie.Trips.Domain.Entities;
 public class OutboxEvent
 {
     public const string TypeTripCompleted = "trip.completed";
+    public const string TypeTripRated     = "trip.rated";
 
     public long      Id          { get; set; }
     public string    EventType   { get; set; } = string.Empty;
@@ -22,6 +23,21 @@ public class OutboxEvent
     public string?   LastError   { get; set; }
     public DateTime  CreatedAt   { get; set; }
     public DateTime? SentAt      { get; set; }
+
+    /// <summary>
+    /// Calificación registrada. Usa la misma bandeja que el viaje completado,
+    /// así hereda el reintento y la protección contra duplicados.
+    /// </summary>
+    public static OutboxEvent TripRated(
+        Guid tripId, Guid passengerId, Guid driverId, byte stars) => new()
+    {
+        EventType   = TypeTripRated,
+        PayloadJson = JsonSerializer.Serialize(new TripRatedPayload(
+            tripId, passengerId, driverId, stars)),
+        Status      = "pending",
+        Attempts    = 0,
+        CreatedAt   = DateTime.UtcNow,
+    };
 
     public static OutboxEvent TripCompleted(
         Guid tripId, Guid passengerId, Guid? driverId,
@@ -36,6 +52,16 @@ public class OutboxEvent
         CreatedAt   = DateTime.UtcNow,
     };
 }
+
+/// <summary>
+/// El pasajero calificó al conductor. Rewards decide a quién le toca puntos
+/// según su configuración: al que califica, al calificado, o a los dos.
+/// </summary>
+public record TripRatedPayload(
+    Guid TripId,
+    Guid PassengerId,
+    Guid DriverId,
+    byte Stars);
 
 public record TripCompletedPayload(
     Guid     TripId,

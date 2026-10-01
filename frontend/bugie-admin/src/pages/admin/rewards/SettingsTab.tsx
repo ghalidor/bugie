@@ -43,6 +43,34 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
+    title: 'Logros personales', icon: 'fa-solid fa-fire', color: '#f97316',
+    fields: [
+      { key: 'streak_days',   kind: 'number', label: 'Días seguidos para la racha',
+        help: 'Se vuelve a pagar en cada bloque: a los 7, 14, 21 días. Con 0 se desactiva.' },
+      { key: 'streak_points', kind: 'number', label: 'Puntos al completar la racha',
+        help: 'Se acreditan el día que se cierra el bloque.' },
+      { key: 'weekly_goal_trips_passenger', kind: 'number', label: 'Meta semanal — pasajero',
+        help: 'Viajes a la semana. Viene en 0 porque 50 es cifra de conductor, no de pasajero.' },
+      { key: 'weekly_goal_trips_driver',    kind: 'number', label: 'Meta semanal — conductor',
+        help: 'Servicios a la semana para ganar el bono.' },
+      { key: 'weekly_goal_points',          kind: 'number', label: 'Puntos al cumplir la meta',
+        help: 'Una vez por semana, aunque siga viajando.' },
+      { key: 'anniversary_multiplier',      kind: 'number', label: 'Multiplicador del mes de aniversario',
+        help: 'Durante el mes en que se registró. Con 1 se desactiva. No aplica el primer año.' },
+    ],
+  },
+  {
+    title: 'Calificaciones', icon: 'fa-solid fa-star', color: '#f5b400',
+    fields: [
+      { key: 'rating_points_passenger', kind: 'number', label: 'Puntos al pasajero por calificar',
+        help: 'Premia que se tome el trabajo de calificar.' },
+      { key: 'rating_points_driver',    kind: 'number', label: 'Puntos al conductor por recibir 5 estrellas',
+        help: 'Solo con 5. Acá el incentivo sí es el correcto.' },
+      { key: 'rating_require_five_stars', kind: 'bool', label: '¿Pagar al pasajero solo con 5 estrellas?',
+        help: 'Activado es lo que pide el PDF, pero sesga las notas: todos pondrían 5. Desactivado, cobra por calificar sin importar la nota y las calificaciones vuelven a ser útiles.' },
+    ],
+  },
+  {
     title: 'Referidos', icon: 'fa-solid fa-user-plus', color: '#38bdf8',
     fields: [
       { key: 'referrals_enabled',         kind: 'bool',   label: 'Referidos activos',
