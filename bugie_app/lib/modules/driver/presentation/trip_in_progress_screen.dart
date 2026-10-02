@@ -359,7 +359,29 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Text('Tarifa: S/ ${t.estimatedFare.toStringAsFixed(2)}'),
+                      // Si el pasajero aplico un cupon, el conductor cobra el
+                      // monto YA DESCONTADO. Sin el desglose veria un numero
+                      // menor al acordado y no sabria por que: ahi es donde
+                      // empiezan los reclamos.
+                      if (t.discountAmount != null) ...[
+                        Text(
+                          'Cobras: S/ '
+                          '${((t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!).toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Tarifa S/ ${(t.fareBeforeDiscount ?? t.estimatedFare).toStringAsFixed(2)} · '
+                          'cupón del pasajero −S/ ${t.discountAmount!.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 12, color: BugieColors.textMuted),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'El descuento lo pone Bugie, no sale de tu ganancia.',
+                          style: TextStyle(fontSize: 11.5, color: BugieColors.textMuted),
+                        ),
+                      ] else
+                        Text('Tarifa: S/ ${t.estimatedFare.toStringAsFixed(2)}'),
                       const Spacer(),
                       if (_routeInfo != null && _routeInfo!.options.isNotEmpty)
                         Text(

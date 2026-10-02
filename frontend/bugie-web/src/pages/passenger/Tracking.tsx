@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ApplyCouponModal, { CouponApplied } from './ApplyCouponModal';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import BugieMap from '../../components/BugieMap';
@@ -42,6 +43,11 @@ interface Trip {
   estimatedFare: number;
   proposedFare: number | null;
   status: number;
+
+  // Cupon aplicado a este viaje.
+  couponCode?: string | null;
+  discountAmount?: number | null;
+  fareBeforeDiscount?: number | null;
   waypoints?: Waypoint[];
 }
 
@@ -76,6 +82,7 @@ function timeAgo(iso: string): string {
 export default function PassengerTracking() {
   const navigate   = useNavigate();
   const [trip,      setTrip]      = useState<Trip | null>(null);
+  const [cuponAbierto, setCuponAbierto] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
@@ -303,8 +310,36 @@ export default function PassengerTracking() {
 
           <div className="d-flex gap-3">
             <div className="bugie-kpi flex-grow-1" style={{ minHeight: 'auto', padding: '0.8rem' }}>
-              <div className="label small">Tarifa</div>
-              <div className="value" style={{ fontSize: '1.3rem' }}>S/ {trip.estimatedFare.toFixed(2)}</div>
+              <div className="label small">
+                {trip.discountAmount ? 'Pagas' : 'Tarifa'}
+              </div>
+              <div className="value" style={{ fontSize: '1.3rem' }}>
+                S/ {(trip.discountAmount
+                      ? (trip.fareBeforeDiscount ?? trip.estimatedFare) - trip.discountAmount
+                      : trip.estimatedFare).toFixed(2)}
+              </div>
+              {trip.discountAmount ? (
+                <div className="small bugie-muted" style={{ textDecoration: 'line-through' }}>
+                  S/ {(trip.fareBeforeDiscount ?? trip.estimatedFare).toFixed(2)}
+                </div>
+              ) : null}
+
+              {/* Cupon: solo con el viaje aceptado o en curso. Antes no hay
+                  precio que descontar; despues ya se cobro. */}
+              {(trip.status === 2 || trip.status === 3) ? (
+                trip.discountAmount ? (
+                  <div className="small mt-2" style={{ color: '#0d6e4a' }}>
+                    <i className="fa-solid fa-tag me-1" />
+                    Cupón {trip.couponCode} · −S/ {trip.discountAmount.toFixed(2)}
+                  </div>
+                ) : (
+                  <button type="button"
+                          className="btn btn-sm btn-bugie-outline rounded-pill mt-2"
+                          onClick={() => setCuponAbierto(true)}>
+                    <i className="fa-solid fa-tag me-1" />Usar un cupón
+                  </button>
+                )
+              ) : null}
             </div>
             <div className="bugie-kpi flex-grow-1" style={{ minHeight: 'auto', padding: '0.8rem' }}>
               <div className="label small">Conductor</div>
@@ -703,6 +738,24 @@ export default function PassengerTracking() {
           </div>
         </div>
       )}
+      {cuponAbierto && trip ? (
+        <ApplyCouponModal
+          tripId={trip.id}
+          fare={trip.fareBeforeDiscount ?? trip.proposedFare ?? trip.estimatedFare}
+          onClose={() => setCuponAbierto(false)}
+          onApplied={(r: CouponApplied) => {
+            setCuponAbierto(false);
+            // Se refleja de inmediato sin esperar al siguiente sondeo.
+            setTrip(t => t ? {
+              ...t,
+              couponCode: r.code,
+              discountAmount: r.discountAmount,
+              fareBeforeDiscount: r.fareBeforeDiscount,
+            } : t);
+          }}
+        />
+      ) : null}
+
     </>
   );
 }

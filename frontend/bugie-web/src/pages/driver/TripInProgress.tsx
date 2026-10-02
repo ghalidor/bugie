@@ -15,6 +15,10 @@ interface Trip {
   originLat: number;    originLng: number;
   destLat: number;      destLng: number;
   estimatedFare: number; paymentMethod: string;
+  // Cupon que el pasajero aplico a este viaje.
+  couponCode?: string | null;
+  discountAmount?: number | null;
+  fareBeforeDiscount?: number | null;
   status: number;
   waypoints?: Waypoint[];
 }
@@ -53,7 +57,12 @@ export default function DriverTripInProgress() {
     try {
       await apiFetch(`${API.trips}/trips/${trip.id}/complete`, {
         method: 'PUT',
-        body: JSON.stringify({ finalFare: trip.estimatedFare }),
+        // La tarifa que se cobra es la YA DESCONTADA si el pasajero aplico
+        // un cupon. Mandar la original haria que el conductor cobre de mas y
+        // que el descuento no sirviera de nada.
+        body: JSON.stringify({
+          finalFare: (trip.fareBeforeDiscount ?? trip.estimatedFare) - (trip.discountAmount ?? 0),
+        }),
       });
       navigate('/app/conductor/inicio');
     } catch (err) {
@@ -99,8 +108,33 @@ export default function DriverTripInProgress() {
       <div className="row g-3 mb-3">
         <div className="col-6">
           <div className="bugie-kpi">
-            <div className="label">Tarifa</div>
-            <div className="value">S/ {trip.estimatedFare.toFixed(2)}</div>
+            <div className="label">{trip.discountAmount ? 'Cobras' : 'Tarifa'}</div>
+            <div className="value">
+              S/ {((trip.fareBeforeDiscount ?? trip.estimatedFare) - (trip.discountAmount ?? 0)).toFixed(2)}
+            </div>
+
+            {/* Desglose cuando el pasajero aplico un cupon.
+                Sin esto, el conductor ve un monto menor al acordado y no sabe
+                por que: ahi es donde empiezan los reclamos. */}
+            {trip.discountAmount ? (
+              <div className="small mt-2 pt-2"
+                   style={{ borderTop: '1px solid var(--bugie-border)' }}>
+                <div className="d-flex justify-content-between bugie-muted">
+                  <span>Tarifa del viaje</span>
+                  <span>S/ {(trip.fareBeforeDiscount ?? trip.estimatedFare).toFixed(2)}</span>
+                </div>
+                <div className="d-flex justify-content-between">
+                  <span>Cupón del pasajero</span>
+                  <span style={{ color: '#0d6e4a', fontWeight: 600 }}>
+                    − S/ {trip.discountAmount.toFixed(2)}
+                  </span>
+                </div>
+                <div className="bugie-muted mt-2" style={{ fontSize: '.78rem' }}>
+                  El pasajero usó un cupón de Bugie. Cobra el monto de arriba:
+                  el descuento no sale de tu ganancia.
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="col-6">

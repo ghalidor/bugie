@@ -216,6 +216,22 @@ export const rewardsApi = {
       body: JSON.stringify({ catalogItemId }),
     }),
 
+  /// POST /api/trips/{id}/coupon — vive en TRIPS, no en Rewards, porque el
+  /// cupon se aplica sobre un viaje. Se expone aca para tenerlo todo junto.
+  applyCouponToTrip: (tripId: string, code: string) =>
+    apiFetch<{
+      tripId: string; code: string; itemName: string;
+      fareBeforeDiscount: number; discountAmount: number;
+      amountToPay: number; warning: string | null;
+    }>(`${API.trips}/trips/${tripId}/coupon`, {
+      method: 'POST', body: JSON.stringify({ code }),
+    }),
+
+  removeCouponFromTrip: (tripId: string) =>
+    apiFetch<{ message: string }>(`${API.trips}/trips/${tripId}/coupon`, {
+      method: 'DELETE',
+    }),
+
   progress: () =>
     apiFetch<Progress>(`${base()}/me/progress`),
 
