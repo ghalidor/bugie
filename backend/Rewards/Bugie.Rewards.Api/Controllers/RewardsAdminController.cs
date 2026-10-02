@@ -305,6 +305,15 @@ public class RewardsAdminController : ControllerBase
     public async Task<IActionResult> Balance(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetProgramBalanceQuery(), ct));
 
+    /// <summary>
+    /// GET /api/rewards/admin/coupon-usage
+    /// Viajes a los que se les aplicó un cupón, cuánto se descontó y cuánto
+    /// se le quedó debiendo al conductor.
+    /// </summary>
+    [HttpGet("coupon-usage")]
+    public async Task<IActionResult> CouponUsage(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetCouponUsageQuery(), ct));
+
     // ────────────────────────── REFERIDOS ──────────────────────────
 
     /// <summary>

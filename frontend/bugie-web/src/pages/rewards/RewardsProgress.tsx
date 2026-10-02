@@ -13,7 +13,9 @@ import { rewardsApi, Progress, fmtPoints } from '../../state/rewards';
    cuántos faltan.
    ────────────────────────────────────────────────────────────────────────── */
 
-const DIA_CORTO = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+/* Dos letras y no una: con una sola, lunes y martes son ambos «L/M» y
+   miércoles también «M». Nadie distingue M de M en una fila. */
+const DIA_CORTO = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'];
 
 export default function RewardsProgress() {
   const [data,    setData]    = useState<Progress | null>(null);
@@ -96,32 +98,64 @@ function StreakCard({ data }: { data: Progress }) {
           </span>
         </div>
 
-        <div className="d-flex gap-2 mb-3">
-          {data.days.map((d, i) => {
-            const fecha = new Date(d.date);
-            return (
-              <div key={i} className="text-center flex-grow-1">
-                <div
-                  title={fecha.toLocaleDateString('es-PE')}
-                  style={{
-                    height: 38,
-                    borderRadius: 10,
-                    background: d.hasTrip ? '#f97316' : 'var(--bugie-bg-2, rgba(125,125,160,.12))',
-                    border: d.isToday ? '2px solid var(--bugie-primary)' : '1px solid var(--bugie-border)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: d.hasTrip ? '#fff' : 'var(--bugie-muted)',
-                  }}
-                >
-                  {d.hasTrip
-                    ? <i className="fa-solid fa-check" />
-                    : <span className="small">·</span>}
+        {/* La tira de dias.
+
+            Antes eran rectangulos anchos con un punto dentro: parecian campos
+            vacios de un formulario y no se entendia que representaban.
+
+            Ahora son circulos de tamano fijo unidos por una linea, que es como
+            se lee una secuencia. El dia cumplido se llena y lleva un check; el
+            que falta queda hueco. Debajo va el dia de la semana, y el de hoy
+            dice «Hoy» en lugar de depender de un borde que casi no se nota. */}
+        <div className="position-relative mb-3" style={{ paddingBottom: 4 }}>
+          {/* La linea que une los circulos, detras de ellos. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute', left: 18, right: 18, top: 17, height: 2,
+              background: 'var(--bugie-border)', zIndex: 0,
+            }}
+          />
+
+          <div className="d-flex justify-content-between position-relative"
+               style={{ zIndex: 1 }}>
+            {data.days.map((d, i) => {
+              const fecha = new Date(d.date);
+              const dia   = DIA_CORTO[fecha.getDay()];
+              return (
+                <div key={i} className="text-center"
+                     title={`${dia} ${fecha.getDate()}`}>
+                  <div
+                    style={{
+                      width: 36, height: 36, borderRadius: '50%',
+                      margin: '0 auto',
+                      background: d.hasTrip ? '#f97316' : 'var(--bugie-surface)',
+                      border: d.hasTrip
+                        ? '2px solid #f97316'
+                        : `2px solid ${d.isToday ? 'var(--bugie-primary)' : 'var(--bugie-border)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: d.hasTrip ? '#fff' : 'var(--bugie-muted)',
+                      fontSize: '.78rem', fontWeight: 700,
+                    }}
+                  >
+                    {d.hasTrip
+                      ? <i className="fa-solid fa-check" style={{ fontSize: '.8rem' }} />
+                      : fecha.getDate()}
+                  </div>
+                  <div
+                    className="mt-1"
+                    style={{
+                      fontSize: '.68rem',
+                      fontWeight: d.isToday ? 700 : 400,
+                      color: d.isToday ? 'var(--bugie-primary)' : 'var(--bugie-muted)',
+                    }}
+                  >
+                    {d.isToday ? 'Hoy' : dia}
+                  </div>
                 </div>
-                <div className="small bugie-muted mt-1" style={{ fontSize: '.68rem' }}>
-                  {DIA_CORTO[fecha.getDay()]}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
         <div className="small">{mensaje}</div>

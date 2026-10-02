@@ -250,6 +250,34 @@ export interface ProgramBalance {
   byMonth:            MonthlyPoints[];
 }
 
+export interface CouponUsage {
+  tripId:             string;
+  couponCode:         string;
+  itemName:           string | null;
+  fareBeforeDiscount: number;
+  discountAmount:     number;
+  amountPaid:         number;
+  platformOwesDriver: number;
+  passengerName:      string | null;
+  driverName:         string | null;
+  status:             'completed' | 'cancelled' | 'in_progress';
+  createdAt:          string;
+  completedAt:        string | null;
+}
+
+export interface CouponUsageReport {
+  trips:           number;
+  tripsCompleted:  number;
+  tripsCancelled:  number;
+  totalDiscount:   number;
+  /** Lo que la plataforma le quedó debiendo a los conductores. */
+  totalOwed:       number;
+  averageDiscount: number;
+  /** false = el interruptor está apagado, por eso no crece. */
+  featureEnabled:  boolean;
+  recent:          CouponUsage[];
+}
+
 export interface ExpirationResult {
   warned:     number;
   expired:    number;
@@ -362,6 +390,9 @@ export const rewardsAdminApi = {
     }),
 
   // Balance
+  couponUsage: () =>
+    apiFetch<CouponUsageReport>(`${base()}/coupon-usage`),
+
   balance: () =>
     apiFetch<ProgramBalance>(`${base()}/balance`),
 
@@ -437,11 +468,16 @@ export const STATUS_LABEL: Record<string, string> = {
   cancelled: 'Anulado',
 };
 
+/**
+ * Colores por estado, como VARIABLES del tema y no como valores fijos.
+ * Un verde que se lee bien sobre fondo oscuro se lava sobre blanco, y al
+ * reves: cada tema define el suyo en _variables.scss.
+ */
 export const STATUS_COLOR: Record<string, string> = {
-  active:    '#34d399',
-  used:      '#94a3b8',
-  expired:   '#f59e0b',
-  cancelled: '#ef4444',
+  active:    'var(--bugie-ok)',
+  used:      'var(--bugie-neutral)',
+  expired:   'var(--bugie-warn)',
+  cancelled: 'var(--bugie-bad)',
 };
 
 /**
@@ -542,10 +578,10 @@ export const RAFFLE_TYPES = [
 ];
 
 export const RAFFLE_STATUS: Record<string, { label: string; color: string }> = {
-  open:      { label: 'Abierto',   color: '#34d399' },
-  closed:    { label: 'Cerrado',   color: '#f59e0b' },
-  drawn:     { label: 'Sorteado',  color: '#818cf8' },
-  cancelled: { label: 'Cancelado', color: '#94a3b8' },
+  open:      { label: 'Abierto',   color: 'var(--bugie-ok)' },
+  closed:    { label: 'Cerrado',   color: 'var(--bugie-warn)' },
+  drawn:     { label: 'Sorteado',  color: 'var(--bugie-primary-soft)' },
+  cancelled: { label: 'Cancelado', color: 'var(--bugie-neutral)' },
 };
 
 export const raffleTypeLabel = (v: string) =>

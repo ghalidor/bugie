@@ -94,6 +94,12 @@ class Trip {
   final double destLat;
   final double destLng;
   final double estimatedFare;
+
+  // -- Cupon aplicado al viaje --
+  final String? couponCode;
+  final double? discountAmount;
+  /// Tarifa antes del descuento. Sin esto no se puede mostrar el desglose.
+  final double? fareBeforeDiscount;
   final double? finalFare;
   final double? proposedFare;
   final int status;
@@ -142,6 +148,9 @@ class Trip {
     required this.destLat,
     required this.destLng,
     required this.estimatedFare,
+    this.couponCode,
+    this.discountAmount,
+    this.fareBeforeDiscount,
     this.finalFare,
     this.proposedFare,
     required this.status,
@@ -183,6 +192,9 @@ class Trip {
         destLat:        (j['destLat'] as num).toDouble(),
         destLng:        (j['destLng'] as num).toDouble(),
         estimatedFare:  (j['estimatedFare'] as num).toDouble(),
+        couponCode:         j['couponCode']?.toString(),
+        discountAmount:     (j['discountAmount']     as num?)?.toDouble(),
+        fareBeforeDiscount: (j['fareBeforeDiscount'] as num?)?.toDouble(),
         finalFare:      (j['finalFare'] as num?)?.toDouble(),
         proposedFare:   (j['proposedFare'] as num?)?.toDouble(),
         status:         (j['status'] ?? 1) as int,

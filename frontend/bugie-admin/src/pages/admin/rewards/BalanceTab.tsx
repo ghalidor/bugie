@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../../state/api';
+import CouponUsageCard from './CouponUsageCard';
 import { rewardsAdminApi, ProgramBalance, fmtPoints } from '../../../state/rewards';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -27,9 +28,18 @@ export default function BalanceTab() {
   if (loading) {
     return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
   }
-  if (error || !data) {
-    return <div className="alert alert-danger small">{error ?? 'No se pudo cargar.'}</div>;
+  // Una respuesta inesperada no debe dejar el panel en blanco: se comprueba
+  // que venga lo mínimo antes de dibujar nada.
+  if (error || !data || typeof data.pointsAvailable !== 'number') {
+    return (
+      <div className="alert alert-danger small">
+        {error ?? 'El balance llegó incompleto. Revisa que Rewards esté respondiendo.'}
+      </div>
+    );
   }
+
+  const bySource = data.bySource ?? [];
+  const byMonth  = data.byMonth  ?? [];
 
   const sinMovimiento = data.pointsIssued === 0;
 
@@ -37,7 +47,7 @@ export default function BalanceTab() {
     <>
       {/* ── La deuda, primero y solo ── */}
       <div className="bugie-card mb-3" style={{ overflow: 'hidden' }}>
-        <div style={{ height: 3, background: '#f59e0b' }} />
+        <div style={{ height: 3, background: 'var(--bugie-warn)' }} />
         <div className="bugie-card-body">
           <div className="d-flex flex-wrap align-items-end gap-3">
             <div>
@@ -91,11 +101,11 @@ export default function BalanceTab() {
               <i className="fa-solid fa-arrow-trend-up me-2" />De dónde salen los puntos
             </div>
             <div className="bugie-card-body">
-              {data.bySource.length === 0 ? (
+              {bySource.length === 0 ? (
                 <div className="text-center py-4 bugie-muted small">Sin movimientos todavía.</div>
               ) : (
                 <div className="d-flex flex-column gap-2">
-                  {data.bySource.map(s => {
+                  {bySource.map(s => {
                     const pct = data.pointsIssued > 0
                       ? Math.round(s.points / data.pointsIssued * 100) : 0;
                     return (
@@ -132,18 +142,18 @@ export default function BalanceTab() {
               <i className="fa-solid fa-calendar me-2" />Últimos meses
             </div>
             <div className="bugie-card-body">
-              {data.byMonth.length === 0 ? (
+              {byMonth.length === 0 ? (
                 <div className="text-center py-4 bugie-muted small">Sin datos todavía.</div>
               ) : (
                 <>
                   <div className="d-flex gap-3 small bugie-muted mb-2">
-                    <span><i className="fa-solid fa-square me-1" style={{ color: 'var(--bugie-primary)' }} />Emitidos</span>
-                    <span><i className="fa-solid fa-square me-1" style={{ color: '#34d399' }} />Canjeados</span>
+                    <span><i className="fa-solid fa-square me-1" style={{ color: 'var(--bugie-primary-soft)' }} />Emitidos</span>
+                    <span><i className="fa-solid fa-square me-1" style={{ color: 'var(--bugie-ok)' }} />Canjeados</span>
                   </div>
 
                   <div className="d-flex flex-column gap-2">
-                    {data.byMonth.map(m => {
-                      const max = Math.max(...data.byMonth.map(x => Math.max(x.issued, x.redeemed)), 1);
+                    {byMonth.map(m => {
+                      const max = Math.max(...byMonth.map(x => Math.max(x.issued, x.redeemed)), 1);
                       return (
                         <div key={m.month}>
                           <div className="d-flex small">
@@ -164,7 +174,7 @@ export default function BalanceTab() {
                             <div style={{
                               height: 8, borderRadius: 4,
                               width: `${m.redeemed / max * 100}%`,
-                              background: '#34d399',
+                              background: 'var(--bugie-ok)',
                               minWidth: m.redeemed > 0 ? 4 : 0,
                             }} />
                           </div>
@@ -182,6 +192,12 @@ export default function BalanceTab() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Cupones aplicados a viajes: va en Balance porque tambien es dinero
+          que sale, igual que los puntos por canjear. */}
+      <div className="mt-3">
+        <CouponUsageCard />
       </div>
     </>
   );

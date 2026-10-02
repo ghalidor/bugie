@@ -30,13 +30,15 @@ body {
 
 .bugie-card,
 .bugie-shell-card {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 96%, transparent), color-mix(in srgb, var(--bugie-surface) 88%, transparent));
-  border: 1px solid color-mix(in srgb, var(--bugie-border) 76%, transparent);
+  /* Fondo SOLIDO, no translucido: con 88-96% de opacidad la tarjeta se
+     mezclaba con el fondo de la pagina y en tema claro desaparecia. */
+  background: var(--bugie-surface);
+  border: 1px solid var(--bugie-card-border);
   border-radius: 24px;
-  box-shadow: 0 12px 34px rgba(15, 23, 42, .06);
+  box-shadow: var(--bugie-card-shadow);
 }
 .bugie-shell-card { padding: 1.25rem; }
-.bugie-card-header { padding: 1rem 1.15rem; font-weight: 800; border-bottom: 1px solid color-mix(in srgb, var(--bugie-border) 72%, transparent); }
+.bugie-card-header { padding: 1rem 1.15rem; font-weight: 800; border-bottom: 1px solid var(--bugie-card-border); }
 .bugie-card-body { padding: 1.15rem; }
 .bugie-muted { color: var(--bugie-muted); }
 
@@ -45,24 +47,24 @@ body {
   gap: 1rem;
   padding: 1.4rem;
   border-radius: 28px;
-  color: #fff;
+  color: var(--bugie-hero-text);
   background:
-    linear-gradient(135deg, rgba(8,26,54,.96), rgba(17,45,89,.86)),
+    var(--bugie-hero-bg),
     url('/bugie-degradado.png') center/cover no-repeat;
   box-shadow: 0 22px 48px rgba(60, 40, 120,.16);
 }
 .bugie-shell-hero .description,
-.bugie-shell-hero .subtitle { color: rgba(255,255,255,.76); }
+.bugie-shell-hero .subtitle { color: var(--bugie-hero-muted); }
 
 .bugie-kpi {
   padding: 1.1rem;
   border-radius: 22px;
   min-height: 126px;
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--bugie-primary) 10%, transparent), transparent 32%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bugie-surface) 96%, transparent), color-mix(in srgb, var(--bugie-surface) 90%, transparent));
-  border: 1px solid color-mix(in srgb, var(--bugie-border) 76%, transparent);
-  box-shadow: 0 12px 30px rgba(15,23,42,.06);
+    radial-gradient(circle at top right, color-mix(in srgb, var(--bugie-primary) 8%, transparent), transparent 32%),
+    var(--bugie-surface);
+  border: 1px solid var(--bugie-card-border);
+  box-shadow: var(--bugie-card-shadow);
 }
 .bugie-kpi .value { font-size: clamp(1.5rem, 2.3vw, 2rem); font-weight: 900; letter-spacing: -.03em; }
 

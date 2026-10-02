@@ -71,7 +71,7 @@ export default function ReferralsTab() {
                   {fmtPoints(data.invitationsSent)}
                 </span>
                 <span className="bugie-muted small">enviadas</span>
-                <span className="fw-bold ms-auto" style={{ fontSize: '1.6rem', color: '#34d399' }}>
+                <span className="fw-bold ms-auto" style={{ fontSize: '1.6rem', color: 'var(--bugie-ok)' }}>
                   {fmtPoints(data.invitationsAccepted)}
                 </span>
                 <span className="bugie-muted small">terminaron en registro</span>
@@ -80,7 +80,7 @@ export default function ReferralsTab() {
               {tasaAceptacion !== null ? (
                 <>
                   <div className="progress" style={{ height: 8 }}>
-                    <div className="progress-bar" style={{ width: `${tasaAceptacion}%`, background: '#34d399' }} />
+                    <div className="progress-bar" style={{ width: `${tasaAceptacion}%`, background: 'var(--bugie-ok)' }} />
                   </div>
                   <div className="small bugie-muted mt-2">
                     {tasaAceptacion}% de las invitaciones por correo terminaron en una cuenta nueva.
@@ -165,7 +165,7 @@ export default function ReferralsTab() {
                     <div><strong>{r.invited}</strong> invitados</div>
                     <div className="bugie-muted">{r.qualified} activos</div>
                   </div>
-                  <div className="text-end fw-bold" style={{ minWidth: 80, color: '#34d399' }}>
+                  <div className="text-end fw-bold" style={{ minWidth: 80, color: 'var(--bugie-ok)' }}>
                     +{fmtPoints(r.pointsEarned)}
                   </div>
                 </div>

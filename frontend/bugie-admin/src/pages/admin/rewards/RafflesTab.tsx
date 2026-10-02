@@ -167,7 +167,7 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
   onEdit: () => void; onDraw: () => void; onVerify: () => void;
   onCloseVerify: () => void; onDeliver: (winnerId: string) => void; onDelete: () => void;
 }) {
-  const estado = RAFFLE_STATUS[r.status] ?? { label: r.status, color: '#94a3b8' };
+  const estado = RAFFLE_STATUS[r.status] ?? { label: r.status, color: 'var(--bugie-neutral)' };
   const sorteado = r.status === 'drawn';
 
   return (
@@ -183,7 +183,7 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
                 {estado.label}
               </span>
               <span className="badge rounded-pill"
-                    style={{ background: 'var(--bugie-primary)22', color: 'var(--bugie-primary)', fontSize: '.68rem' }}>
+                    style={{ background: 'var(--bugie-primary-soft)22', color: 'var(--bugie-primary-soft)', fontSize: '.68rem' }}>
                 {raffleTypeLabel(r.raffleType)}
               </span>
             </div>
@@ -243,8 +243,8 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
               {r.winners.map(w => (
                 <div key={w.id} className="d-flex flex-wrap align-items-center gap-2 small">
                   <span className="badge rounded-pill"
-                        style={{ background: w.prizeRank === 1 ? '#f5b40022' : 'var(--bugie-border)',
-                                 color: w.prizeRank === 1 ? '#f5b400' : 'var(--bugie-muted)' }}>
+                        style={{ background: w.prizeRank === 1 ? 'var(--bugie-warn)22' : 'var(--bugie-border)',
+                                 color: w.prizeRank === 1 ? 'var(--bugie-warn)' : 'var(--bugie-muted)' }}>
                     {w.prizeRank === 1 ? 'Premio principal' : `Puesto ${w.prizeRank}`}
                   </span>
                   <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>
@@ -252,7 +252,7 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
                   </span>
                   <span className="bugie-muted">{w.prizeDetail}</span>
                   {w.status === 'delivered' ? (
-                    <span style={{ color: '#34d399' }}>
+                    <span style={{ color: 'var(--bugie-ok)' }}>
                       <i className="fa-solid fa-circle-check me-1" />
                       Entregado {w.deliveredAt ? fmtDate(w.deliveredAt) : ''}
                     </span>
@@ -273,12 +273,12 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
         {verification && (
           <div className="mt-3 p-3" style={{
             background: verification.matches
-              ? 'color-mix(in srgb, #34d399 10%, transparent)'
-              : 'color-mix(in srgb, #ef4444 10%, transparent)',
-            border: `1px solid ${verification.matches ? '#34d39955' : '#ef444455'}`,
+              ? 'color-mix(in srgb, var(--bugie-ok) 10%, transparent)'
+              : 'color-mix(in srgb, var(--bugie-bad) 10%, transparent)',
+            border: `1px solid ${verification.matches ? 'var(--bugie-ok)55' : 'var(--bugie-bad)55'}`,
             borderRadius: 10,
           }}>
-            <div className="fw-semibold small mb-2" style={{ color: verification.matches ? '#34d399' : '#ef4444' }}>
+            <div className="fw-semibold small mb-2" style={{ color: verification.matches ? 'var(--bugie-ok)' : 'var(--bugie-bad)' }}>
               <i className={`fa-solid ${verification.matches ? 'fa-circle-check' : 'fa-circle-xmark'} me-2`} />
               {verification.matches
                 ? 'El ganador coincide con el que sale de la semilla.'

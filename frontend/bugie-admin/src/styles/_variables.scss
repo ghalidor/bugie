@@ -1,13 +1,43 @@
 // Bugie Admin — Design Tokens (mismos colores del logo)
 :root {
+  /* ── Separacion de las tarjetas ──────────────────────────────────────
+     Antes una tarjeta blanca sobre el fondo daba 1.09 de contraste y su
+     borde 1.29: el ojo no distinguia donde empezaba una tarjeta.
+
+     El fondo pasa a #eceff6, un gris FRIO y no lavanda: la diferencia
+     entre su canal rojo y su azul baja de 16 a 10, y por eso se ve limpio
+     en vez de tenido de morado. La separacion la aporta sobre todo el
+     borde (1.57) y la sombra, no el color del fondo. */
+  --bugie-card-border: #c6cfe0;
+  --bugie-card-shadow: 0 8px 24px rgba(30, 41, 90, .09);
+
+  /* Encabezado de pagina. En claro NO es el degradado azul oscuro: eso
+     dejaba una franja oscura flotando en una pantalla clara. */
+  --bugie-hero-bg:    linear-gradient(135deg, #3730a3 0%, #5b4ae0 48%, #8b5cf6 100%);
+  --bugie-hero-text:  #ffffff;
+  --bugie-hero-muted: rgba(255, 255, 255, .82);
+
+  /* ── Colores de estado ───────────────────────────────────────────────
+     Existen porque los colores vivos que se leen bien sobre fondo oscuro
+     se lavan sobre blanco, y al reves. Cada tema define los suyos.
+     Todos superan el contraste 4.5:1 sobre su propio fondo tenido. */
+  --bugie-ok:           #0d6e4a;
+  --bugie-warn:         #8a6100;
+  --bugie-bad:          #b91c1c;
+  --bugie-neutral:      #52607a;
+
+  /* El morado primario como TEXTO sobre un fondo tenido. Distinto de
+     --bugie-primary, que es para fondos solidos con texto blanco. */
+  --bugie-primary-soft: #4338ca;
+
   --bugie-primary:    #5B5BD6;
   --bugie-primary-2:  #7B5CE7;
   --bugie-accent:     #C060C0;
   --bugie-accent-2:   #9B4FBF;
   --bugie-grad: linear-gradient(135deg, #5B5BD6, #9B4FBF, #C060C0);
 
-  --bugie-bg:       #f5f4fb;
-  --bugie-bg-2:     #eeedf8;
+  --bugie-bg:       #eceff6;
+  --bugie-bg-2:     #e3e8f2;
   --bugie-surface:  #ffffff;
   --bugie-surface-2:#fbfaff;
   --bugie-text:     #1a1730;
@@ -26,6 +56,25 @@
 }
 
 body[data-theme='dark'] {
+  /* En oscuro la sombra negra ya marca el relieve, pero el borde ayuda. */
+  --bugie-card-border: #3a3560;
+  --bugie-card-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+
+  --bugie-hero-bg:    linear-gradient(135deg, rgba(8,26,54,.96), rgba(17,45,89,.86));
+  --bugie-hero-text:  #ffffff;
+  --bugie-hero-muted: rgba(255, 255, 255, .76);
+
+  --bugie-ok:           #4ade80;
+  --bugie-warn:         #fbbf24;
+  --bugie-bad:          #fca5a5;
+  --bugie-neutral:      #94a3b8;
+
+  /* El primario de la marca es demasiado oscuro sobre fondo oscuro: como
+     texto sobre un tinte queda en 2.94 de contraste, ilegible. Esta
+     variante aclarada se usa SOLO para texto; --bugie-primary sigue igual
+     para los botones solidos, que ahi funciona bien. */
+  --bugie-primary-soft: #a5b4fc;
+
   --bugie-bg:       #100f1e;
   --bugie-bg-2:     #0c0b18;
   --bugie-surface:  #171628;

@@ -281,6 +281,27 @@ class TripsRepository {
     return Trip.fromJson(json as Map<String, dynamic>);
   }
 
+  /// POST /api/trips/{id}/coupon
+  ///
+  /// Aplica uno de mis cupones al precio de este viaje. El cupon NO se
+  /// consume aca: eso pasa al completar el viaje. Si el viaje se cancela,
+  /// el cupon vuelve a quedar disponible.
+  ///
+  /// El backend decide si se puede y cuanto descuenta de verdad: puede
+  /// aplicar menos de lo que vale el cupon, y lo avisa en "warning".
+  Future<CouponApplied> applyCoupon(String tripId, String code) async {
+    final json = await _api.post(
+      '${ApiConfig.trips}/trips/$tripId/coupon',
+      body: {'code': code.trim().toUpperCase()},
+    );
+    return CouponApplied.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// DELETE /api/trips/{id}/coupon
+  Future<void> removeCoupon(String tripId) async {
+    await _api.delete('${ApiConfig.trips}/trips/$tripId/coupon');
+  }
+
   /// PUT /api/trips/{id}/complete
   Future<Trip> complete(String tripId, {double? finalFare}) async {
     final json = await _api.put(
@@ -409,4 +430,36 @@ class TripsRepository {
     );
     return RatingPage.fromJson(json as Map<String, dynamic>);
   }
+}
+
+/// Resultado de aplicar un cupon a un viaje.
+class CouponApplied {
+  final String   tripId;
+  final String   code;
+  final String   itemName;
+  final double   fareBeforeDiscount;
+  final double   discountAmount;
+  final double   amountToPay;
+  /// Aviso cuando se aplico menos de lo que valia el cupon.
+  final String?  warning;
+
+  CouponApplied({
+    required this.tripId,
+    required this.code,
+    required this.itemName,
+    required this.fareBeforeDiscount,
+    required this.discountAmount,
+    required this.amountToPay,
+    this.warning,
+  });
+
+  factory CouponApplied.fromJson(Map<String, dynamic> j) => CouponApplied(
+        tripId:             j['tripId'].toString(),
+        code:               (j['code'] ?? '').toString(),
+        itemName:           (j['itemName'] ?? 'Cupón').toString(),
+        fareBeforeDiscount: (j['fareBeforeDiscount'] as num?)?.toDouble() ?? 0,
+        discountAmount:     (j['discountAmount']     as num?)?.toDouble() ?? 0,
+        amountToPay:        (j['amountToPay']        as num?)?.toDouble() ?? 0,
+        warning:            j['warning']?.toString(),
+      );
 }

@@ -28,13 +28,13 @@ const emptyPromo = (): PromotionInput => ({
 });
 
 const GROUP_INFO: Record<string, { label: string; color: string; help: string }> = {
-  franja:  { label: 'Franja horaria', color: '#818cf8',
+  franja:  { label: 'Franja horaria', color: 'var(--bugie-primary-soft)',
              help: 'Gana sobre la promoción de día. Solo paga una de las dos.' },
-  dia:     { label: 'Día de semana',  color: '#38bdf8',
+  dia:     { label: 'Día de semana',  color: 'var(--bugie-primary-soft)',
              help: 'No se aplica si el viaje cae dentro de una franja horaria.' },
-  suma:    { label: 'Se suma',        color: '#34d399',
+  suma:    { label: 'Se suma',        color: 'var(--bugie-ok)',
              help: 'Se agrega encima de la promoción de día o franja que aplique.' },
-  siempre: { label: 'Siempre',        color: '#94a3b8',
+  siempre: { label: 'Siempre',        color: 'var(--bugie-neutral)',
              help: 'Sin condiciones de tiempo: compite con las de día y franja.' },
 };
 
@@ -144,7 +144,7 @@ function CombinationHelp() {
       <button type="button" onClick={() => setOpen(v => !v)}
               className="w-100 text-start p-3 d-flex align-items-center gap-2"
               style={{ background: 'transparent', border: 0, color: 'inherit' }}>
-        <i className="fa-solid fa-circle-info" style={{ color: 'var(--bugie-primary)' }} />
+        <i className="fa-solid fa-circle-info" style={{ color: 'var(--bugie-primary-soft)' }} />
         <span className="small fw-semibold">Cómo se combinan dos promociones en un mismo viaje</span>
         <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'} ms-auto small`} />
       </button>
@@ -194,14 +194,14 @@ function PromotionRow({ p, busy, disabled, onEdit, onToggle, onDelete }: {
               {group.label}
             </span>
             <span className="badge rounded-pill"
-                  style={{ background: 'var(--bugie-primary)22', color: 'var(--bugie-primary)', fontSize: '.68rem' }}>
+                  style={{ background: 'var(--bugie-primary-soft)22', color: 'var(--bugie-primary-soft)', fontSize: '.68rem' }}>
               {USER_TYPE_LABEL[p.targetUserType] ?? 'Ambos'}
             </span>
             {!p.isActive && <span className="small bugie-muted">(apagada)</span>}
           </div>
           <div className="small bugie-muted">{describePromotion(p)}</div>
           {p.warning && (
-            <div className="small mt-1" style={{ color: '#f59e0b' }}>
+            <div className="small mt-1" style={{ color: 'var(--bugie-warn)' }}>
               <i className="fa-solid fa-triangle-exclamation me-1" />{p.warning}
             </div>
           )}

@@ -32,6 +32,8 @@ export const SECTIONS: SectionMeta[] = [
     where: 'Bloque de tarjetas debajo de la portada' },
   { key: 'stats',         label: 'Cifras y beneficios', icon: 'fa-chart-simple',    group: 'home',
     where: 'Bloque de números y beneficios' },
+  { key: 'rewards',       label: 'Programa de puntos',  icon: 'fa-coins',           group: 'home',
+    where: 'Bloque del programa de fidelización, entre las cifras y los testimonios' },
   { key: 'testimonials',  label: 'Testimonios',         icon: 'fa-comments',        group: 'home',
     where: 'Opiniones de pasajeros y conductores' },
   { key: 'cta',           label: 'Llamado a la acción', icon: 'fa-bullhorn',        group: 'home',
@@ -113,6 +115,14 @@ export const FIELDS: Record<string, FieldMeta> = {
   stats:        { label: 'Cifras',      help: 'Los números grandes, por ejemplo 5,000+ conductores.' },
   features:     { label: 'Tarjetas',    help: 'Cada tarjeta con ícono, título y descripción.' },
   items:        { label: 'Elementos',   help: 'Cada tarjeta de la lista.' },
+
+  // ── Programa de puntos ──────────────────────────────────────────────
+  ctaLabel: { label: 'Texto del botón',
+              help: 'Por ejemplo «Crear mi cuenta».' },
+  ctaHref:  { label: 'Enlace del botón',
+              help: 'A dónde lleva. Por defecto /auth/registro.' },
+  note:     { label: 'Nota bajo el botón',
+              help: 'Línea pequeña en gris. Si la dejas vacía no se muestra.' },
 
   // ── Empresa ─────────────────────────────────────────────────────────
   missionTitle:  { label: 'Título de la misión' },

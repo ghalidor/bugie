@@ -11,6 +11,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/services/admin_settings_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
+import 'apply_coupon_sheet.dart';
 import '../../../core/ui/app_messenger.dart';
 import '../../../core/utils/route_geometry.dart';
 import '../../../core/widgets/bugie_card.dart';
@@ -134,6 +135,13 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   /// Carga la lista de IDs de conductores favoritos. Solo una vez al entrar
   /// (no la re-cargamos en cada polling porque cambian muy raramente).
   /// Si falla, no es crítico: simplemente no se marcan favoritos con corona.
+  /// Vuelve a pedir el viaje. Se llama al aplicar o quitar un cupon, para
+  /// que el precio en pantalla sea el que de verdad va a pagar.
+  Future<void> _reloadTrip() async {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _loadFavoriteDrivers() async {
     try {
       final ids = await context.read<FavoritesRepository>().getFavoriteDriverIds();
@@ -1195,11 +1203,18 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                       ),
                     ),
                     const SizedBox(height: 14),
+
+                    // Cupon aplicado a este viaje, si lo hay. Va antes de la
+                    // tarifa porque cambia lo que el pasajero va a pagar.
+                    _CouponRow(trip: t, onChanged: _reloadTrip),
+
                     Row(
                       children: [
                         _Kpi(
-                          label: 'Tarifa',
-                          value: 'S/ ${t.estimatedFare.toStringAsFixed(2)}',
+                          label: t.discountAmount != null ? 'Pagas' : 'Tarifa',
+                          value: 'S/ ${(t.discountAmount != null
+                              ? (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!
+                              : t.estimatedFare).toStringAsFixed(2)}',
                         ),
                         const SizedBox(width: 8),
                         _Kpi(
@@ -2986,6 +3001,145 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/* ── Cupon aplicado al viaje ───────────────────────────────────────────── */
+
+/// Muestra el cupon si lo hay, y si no, el boton para elegir uno.
+///
+/// Solo aparece con el viaje ACEPTADO o EN CURSO: antes no hay precio que
+/// descontar, y despues ya se cobro.
+class _CouponRow extends StatefulWidget {
+  final Trip trip;
+  final Future<void> Function() onChanged;
+  const _CouponRow({required this.trip, required this.onChanged});
+
+  @override
+  State<_CouponRow> createState() => _CouponRowState();
+}
+
+class _CouponRowState extends State<_CouponRow> {
+  bool _busy = false;
+
+  bool get _puedeUsar =>
+      widget.trip.status == TripStatus.accepted ||
+      widget.trip.status == TripStatus.inProgress;
+
+  double get _tarifa =>
+      widget.trip.fareBeforeDiscount ?? widget.trip.estimatedFare;
+
+  Future<void> _elegir() async {
+    final r = await showApplyCouponSheet(
+      context,
+      tripId: widget.trip.id,
+      fare: _tarifa,
+    );
+    if (r == null || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: BugieColors.success,
+        content: Text(r.warning ??
+            'Cupón aplicado. Pagas S/ ${r.amountToPay.toStringAsFixed(2)}.'),
+      ),
+    );
+    await widget.onChanged();
+  }
+
+  Future<void> _quitar() async {
+    setState(() => _busy = true);
+    try {
+      await context.read<TripsRepository>().removeCoupon(widget.trip.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cupón quitado. Vuelve a estar disponible.')),
+      );
+      await widget.onChanged();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: BugieColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    if (!_puedeUsar) return const SizedBox.shrink();
+
+    final descuento = widget.trip.discountAmount;
+
+    // Sin cupon: solo el boton para elegir uno.
+    if (descuento == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: OutlinedButton.icon(
+          onPressed: _elegir,
+          icon: const Icon(Icons.local_offer_outlined, size: 17),
+          label: const Text('Usar un cupón'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(42),
+            side: BorderSide(color: c.border),
+          ),
+        ),
+      );
+    }
+
+    // Con cupon: el desglose, para que sepa exactamente que va a pagar.
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BugieColors.success.withOpacity(.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BugieColors.success.withOpacity(.35)),
+      ),
+      child: Column(children: [
+        Row(children: [
+          const Icon(Icons.local_offer, size: 17, color: BugieColors.success),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Cupón ${widget.trip.couponCode ?? ""}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          ),
+          if (_busy)
+            const SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2))
+          else
+            TextButton(
+              onPressed: _quitar,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('Quitar', style: TextStyle(fontSize: 12.5)),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Text('Tarifa', style: TextStyle(fontSize: 12.5, color: c.textMuted)),
+          const Spacer(),
+          Text('S/ ${_tarifa.toStringAsFixed(2)}',
+              style: TextStyle(fontSize: 12.5, color: c.textMuted)),
+        ]),
+        const SizedBox(height: 3),
+        Row(children: [
+          const Text('Descuento', style: TextStyle(fontSize: 12.5)),
+          const Spacer(),
+          Text('− S/ ${descuento.toStringAsFixed(2)}',
+              style: const TextStyle(
+                  fontSize: 12.5,
+                  color: BugieColors.success,
+                  fontWeight: FontWeight.w700)),
+        ]),
+      ]),
     );
   }
 }

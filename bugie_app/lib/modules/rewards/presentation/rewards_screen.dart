@@ -1334,7 +1334,9 @@ class _StreakCard extends StatelessWidget {
   const _StreakCard({required this.progress});
 
   static const _fuego = Color(0xFFF97316);
-  static const _diaCorto = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+  /// Dos letras y no una: con una sola, martes y miércoles son ambos «M» y
+  /// nadie los distingue en una fila.
+  static const _diaCorto = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'];
 
   @override
   Widget build(BuildContext context) {
@@ -1373,33 +1375,62 @@ class _StreakCard extends StatelessWidget {
           ]),
           const SizedBox(height: 12),
 
-          Row(
-            children: p.days.map((d) {
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: Column(children: [
-                    Container(
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: d.hasTrip ? _fuego : c.bg,
-                        borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                          color: d.isToday ? BugieColors.primary : c.border,
-                          width: d.isToday ? 2 : 1,
-                        ),
-                      ),
-                      child: d.hasTrip
-                          ? const Icon(Icons.check, size: 15, color: Colors.white)
-                          : Icon(Icons.circle, size: 4, color: c.textMuted),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(_diaCorto[d.date.weekday % 7],
-                        style: TextStyle(fontSize: 10, color: c.textMuted)),
-                  ]),
+          // La tira de días.
+          //
+          // Antes eran cajas anchas con un punto dentro: parecían campos vacíos
+          // de un formulario y no se entendía qué representaban. Ahora son
+          // círculos unidos por una línea, que es como se lee una secuencia.
+          //
+          // El día cumplido se llena y lleva un check; el que falta muestra su
+          // número. El de hoy dice «Hoy» en vez de depender de un borde que
+          // casi no se nota.
+          SizedBox(
+            height: 58,
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                // La línea, detrás de los círculos.
+                Positioned(
+                  top: 16, left: 18, right: 18,
+                  child: Container(height: 2, color: c.border),
                 ),
-              );
-            }).toList(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: p.days.map((d) {
+                    final hoy = d.isToday;
+                    return Column(children: [
+                      Container(
+                        width: 34, height: 34,
+                        decoration: BoxDecoration(
+                          color: d.hasTrip ? _fuego : c.surface,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: d.hasTrip
+                                ? _fuego
+                                : (hoy ? BugieColors.primary : c.border),
+                            width: 2,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: d.hasTrip
+                            ? const Icon(Icons.check, size: 15, color: Colors.white)
+                            : Text('${d.date.day}',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: c.textMuted)),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(hoy ? 'Hoy' : _diaCorto[d.date.weekday % 7],
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: hoy ? FontWeight.w700 : FontWeight.w400,
+                              color: hoy ? BugieColors.primary : c.textMuted)),
+                    ]);
+                  }).toList(),
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 10),

@@ -19,15 +19,17 @@ namespace Bugie.Rewards.Application.Commands;
 /// <summary>Busca por correo, nombre o teléfono.</summary>
 public record SearchUsersQuery(string Query) : IRequest<List<UserSearchDto>>;
 
-public class SearchUsersHandler : IRequestHandler<SearchUsersQuery, List<UserSearchDto>> {
+public class SearchUsersHandler : IRequestHandler<SearchUsersQuery, List<UserSearchDto>>
+{
     private readonly IAdminQueryRepository _admin;
     public SearchUsersHandler(IAdminQueryRepository admin) => _admin = admin;
 
-    public async Task<List<UserSearchDto>> Handle(SearchUsersQuery q, CancellationToken ct) {
+    public async Task<List<UserSearchDto>> Handle(SearchUsersQuery q, CancellationToken ct)
+    {
         var texto = (q.Query ?? string.Empty).Trim();
 
         // Dos letras no alcanzan: devolvería media base de datos.
-        if(texto.Length < 3) return new List<UserSearchDto>();
+        if (texto.Length < 3) return new List<UserSearchDto>();
 
         var rows = await _admin.SearchUsersAsync(texto, 25, ct);
 
@@ -42,13 +44,14 @@ public class SearchUsersHandler : IRequestHandler<SearchUsersQuery, List<UserSea
 public record GetUserRewardsQuery(Guid UserId) : IRequest<UserRewardsDetailDto>;
 
 public class GetUserRewardsHandler
-    : IRequestHandler<GetUserRewardsQuery, UserRewardsDetailDto> {
-    private readonly IAdminQueryRepository _admin;
-    private readonly IPointsProfileRepository _profiles;
+    : IRequestHandler<GetUserRewardsQuery, UserRewardsDetailDto>
+{
+    private readonly IAdminQueryRepository        _admin;
+    private readonly IPointsProfileRepository     _profiles;
     private readonly IPointsTransactionRepository _transactions;
-    private readonly IRedemptionRepository _redemptions;
-    private readonly IReferralRepository _referrals;
-    private readonly IMilestoneRepository _milestones;
+    private readonly IRedemptionRepository        _redemptions;
+    private readonly IReferralRepository          _referrals;
+    private readonly IMilestoneRepository         _milestones;
 
     public GetUserRewardsHandler(
         IAdminQueryRepository admin,
@@ -56,17 +59,19 @@ public class GetUserRewardsHandler
         IPointsTransactionRepository transactions,
         IRedemptionRepository redemptions,
         IReferralRepository referrals,
-        IMilestoneRepository milestones) {
-        _admin = admin;
-        _profiles = profiles;
+        IMilestoneRepository milestones)
+    {
+        _admin        = admin;
+        _profiles     = profiles;
         _transactions = transactions;
-        _redemptions = redemptions;
-        _referrals = referrals;
-        _milestones = milestones;
+        _redemptions  = redemptions;
+        _referrals    = referrals;
+        _milestones   = milestones;
     }
 
     public async Task<UserRewardsDetailDto> Handle(
-        GetUserRewardsQuery q, CancellationToken ct) {
+        GetUserRewardsQuery q, CancellationToken ct)
+    {
         var user = await _admin.GetUserAsync(q.UserId, ct)
             ?? throw new KeyNotFoundException("Usuario no encontrado.");
 
@@ -74,7 +79,8 @@ public class GetUserRewardsHandler
 
         // Sin perfil no hay nada más que mostrar, y eso YA es la respuesta al
         // reclamo: nunca se le acreditó nada.
-        if(profile is null) {
+        if (profile is null)
+        {
             return new UserRewardsDetailDto(
                 new UserSearchDto(user.UserId, user.FullName, user.Email, user.Phone,
                     user.Role, false, null, null, 0, 0, null),
@@ -83,9 +89,9 @@ public class GetUserRewardsHandler
         }
 
         var historial = await _transactions.GetByProfileAsync(profile.Id, 1, 50, ct);
-        var canjes = await _redemptions.GetByUserAsync(q.UserId, null, 1, 20, ct);
+        var canjes    = await _redemptions.GetByUserAsync(q.UserId, null, 1, 20, ct);
         var invitados = await _referrals.GetByReferrerAsync(q.UserId, ct);
-        var logros = await _milestones.GetRecentAsync(profile.Id, 10, ct);
+        var logros    = await _milestones.GetRecentAsync(profile.Id, 10, ct);
 
         var notas = logros.Select(l =>
             $"{EtiquetaLogro(l.Type)}: {l.Points} puntos" +
@@ -105,11 +111,12 @@ public class GetUserRewardsHandler
             notas);
     }
 
-    private static string EtiquetaLogro(string type) => type switch {
-        "streak" => "Racha",
+    private static string EtiquetaLogro(string type) => type switch
+    {
+        "streak"      => "Racha",
         "weekly_goal" => "Meta semanal",
         "anniversary" => "Aniversario",
-        _ => type,
+        _             => type,
     };
 
     private static RedemptionDto ToDto(Redemption r) => new(
@@ -130,36 +137,39 @@ public class GetUserRewardsHandler
 /// asiento, no con un borrón.
 /// </summary>
 public record AdjustUserPointsCommand(
-    Guid UserId,
-    int Points,
-    string Reason,
-    Guid? AdminId) : IRequest<AdjustmentResultDto>;
+    Guid    UserId,
+    int     Points,
+    string  Reason,
+    Guid?   AdminId) : IRequest<AdjustmentResultDto>;
 
 public class AdjustUserPointsHandler
-    : IRequestHandler<AdjustUserPointsCommand, AdjustmentResultDto> {
-    private readonly IPointsProfileRepository _profiles;
-    private readonly IRewardLevelRepository _levels;
+    : IRequestHandler<AdjustUserPointsCommand, AdjustmentResultDto>
+{
+    private readonly IPointsProfileRepository  _profiles;
+    private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
 
     public AdjustUserPointsHandler(
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings) {
+        IRewardSettingsRepository settings)
+    {
         _profiles = profiles;
-        _levels = levels;
+        _levels   = levels;
         _settings = settings;
     }
 
     public async Task<AdjustmentResultDto> Handle(
-        AdjustUserPointsCommand cmd, CancellationToken ct) {
-        if(cmd.Points == 0)
+        AdjustUserPointsCommand cmd, CancellationToken ct)
+    {
+        if (cmd.Points == 0)
             throw new ArgumentException("Indica cuántos puntos sumar o restar.");
 
-        if(Math.Abs(cmd.Points) > 100_000)
+        if (Math.Abs(cmd.Points) > 100_000)
             throw new ArgumentException("El ajuste no puede pasar de 100000 puntos.");
 
         var motivo = (cmd.Reason ?? string.Empty).Trim();
-        if(motivo.Length < 5)
+        if (motivo.Length < 5)
             throw new ArgumentException(
                 "Escribe el motivo del ajuste. Dentro de seis meses nadie va a " +
                 "recordar por qué este usuario recibió estos puntos.");
@@ -167,7 +177,8 @@ public class AdjustUserPointsHandler
         var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
 
         var profile = await _profiles.GetByUserIdAsync(cmd.UserId, ct);
-        if(profile is null) {
+        if (profile is null)
+        {
             // Se crea para poder compensar a alguien que nunca viajó, que es
             // justo el caso de un error de configuración del sistema.
             profile = PointsProfile.Create(cmd.UserId, UserTypes.Passenger);
@@ -177,38 +188,41 @@ public class AdjustUserPointsHandler
         var balanceBefore = profile.AvailablePoints;
         int aplicados;
 
-        if(cmd.Points > 0) {
+        if (cmd.Points > 0)
+        {
             profile.AdjustUp(cmd.Points);
             aplicados = cmd.Points;
-        } else {
+        }
+        else
+        {
             // Devuelve lo que de verdad se pudo restar: el saldo nunca baja
             // de cero, aunque el admin pida restar más de lo que hay.
             aplicados = profile.AdjustDown(-cmd.Points);
 
-            if(aplicados == 0)
+            if (aplicados == 0)
                 throw new InvalidOperationException(
                     "El usuario no tiene puntos disponibles para restar.");
         }
 
         // El nivel se recalcula: un ajuste grande puede cambiarlo.
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
-        var level = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
-        if(level is not null) profile.SetLevel(level.Name);
+        var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
+        if (level is not null) profile.SetLevel(level.Name);
 
         // La entidad es inmutable: se arma con su metodo de fabrica, no con un
         // inicializador. El constructor y los setters son privados a proposito,
         // para que nadie pueda fabricar un movimiento con saldos incoherentes.
         var movement = PointsTransaction.Adjust(
-            profileId: profile.Id,
-            points: cmd.Points,
+            profileId:     profile.Id,
+            points:        cmd.Points,
             balanceBefore: balanceBefore,
-            expiryDate: profile.PointsExpiryDate,
-            reason: motivo);
+            expiryDate:    profile.PointsExpiryDate,
+            reason:        motivo);
 
         var ok = await _profiles.ApplyAdjustmentAsync(
             profile, movement, balanceBefore, motivo, cmd.AdminId, ct);
 
-        if(!ok)
+        if (!ok)
             throw new InvalidOperationException(
                 "El saldo cambió mientras hacías el ajuste. Vuelve a cargar y repítelo.");
 

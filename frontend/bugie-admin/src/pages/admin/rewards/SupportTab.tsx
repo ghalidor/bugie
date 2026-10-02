@@ -149,7 +149,7 @@ function SearchResults({ results, onOpen }: {
                   </>
                 ) : (
                   <span className="badge rounded-pill"
-                        style={{ background: '#f59e0b22', color: '#f59e0b', fontSize: '.7rem' }}>
+                        style={{ background: 'var(--bugie-warn)22', color: 'var(--bugie-warn)', fontSize: '.7rem' }}>
                     Sin puntos aún
                   </span>
                 )}
@@ -202,7 +202,7 @@ function UserDetail({ detail, onBack, onReload }: {
               </div>
             ) : (
               <span className="badge rounded-pill"
-                    style={{ background: '#f59e0b22', color: '#f59e0b' }}>
+                    style={{ background: 'var(--bugie-warn)22', color: 'var(--bugie-warn)' }}>
                 Nunca ganó puntos
               </span>
             )}
@@ -250,7 +250,7 @@ function UserDetail({ detail, onBack, onReload }: {
                             </span>
                             {esAjuste && (
                               <span className="badge rounded-pill ms-2"
-                                    style={{ background: '#818cf822', color: '#818cf8', fontSize: '.64rem' }}>
+                                    style={{ background: 'var(--bugie-primary-soft)22', color: 'var(--bugie-primary-soft)', fontSize: '.64rem' }}>
                                 manual
                               </span>
                             )}
@@ -260,7 +260,7 @@ function UserDetail({ detail, onBack, onReload }: {
                           </div>
                         </div>
                         <div className="text-end">
-                          <div className="fw-bold" style={{ color: suma ? '#34d399' : '#f87171' }}>
+                          <div className="fw-bold" style={{ color: suma ? 'var(--bugie-ok)' : 'var(--bugie-bad)' }}>
                             {suma ? '+' : '−'}{fmtPoints(t.points)}
                           </div>
                           <div className="small bugie-muted">saldo {fmtPoints(t.balanceAfter)}</div>
@@ -285,7 +285,7 @@ function UserDetail({ detail, onBack, onReload }: {
               ) : (
                 <>
                   {detail.redemptions.map(r => {
-                    const color = STATUS_COLOR[r.status] ?? '#94a3b8';
+                    const color = STATUS_COLOR[r.status] ?? 'var(--bugie-neutral)';
                     return (
                       <div key={r.id} className="d-flex align-items-center gap-2 py-2"
                            style={{ borderBottom: '1px solid var(--bugie-border)' }}>

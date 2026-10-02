@@ -14,7 +14,7 @@ interface FieldDef {
 /// Grupos de configuracion. Las claves son exactamente las de rewards.settings.
 const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }[] = [
   {
-    title: 'Acumulación', icon: 'fa-solid fa-coins', color: '#34d399',
+    title: 'Acumulación', icon: 'fa-solid fa-coins', color: 'var(--bugie-ok)',
     fields: [
       { key: 'points_enabled',        kind: 'bool',   label: 'Motor de puntos activo',
         help: 'Si lo apagas, los viajes dejan de sumar puntos. Nada más se ve afectado.' },
@@ -27,14 +27,14 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
-    title: 'Canje', icon: 'fa-solid fa-gift', color: '#818cf8',
+    title: 'Canje', icon: 'fa-solid fa-gift', color: 'var(--bugie-primary-soft)',
     fields: [
       { key: 'redemption_enabled', kind: 'bool', label: 'Canje activo',
         help: 'Si lo apagas, nadie puede canjear, pero se siguen acumulando puntos.' },
     ],
   },
   {
-    title: 'Promociones', icon: 'fa-solid fa-bullhorn', color: '#818cf8',
+    title: 'Promociones', icon: 'fa-solid fa-bullhorn', color: 'var(--bugie-primary-soft)',
     fields: [
       { key: 'promotions_enabled',    kind: 'bool',   label: 'Promociones activas',
         help: 'Interruptor general. Apagado, ninguna promoción suma puntos aunque esté activa.' },
@@ -43,7 +43,18 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
-    title: 'Logros personales', icon: 'fa-solid fa-fire', color: '#f97316',
+    title: 'Cupones sobre la tarifa', icon: 'fa-solid fa-tag', color: 'var(--bugie-bad)',
+    fields: [
+      { key: 'coupons_apply_to_fare', kind: 'bool',
+        label: '¿Los cupones descuentan del precio del viaje?',
+        help: 'Apagado (lo normal por ahora): los cupones se canjean y se guardan, pero al pedir un viaje no descuentan nada. Encendido: el pasajero puede aplicar uno de sus cupones a un viaje aceptado y paga menos.' },
+      { key: 'coupon_max_is_commission', kind: 'bool',
+        label: 'Limitar el descuento a tu comisión',
+        help: 'El pasajero le paga al conductor EN PERSONA, así que un descuento le quita dinero a él. Con esto encendido el descuento nunca pasa de tu comisión: el conductor cobra siempre lo mismo y la rebaja sale de lo que tú ganas. Apagarlo aplica el descuento completo, pero el conductor cobra de menos y queda registrado cuánto le debes, sin forma de pagárselo todavía.' },
+    ],
+  },
+  {
+    title: 'Logros personales', icon: 'fa-solid fa-fire', color: 'var(--bugie-warn)',
     fields: [
       { key: 'streak_days',   kind: 'number', label: 'Días seguidos para la racha',
         help: 'Se vuelve a pagar en cada bloque: a los 7, 14, 21 días. Con 0 se desactiva.' },
@@ -57,10 +68,14 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
         help: 'Una vez por semana, aunque siga viajando.' },
       { key: 'anniversary_multiplier',      kind: 'number', label: 'Multiplicador del mes de aniversario',
         help: 'Durante el mes en que se registró. Con 1 se desactiva. No aplica el primer año.' },
+      { key: 'no_cancel_min_trips', kind: 'number', label: 'Bono sin cancelar — viajes mínimos del día',
+        help: 'Viajes que el conductor debe completar ese día para optar al bono. El mínimo existe para que premie trabajar bien y no simplemente no trabajar: sin él, quien se queda en casa tiene cero cancelaciones y cobraría todos los días. Con 0 se desactiva la regla.' },
+      { key: 'no_cancel_points',    kind: 'number', label: 'Bono sin cancelar — puntos',
+        help: 'Se paga de madrugada, mirando el día anterior. Solo cuentan las cancelaciones del conductor: si el pasajero se arrepiente, él no pierde el bono.' },
     ],
   },
   {
-    title: 'Calificaciones', icon: 'fa-solid fa-star', color: '#f5b400',
+    title: 'Calificaciones', icon: 'fa-solid fa-star', color: 'var(--bugie-warn)',
     fields: [
       { key: 'rating_points_passenger', kind: 'number', label: 'Puntos al pasajero por calificar',
         help: 'Premia que se tome el trabajo de calificar.' },
@@ -71,7 +86,7 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
-    title: 'Referidos', icon: 'fa-solid fa-user-plus', color: '#38bdf8',
+    title: 'Referidos', icon: 'fa-solid fa-user-plus', color: 'var(--bugie-primary-soft)',
     fields: [
       { key: 'referrals_enabled',         kind: 'bool',   label: 'Referidos activos',
         help: 'Apagado, el código deja de dar puntos. Los ya acreditados no se tocan.' },
@@ -86,7 +101,7 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
-    title: 'Sorteos', icon: 'fa-solid fa-dice', color: '#34d399',
+    title: 'Sorteos', icon: 'fa-solid fa-dice', color: 'var(--bugie-ok)',
     fields: [
       { key: 'raffles_enabled',          kind: 'bool',   label: 'Sorteos activos',
         help: 'Apagado, no se reparten tickets ni se ejecutan sorteos.' },
@@ -95,7 +110,7 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
     ],
   },
   {
-    title: 'Vencimiento', icon: 'fa-solid fa-hourglass-half', color: '#f59e0b',
+    title: 'Vencimiento', icon: 'fa-solid fa-hourglass-half', color: 'var(--bugie-warn)',
     fields: [
       { key: 'points_expiry_enabled',          kind: 'bool',   label: 'Vencimiento activo',
         help: 'Si lo apagas, los puntos no vencen y no se envían avisos.' },
@@ -234,7 +249,7 @@ function Field({ def, value, missing, saving, saved, onChange, onSave }: {
         <button
           type="button"
           className="btn text-white"
-          style={{ background: saved ? '#34d399' : 'var(--bugie-primary)', border: 'none', minWidth: 96, flexShrink: 0 }}
+          style={{ background: saved ? 'var(--bugie-ok)' : 'var(--bugie-primary)', border: 'none', minWidth: 96, flexShrink: 0 }}
           onClick={onSave}
           disabled={saving}
         >
@@ -247,7 +262,7 @@ function Field({ def, value, missing, saving, saved, onChange, onSave }: {
       </div>
       <div className="small bugie-muted mt-1">
         {missing
-          ? <span style={{ color: '#f59e0b' }}>Esta clave no existe en la base. Revisa que corriste los scripts SQL.</span>
+          ? <span style={{ color: 'var(--bugie-warn)' }}>Esta clave no existe en la base. Revisa que corriste los scripts SQL.</span>
           : def.help}
       </div>
     </div>
@@ -274,7 +289,7 @@ function ExpirationRunner() {
   return (
     <div className="bugie-card h-100">
       <div className="bugie-card-header">
-        <i className="fa-solid fa-play me-2" style={{ color: '#ef4444' }} />
+        <i className="fa-solid fa-play me-2" style={{ color: 'var(--bugie-bad)' }} />
         Ejecutar vencimiento ahora
       </div>
       <div className="bugie-card-body">

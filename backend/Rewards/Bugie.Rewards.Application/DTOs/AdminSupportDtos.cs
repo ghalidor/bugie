@@ -60,3 +60,33 @@ public record ProgramBalanceDto(
     int RedemptionRate,
     List<SourceBreakdownDto> BySource,
     List<MonthlyPointsDto>   ByMonth);
+
+// ── Cupones aplicados a viajes ────────────────────────────────────────
+
+public record CouponUsageDto(
+    Guid      TripId,
+    string    CouponCode,
+    string?   ItemName,
+    decimal   FareBeforeDiscount,
+    decimal   DiscountAmount,
+    decimal   AmountPaid,
+    decimal   PlatformOwesDriver,
+    string?   PassengerName,
+    string?   DriverName,
+    /// <summary>completed | cancelled | in_progress</summary>
+    string    Status,
+    DateTime  CreatedAt,
+    DateTime? CompletedAt);
+
+public record CouponUsageReportDto(
+    int     Trips,
+    int     TripsCompleted,
+    int     TripsCancelled,
+    decimal TotalDiscount,
+    /// <summary>Lo que la plataforma le quedó debiendo a los conductores.</summary>
+    decimal TotalOwed,
+    /// <summary>Descuento promedio por viaje.</summary>
+    decimal AverageDiscount,
+    /// <summary>true si el interruptor está apagado: entonces esto no crece.</summary>
+    bool    FeatureEnabled,
+    List<CouponUsageDto> Recent);

@@ -117,4 +117,48 @@ public class AdminQueryRepository : IAdminQueryRepository
 
         return rows.ToList();
     }
+
+    /* ── Cupones aplicados a viajes ───────────────────────────────────── */
+
+    /// <summary>
+    /// El nombre del premio sale de rewards.Redemptions por el codigo. Si el
+    /// cupon se borro, igual se muestra el viaje: lo que importa es cuanto se
+    /// descontó, no como se llamaba el premio.
+    /// </summary>
+    public async Task<List<CouponUsageRow>> GetCouponUsageAsync(
+        int take, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<CouponUsageRow>(@"
+            SELECT t.Id                                   AS TripId,
+                   t.CouponCode,
+                   r.ItemName,
+                   COALESCE(t.FareBeforeDiscount, 0)      AS FareBeforeDiscount,
+                   COALESCE(t.DiscountAmount, 0)          AS DiscountAmount,
+                   COALESCE(t.FinalFare, t.EstimatedFare) AS AmountPaid,
+                   COALESCE(t.PlatformOwesDriver, 0)      AS PlatformOwesDriver,
+                   up.FullName                            AS PassengerName,
+                   ud.FullName                            AS DriverName,
+                   t.Status,
+                   t.CreatedAt,
+                   t.CompletedAt
+            FROM trips.Trips t
+            LEFT JOIN rewards.Redemptions r ON upper(r.Code) = upper(t.CouponCode)
+            LEFT JOIN auth.Users up ON up.Id = t.PassengerId
+            LEFT JOIN auth.Users ud ON ud.Id = t.DriverId
+            WHERE t.CouponCode IS NOT NULL
+            ORDER BY t.CreatedAt DESC
+            LIMIT @Take",
+            new { Take = take });
+        return rows.ToList();
+    }
+
+    public Task<CouponUsageTotals> GetCouponTotalsAsync(CancellationToken ct = default) =>
+        _db.QuerySingleAsync<CouponUsageTotals>(@"
+            SELECT COUNT(*)::int                                   AS Trips,
+                   COALESCE(SUM(DiscountAmount), 0)                AS TotalDiscount,
+                   COALESCE(SUM(PlatformOwesDriver), 0)            AS TotalOwed,
+                   COUNT(*) FILTER (WHERE Status = 4)::int         AS TripsCompleted,
+                   COUNT(*) FILTER (WHERE Status = 5)::int         AS TripsCancelled
+            FROM trips.Trips
+            WHERE CouponCode IS NOT NULL");
 }

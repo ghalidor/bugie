@@ -50,6 +50,21 @@ const FALLBACK_STATS = {
   ],
 };
 
+const FALLBACK_REWARDS = {
+  eyebrow: 'Programa de puntos',
+  title: 'Cada viaje suma. Literalmente.',
+  text: 'Acumula puntos en cada viaje y cámbialos por descuentos, viajes gratis y sorteos.',
+  items: [
+    { icon: 'fa-coins',     title: 'Ganas en cada viaje',  text: 'Los puntos se acreditan solos al completar un viaje.' },
+    { icon: 'fa-medal',     title: 'Sube de nivel',        text: 'De Bronce a Platino. Más nivel, más beneficios.' },
+    { icon: 'fa-gift',      title: 'Canjea lo que quieras', text: 'Descuentos, viajes gratis y tickets de sorteo.' },
+    { icon: 'fa-user-plus', title: 'Invita y gana',        text: 'Comparte tu código y los dos salen ganando.' },
+  ],
+  ctaLabel: 'Crear mi cuenta',
+  ctaHref: '/auth/registro',
+  note: 'Los puntos se mantienen activos mientras sigas viajando.',
+};
+
 const FALLBACK_TESTIMONIALS = {
   eyebrow: 'Prueba social',
   title: 'La plataforma que inspira confianza desde la primera pantalla.',
@@ -84,6 +99,7 @@ export default function Home() {
   const hero         = parse(sections, 'hero',         FALLBACK_HERO);
   const features     = parse(sections, 'features',     FALLBACK_FEATURES);
   const stats        = parse(sections, 'stats',        FALLBACK_STATS);
+  const rewards      = parse(sections, 'rewards',      FALLBACK_REWARDS);
   const testimonials = parse(sections, 'testimonials', FALLBACK_TESTIMONIALS);
   const cta          = parse(sections, 'cta',          FALLBACK_CTA);
 
@@ -253,6 +269,56 @@ export default function Home() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* PROGRAMA DE PUNTOS
+          Va despues de las cifras (que dan confianza) y antes de las
+          opiniones. El programa estaba completo pero no se mencionaba en
+          ninguna parte del sitio: quien entraba no se enteraba de que existe. */}
+      <section className="bugie-section-sm">
+        <div className="container bugie-container">
+          <div className="bugie-section-title" data-reveal>
+            <span className="bugie-eyebrow">{rewards.eyebrow}</span>
+            <h2>{rewards.title}</h2>
+            <p>{rewards.text}</p>
+          </div>
+
+          <div className="row g-3 g-lg-4">
+            {(rewards.items ?? []).map((item: any, i: number) => (
+              <div className="col-sm-6 col-lg-3" key={`${lang}-rw-${i}`}>
+                <div className="bugie-card h-100" data-reveal>
+                  <div className="bugie-card-body">
+                    <div
+                      className="d-flex align-items-center justify-content-center mb-3"
+                      style={{
+                        width: 46, height: 46, borderRadius: 14,
+                        background: 'var(--bugie-primary)18',
+                        color: 'var(--bugie-primary)',
+                      }}
+                      aria-hidden="true"
+                    >
+                      <i className={`fa-solid ${item.icon}`} />
+                    </div>
+                    <div className="fw-bold mb-1">{item.title}</div>
+                    <p className="bugie-muted small mb-0">{item.text}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {rewards.ctaLabel ? (
+            <div className="text-center mt-4" data-reveal>
+              <a href={rewards.ctaHref ?? '/auth/registro'}
+                 className="btn btn-bugie rounded-pill px-4 py-2">
+                {rewards.ctaLabel}
+              </a>
+              {rewards.note ? (
+                <div className="bugie-muted small mt-2">{rewards.note}</div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </section>
 

@@ -57,6 +57,34 @@ public class MonthlyPoints
     public int    Redeemed { get; set; }
 }
 
+/// <summary>Un viaje al que se le aplicó un cupón.</summary>
+public class CouponUsageRow
+{
+    public Guid      TripId             { get; set; }
+    public string    CouponCode         { get; set; } = string.Empty;
+    public string?   ItemName           { get; set; }
+    public decimal   FareBeforeDiscount { get; set; }
+    public decimal   DiscountAmount     { get; set; }
+    public decimal   AmountPaid         { get; set; }
+    /// <summary>Lo que la plataforma le quedó debiendo al conductor.</summary>
+    public decimal   PlatformOwesDriver { get; set; }
+    public string?   PassengerName      { get; set; }
+    public string?   DriverName         { get; set; }
+    public short     Status             { get; set; }
+    public DateTime  CreatedAt          { get; set; }
+    public DateTime? CompletedAt        { get; set; }
+}
+
+/// <summary>Totales de los cupones aplicados a viajes.</summary>
+public class CouponUsageTotals
+{
+    public int     Trips          { get; set; }
+    public decimal TotalDiscount  { get; set; }
+    public decimal TotalOwed      { get; set; }
+    public int     TripsCompleted { get; set; }
+    public int     TripsCancelled { get; set; }
+}
+
 /// <summary>
 /// Consultas que solo usa el admin. Van aparte de los repositorios del dominio
 /// porque son agregados y reportes, no reglas de negocio.
@@ -76,4 +104,13 @@ public interface IAdminQueryRepository
 
     /// <summary>Puntos emitidos y canjeados por mes, ultimos N meses.</summary>
     Task<List<MonthlyPoints>> GetMonthlyAsync(int months, CancellationToken ct = default);
+
+    /// <summary>
+    /// Viajes a los que se les aplico un cupon. Cruza a trips.trips y
+    /// auth.users: es un reporte de solo lectura, igual que el buscador de
+    /// usuarios, que ya lee auth.users.
+    /// </summary>
+    Task<List<CouponUsageRow>> GetCouponUsageAsync(int take, CancellationToken ct = default);
+
+    Task<CouponUsageTotals> GetCouponTotalsAsync(CancellationToken ct = default);
 }
