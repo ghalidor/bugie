@@ -216,6 +216,26 @@ public class RewardsInternalController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
+    public record NotifyPayoutRequest(
+        Guid UserId, decimal Amount, string Method,
+        string? OperationNumber, string? SourceType, string? Note);
+
+    /// <summary>
+    /// POST /api/rewards/internal/notify/payout
+    /// Payments avisa que registro un pago a un conductor: push + correo.
+    /// </summary>
+    [HttpPost("notify/payout")]
+    public async Task<IActionResult> NotifyPayout(
+        [FromBody] NotifyPayoutRequest req,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
+    {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
+        var sent = await _mediator.Send(new NotifyPayoutCommand(
+            req.UserId, req.Amount, req.Method, req.OperationNumber, req.SourceType, req.Note), ct);
+        return Ok(new { sent });
+    }
+
     /// <summary>
     /// Valida el header X-Internal-Token. Devuelve false y deja en 'error' la
     /// respuesta que hay que retornar.

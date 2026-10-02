@@ -330,7 +330,8 @@ async function runTrip(s) {
       estimatedFare: fare, paymentMethod: s.method ?? 'cash',
       waypoints: s.waypoint ? [{ address: PLACES[s.waypoint].address, lat: PLACES[s.waypoint].lat, lng: PLACES[s.waypoint].lng }] : [],
       serviceType: s.delivery ? 1 : 0,
-      ...(s.delivery ? { packageDescription: s.delivery, packageWeightKg: 2.5, packageIsFragile: !!s.fragile, packageDetails: 'Entregar en recepcion' } : {}),
+      ...(s.delivery ? { packageDescription: s.delivery, packageWeightKg: 2.5, packageIsFragile: !!s.fragile, packageDetails: 'Entregar en recepcion',
+        recipientName: s.recipient ?? 'Recepcion del destino', recipientPhone: '952999888' } : {}),
     };
     const t = await post(`${API.trips}/trips`, { ...P, body });
     tripId = t.id;
@@ -419,6 +420,19 @@ async function runTrip(s) {
       ok('SOS', 'admin resuelve SOS');
     }
 
+    if (s.delivery) {
+      // Sin confirmar la entrega no se puede completar un envio
+      const sinConfirmar = await put(`${API.trips}/trips/${tripId}/complete`, D).then(() => true).catch(() => false);
+      if (sinConfirmar) fail('Envio', `${label} se completo sin confirmar entrega`, 'deberia rechazarse');
+      // Confirmacion en destino: foto + quien recibio
+      const rec = s.recipient ?? 'Recepcion del destino';
+      await post(`${API.trips}/trips/${tripId}/delivery-confirmation`, { ...D, form: form({ receivedBy: rec }, { photo: [[pngBlob(), 'entrega.png']] }) });
+      ok('Envio', `${label} entrega confirmada`, `recibio: ${rec}`);
+      // Las fotos solo las ven pasajero, conductor del viaje o admin
+      const otro = drivers.find(x => x.status === 'approved' && x.key !== s.d);
+      const visto = await get(`${API.trips}/trips/${tripId}/photos`, { token: otro.token }).then(() => true).catch(e => e.status !== 403);
+      if (visto) fail('Envio', 'fotos visibles para otro conductor', 'deberia ser 403');
+    }
     await put(`${API.trips}/trips/${tripId}/complete`, D);
     const done = await get(`${API.trips}/trips/${tripId}`, P).catch(() => null);
     ok('Viaje', label, `completado S/ ${done?.finalFare ?? finalFare} ${s.method ?? 'cash'}${coupon ? ` con cupon (antes S/ ${done?.fareBeforeDiscount ?? '?'})` : ''}`);
@@ -452,7 +466,7 @@ const TRIPS_A = [
   { p: 'P2', d: 'D3', from: 'terminal', to: 'plaza', method: 'cash', mode: R, scenario: 'directo', stars: 5 },
   { p: 'P2', d: 'D1', from: 'plaza', to: 'estadio', method: 'yape', mode: 'propose', scenario: 'cancelado negociando', cancel: 'negotiating' },
   { p: 'P2', d: 'D2', from: 'estadio', to: 'albarr', method: 'plin', mode: R, scenario: 'directo', stars: 3, comment: 'Manejo un poco brusco', incident: 'El conductor no respeto un semaforo en Av. Bolognesi' },
-  { p: 'P2', d: 'D1', from: 'albarr', to: 'hospital', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Medicinas para entregar en farmacia', fragile: true, stars: 5 },
+  { p: 'P2', d: 'D1', from: 'albarr', to: 'hospital', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Medicinas para entregar en farmacia', recipient: 'Carmen Flores', fragile: true, stars: 5 },
   // P3 Maria - 8
   { p: 'P3', d: 'D2', from: 'hospital', to: 'ciudadN', method: 'cash', mode: R, scenario: 'directo', stars: 5 },
   { p: 'P3', d: 'D3', from: 'ciudadN', to: 'paseo', method: 'yape', mode: R, scenario: 'aceptado y cancelado por conductor', cancel: 'accepted' },
@@ -465,7 +479,7 @@ const TRIPS_A = [
   { p: 'P4', d: 'D1', from: 'pocollay', to: 'mercado', method: 'cash', mode: R, scenario: 'cancelado pendiente', cancel: 'pending' },
   // P5 Rosa - 7
   { p: 'P5', d: 'D3', from: 'bolognesi', to: 'hospital', method: 'yape', mode: R, scenario: 'directo', stars: 5, comment: 'Excelente' },
-  { p: 'P5', d: 'D2', from: 'hospital', to: 'unjbg', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Documentos en sobre manila', stars: 5 },
+  { p: 'P5', d: 'D2', from: 'hospital', to: 'unjbg', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Documentos en sobre manila', recipient: 'Oficina de Mesa de Partes', stars: 5 },
   { p: 'P5', d: 'D1', from: 'unjbg', to: 'estadio', method: 'plin', mode: 'propose', scenario: 'negociado', stars: 4, incident: 'El pasajero dejo olvidada una mochila', incidentBy: 'driver' },
 ];
 const TRIPS_B = [
@@ -482,7 +496,7 @@ const TRIPS_B = [
   { p: 'P3', d: 'D3', from: 'bolognesi', to: 'pocollay', method: 'plin', mode: R, scenario: 'cancelado pendiente', cancel: 'pending' },
   { p: 'P3', d: 'D1', from: 'pocollay', to: 'plaza', method: 'cash', mode: R, scenario: 'directo', stars: 5 },
   { p: 'P4', d: 'D2', from: 'mercado', to: 'unjbg', method: 'yape', mode: R, scenario: 'con cupon', coupon: true, stars: 5 },
-  { p: 'P4', d: 'D3', from: 'unjbg', to: 'estadio', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Torta de cumpleanos', fragile: true, stars: 5 },
+  { p: 'P4', d: 'D3', from: 'unjbg', to: 'estadio', method: 'cash', mode: R, scenario: 'delivery', delivery: 'Torta de cumpleanos', recipient: 'Sofia Apaza', fragile: true, stars: 5 },
   { p: 'P4', d: 'D1', from: 'estadio', to: 'plaza', method: 'plin', mode: R, scenario: 'directo', stars: 4 },
   { p: 'P5', d: 'D2', from: 'estadio', to: 'albarr', method: 'cash', mode: R, scenario: 'con cupon', coupon: true, stars: 5 },
   { p: 'P5', d: 'D3', from: 'albarr', to: 'terminal', method: 'yape', mode: R, scenario: 'aceptado y cancelado por conductor', cancel: 'accepted' },
@@ -529,11 +543,15 @@ async function faseAdminFinal(raffles) {
     const code = d.redeemed[0];
     const method = op % 2 ? 'yape' : 'plin';
     try {
+      // El correo "te pagamos" llega al correo real mientras se registra el pago
+      setEmail(d.userId, REAL_EMAIL);
       const pago = await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
         driverId: d.userId, driverName: d.name, amount: 5, method, operationNumber: String(++op),
         sourceType: 'reward_redemption', sourceRef: code, note: 'Bono S/ 5 por puntos' } });
       await put(`${API.rewards}/rewards/admin/redemptions/${code}/use`, { ...A, body: { note: `Pagado por ${method} · op ${pago.operationNumber} · S/ 5.00` } });
-      ok('Pago', `bono ${code} de ${d.key} pagado por ${method}`, `op ${pago.operationNumber}`);
+      ok('Pago', `bono ${code} de ${d.key} pagado por ${method}`, `op ${pago.operationNumber} · correo a ${REAL_EMAIL}`);
+      await sleep(8000); // el aviso (push + correo) se envia en segundo plano (SMTP tarda)
+      setEmail(d.userId, d.email);
       // no se puede pagar dos veces el mismo canje
       await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
         driverId: d.userId, amount: 5, method, operationNumber: '1', sourceType: 'reward_redemption', sourceRef: code } })
@@ -544,10 +562,13 @@ async function faseAdminFinal(raffles) {
   }
   // pago manual en efectivo (bono especial)
   try {
+    setEmail(byKey.D2.userId, REAL_EMAIL);
     await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
       driverId: byKey.D2.userId, driverName: byKey.D2.name, amount: 20, method: 'efectivo',
       sourceType: 'manual', note: 'Bono por mejor calificacion del mes' } });
-    ok('Pago', 'pago manual en efectivo a D2', 'S/ 20');
+    ok('Pago', 'pago manual en efectivo a D2', `S/ 20 · correo a ${REAL_EMAIL}`);
+    await sleep(8000);
+    setEmail(byKey.D2.userId, byKey.D2.email);
   } catch (e) { fail('Pago', 'pago manual', e); }
   // un cupon sin usar se anula (devuelve puntos)
   const p5 = byKey.P5;
@@ -581,11 +602,15 @@ async function faseAdminFinal(raffles) {
       const after = (await get(`${API.rewards}/rewards/admin/raffles`, A)).find(r => r.id === weekly.id);
       const w = after.winners?.[0];
       if (w) {
+        const ganador = drivers.find(x => x.userId === w.userId);
+        if (ganador) setEmail(ganador.userId, REAL_EMAIL);
         await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
           driverId: w.userId, driverName: w.userName, amount: weekly.prizeValue ?? 120, method: 'transferencia',
           operationNumber: '00045871', sourceType: 'raffle_prize', sourceRef: w.id, note: 'Premio sorteo semanal' } });
         await put(`${API.rewards}/rewards/admin/raffles/winners/${w.id}/deliver`, { ...A, body: { note: 'Pagado por transferencia · op 00045871' } });
-        ok('Sorteo', `sorteo semanal: ganó ${w.userName}`, 'premio pagado por transferencia');
+        ok('Sorteo', `sorteo semanal: ganó ${w.userName}`, `premio pagado por transferencia · correo a ${REAL_EMAIL}`);
+        await sleep(8000);
+        if (ganador) setEmail(ganador.userId, ganador.email);
       }
     }
   } catch (e) { fail('Sorteo', 'sortear / entregar', e); }
@@ -634,6 +659,25 @@ async function faseAdminFinal(raffles) {
       if (t?.cancelledAt) ok('Cancelacion', 'hora de cancelacion guardada', `${t.cancelledBy} · ${t.cancelledAt}`);
       else fail('Cancelacion', 'cancelledAt', 'no llego en el viaje');
     } catch (e) { fail('Cancelacion', 'cancelledAt', e); }
+  }
+  // nombres en el admin (viajes y pagos)
+  try {
+    const tp = await get(`${API.trips}/trips/admin/paged?page=1&pageSize=20`, A);
+    const conNombre = (tp.items ?? []).filter(x => x.passengerName).length;
+    ok('Admin', 'viajes con nombre de pasajero', `${conNombre}/${(tp.items ?? []).length}`);
+    const pp = await get(`${API.payments}/payments/paged?page=1&pageSize=5`, A);
+    const pg = (pp.items ?? [])[0];
+    if (pg?.passengerName && pg?.driverName) ok('Admin', 'pagos con nombres', `${pg.passengerName} -> ${pg.driverName}`);
+    else fail('Admin', 'pagos con nombres', JSON.stringify(pg).slice(0, 120));
+  } catch (e) { fail('Admin', 'nombres', e); }
+  // el pasajero ve por que se cancelo su viaje (lo cancelo el conductor)
+  const cd = tripsLog.find(t => t.final === 'cancelado' && t.cancel === 'accepted');
+  if (cd) {
+    try {
+      const t = await get(`${API.trips}/trips/${cd.tripId}`, { token: byKey[cd.p].token });
+      if (t.cancelledBy === 'driver' && t.cancelReason) ok('Cancelacion', `${cd.p} ve que el conductor cancelo`, t.cancelReason);
+      else fail('Cancelacion', 'detalle para el pasajero', JSON.stringify(t).slice(0, 120));
+    } catch (e) { fail('Cancelacion', 'GET /trips/{id}', e); }
   }
   // recorrido real de un viaje completado (para el mapa del admin)
   const done = tripsLog.find(t => t.final === 'completado');

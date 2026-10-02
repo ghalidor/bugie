@@ -91,6 +91,9 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
   final _pkgDescCtrl = TextEditingController();
   final _pkgWeightCtrl = TextEditingController();
   final _pkgDetailsCtrl = TextEditingController();
+  // Quien recibe el envio en destino (obligatorio)
+  final _rcpNameCtrl = TextEditingController();
+  final _rcpPhoneCtrl = TextEditingController();
   bool _pkgFragile = false;
   final List<XFile> _pkgPhotos = [];
 
@@ -192,6 +195,25 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
             decoration: const InputDecoration(
                 labelText: 'Detalles / condiciones (opcional)'),
           ),
+          const SizedBox(height: 14),
+          const Text('¿Quién recibe?',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _rcpNameCtrl,
+            maxLength: 120,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+                labelText: 'Nombre de quien recibe', counterText: ''),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _rcpPhoneCtrl,
+            maxLength: 20,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+                labelText: 'Teléfono de quien recibe', counterText: ''),
+          ),
         ],
       ),
     );
@@ -252,6 +274,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       t.cancel();
     }
     _proposedFareCtrl.dispose();
+    _rcpNameCtrl.dispose();
+    _rcpPhoneCtrl.dispose();
     super.dispose();
   }
 
@@ -557,6 +581,10 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       setState(() => _error = 'Describe el paquete.');
       return;
     }
+    if (_rcpNameCtrl.text.trim().isEmpty || _rcpPhoneCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Indica el nombre y el teléfono de quien recibe.');
+      return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -588,6 +616,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
         packageDetails: _pkgDetailsCtrl.text.trim().isEmpty
             ? null
             : _pkgDetailsCtrl.text.trim(),
+        recipientName: _rcpNameCtrl.text.trim(),
+        recipientPhone: _rcpPhoneCtrl.text.trim(),
       );
       // Subir las fotos del paquete al envío recién creado.
       await repo.uploadPackagePhotos(

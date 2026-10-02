@@ -60,7 +60,7 @@ public interface ITripNotificationService
     /// → Push a la CONTRAPARTE.
     /// </summary>
     Task NotifyTripCancelledAsync(
-        Guid recipientUserId, Guid tripId, string cancelledByRole);
+        Guid recipientUserId, Guid tripId, string cancelledByRole, string? reason = null);
 
     /// <summary>
     /// El pasajero rechazó la propuesta del conductor.

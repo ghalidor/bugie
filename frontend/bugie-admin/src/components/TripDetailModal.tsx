@@ -16,7 +16,26 @@ export interface TripDetail {
   acceptedAt?: string | null; driverArrivedAt?: string | null;
   startedAt?: string | null; completedAt?: string | null;
   cancelledBy?: string | null; cancelReason?: string | null; cancelledAt?: string | null;
+  passengerName?: string | null; driverName?: string | null;
+  // Envio
+  packageDescription?: string | null; packageWeightKg?: number | null;
+  packageIsFragile?: boolean; packageDetails?: string | null;
+  pickupObservation?: string | null;
+  recipientName?: string | null; recipientPhone?: string | null;
+  deliveryReceivedBy?: string | null; deliveryConfirmedAt?: string | null;
 }
+
+interface TripPhoto { id: string; url: string; kind: number; createdAt: string; }
+
+const PHOTO_KIND: Record<number, string> = {
+  0: 'Paquete (pasajero)',
+  1: 'Recojo: foto principal',
+  2: 'Recojo: foto extra',
+  3: 'Entrega en destino',
+};
+
+// Las fotos vienen con ruta relativa (/uploads/...) del servidor de Trips
+const photoUrl = (u: string) => u.startsWith('http') ? u : `${API.trips.replace(/\/api\/?$/, '')}${u}`;
 
 interface PathPoint { lat: number; lng: number; speedKmh: number | null; heading: number | null; recordedAt: string; }
 interface TripPath  { tripId: string; points: number; distanceKm: number; firstAt: string | null; lastAt: string | null; path: PathPoint[]; }
@@ -37,13 +56,20 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
   const [path,    setPath]    = useState<TripPath | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [photos,  setPhotos]  = useState<TripPhoto[]>([]);
+  const isDelivery = trip.serviceType === 1;
 
   useEffect(() => {
     apiFetch<TripPath>(`${API.drivers}/drivers/admin/trips/${trip.id}/path`)
       .then(setPath)
       .catch(err => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el recorrido.'))
       .finally(() => setLoading(false));
-  }, [trip.id]);
+    // Envio: fotos del paquete, del recojo y de la entrega (auditoria)
+    if (isDelivery)
+      apiFetch<TripPhoto[]>(`${API.trips}/trips/${trip.id}/photos`)
+        .then(p => setPhotos(p ?? []))
+        .catch(() => setPhotos([]));
+  }, [trip.id, isDelivery]);
 
   const markers = useMemo<MapMarker[]>(() => {
     const m: MapMarker[] = [];
@@ -63,6 +89,7 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
     { label: 'Aceptado por el conductor', at: trip.acceptedAt,      icon: 'fa-car' },
     { label: 'Conductor llegó',          at: trip.driverArrivedAt, icon: 'fa-location-dot' },
     { label: 'Inicio del viaje',         at: trip.startedAt,       icon: 'fa-play' },
+    ...(isDelivery ? [{ label: 'Entrega confirmada', at: trip.deliveryConfirmedAt, icon: 'fa-box-open' }] : []),
     { label: 'Fin del viaje',            at: trip.completedAt,     icon: 'fa-flag-checkered' },
     ...(trip.status === 5 ? [{ label: 'Cancelado', at: trip.cancelledAt, icon: 'fa-circle-xmark' }] : []),
   ];
@@ -110,6 +137,10 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
             </div>
 
             <div className="col-lg-4">
+              <div className="mb-3 small">
+                <div><i className="fa-solid fa-user me-2 bugie-muted" />{trip.passengerName ?? 'Pasajero'}</div>
+                <div><i className="fa-solid fa-car me-2 bugie-muted" />{trip.driverId ? (trip.driverName ?? 'Conductor asignado') : 'Sin conductor'}</div>
+              </div>
               <div className="mb-3">
                 <div className="small bugie-muted">Tarifa</div>
                 <div className="fw-bold fs-5">S/ {fare.toFixed(2)}</div>
@@ -130,6 +161,26 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
                 </div>
               )}
 
+              {isDelivery && (
+                <div className="mb-3 small p-2" style={{ border: '1px solid var(--bugie-border)', borderRadius: 10 }}>
+                  <div className="fw-semibold mb-1"><i className="fa-solid fa-box me-1" />Envío</div>
+                  {trip.packageDescription && <div>{trip.packageDescription}</div>}
+                  <div className="bugie-muted">
+                    {trip.packageWeightKg != null && <>{trip.packageWeightKg} kg</>}
+                    {trip.packageIsFragile && <> · <span className="text-warning">Frágil</span></>}
+                  </div>
+                  {trip.packageDetails && <div className="bugie-muted">{trip.packageDetails}</div>}
+                  <div className="mt-1">
+                    Destinatario: <strong>{trip.recipientName ?? '—'}</strong>
+                    {trip.recipientPhone && <> · {trip.recipientPhone}</>}
+                  </div>
+                  {trip.pickupObservation && <div className="bugie-muted">Recojo: {trip.pickupObservation}</div>}
+                  {trip.deliveryReceivedBy
+                    ? <div className="text-success"><i className="fa-solid fa-circle-check me-1" />Recibió: {trip.deliveryReceivedBy}</div>
+                    : <div className="bugie-muted">Entrega aún no confirmada</div>}
+                </div>
+              )}
+
               <div className="small fw-semibold mb-2">Línea de tiempo</div>
               <ul className="list-unstyled small mb-0">
                 {timeline.map(s => (
@@ -143,6 +194,27 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
               </ul>
             </div>
           </div>
+
+          {/* Fotos del envio: paquete, recojo y entrega */}
+          {isDelivery && (
+            <div className="mt-3">
+              <div className="small fw-semibold mb-2">Fotos del envío ({photos.length})</div>
+              {photos.length === 0 ? (
+                <div className="small bugie-muted">No hay fotos registradas.</div>
+              ) : (
+                <div className="d-flex flex-wrap gap-2">
+                  {photos.map(p => (
+                    <a key={p.id} href={photoUrl(p.url)} target="_blank" rel="noreferrer"
+                       className="text-decoration-none" style={{ width: 140 }}>
+                      <img src={photoUrl(p.url)} alt={PHOTO_KIND[p.kind] ?? 'Foto'}
+                           style={{ width: 140, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--bugie-border)' }} />
+                      <div className="small bugie-muted text-truncate">{PHOTO_KIND[p.kind] ?? 'Foto'}</div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>,

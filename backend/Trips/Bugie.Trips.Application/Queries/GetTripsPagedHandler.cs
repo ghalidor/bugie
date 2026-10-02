@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
+using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Application.Queries;
@@ -26,12 +27,25 @@ public record TripsPagedDto(
 public class GetTripsPagedHandler
     : IRequestHandler<GetTripsPagedQuery, TripsPagedDto> {
     private readonly ITripRepository _trips;
-    public GetTripsPagedHandler(ITripRepository trips) => _trips = trips;
+    private readonly IAuthClient     _auth;
+    public GetTripsPagedHandler(ITripRepository trips, IAuthClient auth)
+        => (_trips, _auth) = (trips, auth);
 
     public async Task<TripsPagedDto> Handle(GetTripsPagedQuery q, CancellationToken ct) {
         var (list, total) = await _trips.GetPagedAsync(
             q.Page, q.PageSize, q.Statuses, q.Search, ct);
-        var items = list.Select(t => CreateTripHandler.ToDto(t)).ToList();
+        // Nombres del pasajero y del conductor para el admin (una sola llamada a Auth).
+        var ids = list.Select(t => t.PassengerId)
+            .Concat(list.Where(t => t.DriverId.HasValue).Select(t => t.DriverId!.Value))
+            .Distinct().ToList();
+        var users = ids.Count == 0
+            ? new Dictionary<Guid, UserInfoDto>()
+            : await _auth.GetUsersByIdsAsync(ids, ct);
+
+        var items = list.Select(t => CreateTripHandler.ToDto(t,
+            passengerName: users.GetValueOrDefault(t.PassengerId)?.FullName,
+            driverName:    t.DriverId.HasValue ? users.GetValueOrDefault(t.DriverId.Value)?.FullName : null))
+            .ToList();
         return new TripsPagedDto(items, q.Page, q.PageSize, total);
     }
 }

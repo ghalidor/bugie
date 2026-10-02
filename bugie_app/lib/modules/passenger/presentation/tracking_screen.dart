@@ -128,6 +128,8 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     WidgetsBinding.instance.addObserver(this);
     // Push "tu conductor llegó" (app abierta o al tocar la notificación).
     FcmService.driverArrived.addListener(_onDriverArrivedPush);
+    // Push "viaje cancelado": refrescar ya (el aviso sale en _handleTripFinished).
+    FcmService.tripCancelled.addListener(_onTripCancelledPush);
     _load();
     _loadDeviationFlag();
     _loadFavoriteDrivers();
@@ -173,6 +175,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   @override
   void dispose() {
     FcmService.driverArrived.removeListener(_onDriverArrivedPush);
+    FcmService.tripCancelled.removeListener(_onTripCancelledPush);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _staleTickTimer?.cancel();
@@ -362,12 +365,47 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     }
   }
 
+  void _onTripCancelledPush() {
+    if (mounted) _load();
+  }
+
   /// Llegó el push "tu conductor llegó": refresca el viaje y muestra el aviso.
   /// Si el conductor vuelve a avisar, se muestra de nuevo.
   void _onDriverArrivedPush() {
     if (!mounted || FcmService.driverArrived.value == null) return;
     _load();
     _showDriverArrivedDialog();
+  }
+
+  /// Aviso: el conductor (o Bugie) canceló el viaje, con el motivo.
+  Future<void> _showCancelledDialog(Trip t) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.cancel_outlined, size: 48, color: BugieColors.danger),
+        title: Text(t.cancelledBy == 'driver'
+            ? 'Tu conductor canceló el viaje'
+            : 'Bugie canceló tu viaje'),
+        content: Text(
+          '${t.cancelReason != null ? 'Motivo: ${t.cancelReason}\n\n' : ''}'
+          'Puedes solicitar otro viaje cuando quieras.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.go('/passenger');
+            },
+            child: const Text('Solicitar otro'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Aviso emergente: el conductor ya está en el punto de recojo.
@@ -471,17 +509,23 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   /// (no cancelado) y, si el pasajero no lo calificó aún, mostramos el popup.
   Future<void> _handleTripFinished(Trip prev) async {
     final repo = context.read<TripsRepository>();
-    bool completed = false;
+    Trip? fin;
     try {
-      final history = await repo.getHistory();
-      for (final t in history) {
-        if (t.id == prev.id) {
-          completed = t.status == TripStatus.completed;
-          break;
-        }
-      }
+      fin = await repo.getById(prev.id);
     } catch (_) {}
-    if (!completed) return; // cancelado u otro: no calificamos
+
+    // Cancelado por el conductor (o por Bugie): avisar con el motivo.
+    if (fin != null &&
+        fin.status == TripStatus.cancelled &&
+        fin.cancelledBy != null &&
+        fin.cancelledBy != 'passenger') {
+      if (!mounted) return;
+      await _showCancelledDialog(fin);
+      return;
+    }
+
+    final completed = fin?.status == TripStatus.completed;
+    if (!completed) return; // cancelado por el pasajero u otro: no calificamos
 
     // ¿ya lo calificó antes? entonces solo volvemos al dashboard.
     try {

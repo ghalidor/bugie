@@ -15,7 +15,10 @@ public record CreateTripRequest(
     string? PackageDescription = null,
     decimal? PackageWeightKg = null,
     bool PackageIsFragile = false,
-    string? PackageDetails = null);
+    string? PackageDetails = null,
+    // Envio: a quien se entrega (obligatorio si es envio)
+    string? RecipientName = null,
+    string? RecipientPhone = null);
 
 public record TripDto(
     Guid Id,
@@ -74,7 +77,12 @@ public record TripDto(
     // Si se cancelo: quien (passenger | driver | admin) y el motivo
     string? CancelledBy = null,
     string? CancelReason = null,
-    DateTime? CancelledAt = null);
+    DateTime? CancelledAt = null,
+    // Envio: destinatario y confirmacion de entrega
+    string? RecipientName = null,
+    string? RecipientPhone = null,
+    string? DeliveryReceivedBy = null,
+    DateTime? DeliveryConfirmedAt = null);
 
 public record SosRequest(Guid TripId, double Lat, double Lng);
 

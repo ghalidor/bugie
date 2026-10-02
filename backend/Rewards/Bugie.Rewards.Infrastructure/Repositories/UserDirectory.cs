@@ -14,7 +14,7 @@ public class UserDirectory : IUserDirectory
         var list = ids.Distinct().ToArray();
         if (list.Length == 0) return new();
         var rows = await _db.QueryAsync<UserNameRow>(
-            "SELECT Id, FullName, Role FROM auth.Users WHERE Id = ANY(@Ids)", new { Ids = list });
+            "SELECT Id, FullName, Role, Email FROM auth.Users WHERE Id = ANY(@Ids)", new { Ids = list });
         return rows.ToDictionary(r => r.Id);
     }
 }

@@ -56,7 +56,8 @@ public class TripsController : ControllerBase
                 req.DestAddress, req.DestLat, req.DestLng,
                 req.EstimatedFare, req.PaymentMethod, req.Waypoints,
                 req.ServiceType, req.PackageDescription, req.PackageWeightKg,
-                req.PackageIsFragile, req.PackageDetails), ct);
+                req.PackageIsFragile, req.PackageDetails,
+                req.RecipientName, req.RecipientPhone), ct);
             return Ok(dto);
         }
         catch(InvalidOperationException ex)
@@ -433,6 +434,21 @@ public class TripsController : ControllerBase
         return Ok(CreateTripHandler.ToDto(trip));
     }
 
+    /// <summary>
+    /// GET /api/trips/{id} — un viaje (pasajero, conductor del viaje o admin).
+    /// Lo usan las pantallas de seguimiento para saber como termino un viaje
+    /// que ya no esta activo (completado o cancelado, quien y por que).
+    /// </summary>
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetOne(Guid id, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound();
+        if(trip.PassengerId != CurrentUserId && trip.DriverId != CurrentUserId && !User.IsInRole("admin"))
+            return Forbid();
+        return Ok(CreateTripHandler.ToDto(trip));
+    }
+
     [HttpPut("{id:guid}/start")]
     public async Task<IActionResult> Start(Guid id, CancellationToken ct)
     {
@@ -476,15 +492,27 @@ public class TripsController : ControllerBase
         var finalFare  = trip.HasCoupon
             ? Math.Max(0, tarifaBase - (trip.DiscountAmount ?? 0))
             : tarifaBase;
-        var result = await _mediator.Send(new CompleteTripCommand(id, finalFare), ct);
+        TripDto result;
+        try
+        {
+            result = await _mediator.Send(new CompleteTripCommand(id, finalFare), ct);
+        }
+        catch(InvalidOperationException ex)
+        {
+            // Ej.: envio sin confirmar la entrega, o viaje que no esta en curso.
+            return Conflict(new { error = ex.Message });
+        }
 
         // Crear pago automáticamente al completar el viaje
         if(trip.DriverId.HasValue)
         {
             try
             {
-                var paymentsUrl = Environment.GetEnvironmentVariable("PAYMENTS_API_URL")
-                                  ?? "http://localhost:5004";
+                // Direccion de Payments desde appsettings (Services:PaymentsApi), como los
+                // demas servicios. En el servidor se cambia ahi.
+                var paymentsUrl = (HttpContext.RequestServices.GetRequiredService<IConfiguration>()["Services:PaymentsApi"]
+                                  ?? Environment.GetEnvironmentVariable("PAYMENTS_API_URL")
+                                  ?? "http://localhost:5004").TrimEnd('/');
                 var token = Request.Headers["Authorization"].ToString();
                 using var req2 = new HttpRequestMessage(HttpMethod.Post,
                     $"{paymentsUrl}/api/payments");
@@ -589,13 +617,13 @@ public class TripsController : ControllerBase
         // Cerrar la negociacion y avisar a los conductores que habian ofertado.
         var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, ct);
         foreach(var driverUserId in proposalDrivers.Where(d => d != trip.DriverId))
-            _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by);
+            _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by, dto.CancelReason);
 
-        // Avisar a la contraparte del viaje.
+        // Avisar a la contraparte del viaje (con el motivo).
         if(by != "passenger")
-            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by);
+            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by, dto.CancelReason);
         if(by != "driver" && trip.DriverId.HasValue)
-            _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by);
+            _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by, dto.CancelReason);
 
         return Ok(dto);
     }

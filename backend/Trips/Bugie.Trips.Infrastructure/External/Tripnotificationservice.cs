@@ -102,7 +102,7 @@ public class TripNotificationService : ITripNotificationService
 
     // ── EVENTO: viaje cancelado ──────────────────────────────────────────
     public Task NotifyTripCancelledAsync(
-        Guid recipientUserId, Guid tripId, string cancelledByRole)
+        Guid recipientUserId, Guid tripId, string cancelledByRole, string? reason = null)
     {
         var who = cancelledByRole switch
         {
@@ -112,13 +112,16 @@ public class TripNotificationService : ITripNotificationService
         };
         return SafeSend(recipientUserId, new FcmPushMessage(
             Title: "Viaje cancelado",
-            Body: $"{who} canceló el viaje.",
+            Body: string.IsNullOrWhiteSpace(reason)
+                ? $"{who} canceló el viaje."
+                : $"{who} canceló el viaje. Motivo: {reason}",
             Route: null,
             ExtraData: new Dictionary<string, string>
             {
                 // Antes iba como "sos" (copiado por error): es un aviso de viaje.
                 ["alert_type"] = "trip",
                 ["type"]       = "trip_cancelled",
+                ["cancelled_by"] = cancelledByRole,
                 ["trip_id"] = tripId.ToString(),
             }));
     }

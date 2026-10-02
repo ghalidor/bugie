@@ -48,9 +48,17 @@ public class Trip
     public bool PackageIsFragile { get; set; }
     public string? PackageDetails { get; set; }
 
+    // Destinatario del envio (quien recibe en destino)
+    public string? RecipientName { get; set; }
+    public string? RecipientPhone { get; set; }
+
     // Verificacion del paquete al recoger (solo Delivery)
     public bool PickupVerified { get; set; }
     public string? PickupObservation { get; set; }
+
+    // Confirmacion de entrega en destino (solo Delivery): foto + quien recibio
+    public string? DeliveryReceivedBy { get; set; }
+    public DateTime? DeliveryConfirmedAt { get; set; }
 
     // Fotos: paquete del cliente (solicitud) + verificacion del conductor (pickup)
     public List<TripPhoto> Photos { get; set; } = new();
@@ -66,7 +74,9 @@ public class Trip
         string? packageDescription = null,
         decimal? packageWeightKg = null,
         bool packageIsFragile = false,
-        string? packageDetails = null) => new()
+        string? packageDetails = null,
+        string? recipientName = null,
+        string? recipientPhone = null) => new()
         {
             Id = Guid.NewGuid(),
             PassengerId = passengerId,
@@ -84,6 +94,8 @@ public class Trip
             PackageWeightKg = packageWeightKg,
             PackageIsFragile = packageIsFragile,
             PackageDetails = packageDetails,
+            RecipientName = recipientName,
+            RecipientPhone = recipientPhone,
             Status = TripStatus.Pending,
             CreatedAt = DateTime.UtcNow,
         };
@@ -166,10 +178,23 @@ public class Trip
         StartedAt = DateTime.UtcNow;
     }
 
+    // Envio: el conductor confirma la entrega en destino (foto + quien recibio).
+    public void ConfirmDelivery(string receivedBy)
+    {
+        if(ServiceType != ServiceType.Delivery)
+            throw new InvalidOperationException("Este viaje no es un envío.");
+        if(Status != TripStatus.InProgress)
+            throw new InvalidOperationException("Solo se confirma la entrega con el envío en curso.");
+        DeliveryReceivedBy = receivedBy;
+        DeliveryConfirmedAt = DateTime.UtcNow;
+    }
+
     public void Complete(decimal finalFare)
     {
         if(Status != TripStatus.InProgress)
             throw new InvalidOperationException("El viaje debe estar en curso para completarse.");
+        if(ServiceType == ServiceType.Delivery && DeliveryConfirmedAt is null)
+            throw new InvalidOperationException("Confirma la entrega (foto y quién recibió) antes de completar el envío.");
         Status = TripStatus.Completed;
         FinalFare = finalFare;
         CompletedAt = DateTime.UtcNow;

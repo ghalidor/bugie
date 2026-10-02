@@ -88,7 +88,7 @@
       "area": "Registro",
       "step": "passenger Carlos Ticona Flores",
       "ok": true,
-      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZNW6X"
+      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZFGEN"
     },
     {
       "area": "Pasajero",
@@ -268,7 +268,7 @@
       "area": "Registro",
       "step": "driver Pedro Mendoza Calle",
       "ok": true,
-      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZNW6X"
+      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZFGEN"
     },
     {
       "area": "Conductor",
@@ -385,6 +385,12 @@
       "detail": ""
     },
     {
+      "area": "Envio",
+      "step": "P2->D1 albarr->hospital [delivery] entrega confirmada",
+      "ok": true,
+      "detail": "recibio: Carmen Flores"
+    },
+    {
       "area": "Viaje",
       "step": "P2->D1 albarr->hospital [delivery]",
       "ok": true,
@@ -412,7 +418,7 @@
       "area": "SOS",
       "step": "P3 activa SOS en viaje",
       "ok": true,
-      "detail": "alerta 49d7a250-82c9-4d4d-bc0e-17cfe2cf7ab3"
+      "detail": "alerta 963f572c-0836-4574-8518-43ec298fd678"
     },
     {
       "area": "SOS",
@@ -457,6 +463,12 @@
       "detail": "completado S/ 8 yape"
     },
     {
+      "area": "Envio",
+      "step": "P5->D2 hospital->unjbg [delivery] entrega confirmada",
+      "ok": true,
+      "detail": "recibio: Oficina de Mesa de Partes"
+    },
+    {
       "area": "Viaje",
       "step": "P5->D2 hospital->unjbg [delivery]",
       "ok": true,
@@ -484,13 +496,13 @@
       "area": "Canje",
       "step": "P1 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-3BUSRF, le quedan 1655 pts"
+      "detail": "cupon BG-JXFPGJ, le quedan 1655 pts"
     },
     {
       "area": "Canje",
       "step": "P1 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-P8WHZ6, le quedan 1155 pts"
+      "detail": "cupon BG-KPPCYR, le quedan 1155 pts"
     },
     {
       "area": "Puntos",
@@ -502,7 +514,7 @@
       "area": "Canje",
       "step": "P2 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-XGZBE3, le quedan 310 pts"
+      "detail": "cupon BG-S84WKK, le quedan 310 pts"
     },
     {
       "area": "Canje",
@@ -520,7 +532,7 @@
       "area": "Canje",
       "step": "P3 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-QZFQ9G, le quedan 120 pts"
+      "detail": "cupon BG-LT9QKK, le quedan 120 pts"
     },
     {
       "area": "Canje",
@@ -538,7 +550,7 @@
       "area": "Canje",
       "step": "P4 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-V6T28R, le quedan 320 pts"
+      "detail": "cupon BG-4FPEDW, le quedan 320 pts"
     },
     {
       "area": "Canje",
@@ -556,7 +568,7 @@
       "area": "Canje",
       "step": "P5 canjea S/. 2 de descuento",
       "ok": true,
-      "detail": "cupon BG-RUK3QC, le quedan 180 pts"
+      "detail": "cupon BG-9NQY5U, le quedan 180 pts"
     },
     {
       "area": "Canje",
@@ -574,7 +586,7 @@
       "area": "Canje",
       "step": "D1 canjea Bono de S/. 5",
       "ok": true,
-      "detail": "cupon BG-9UW6HM, le quedan 295 pts"
+      "detail": "cupon BG-KJDQAX, le quedan 295 pts"
     },
     {
       "area": "Puntos",
@@ -586,7 +598,7 @@
       "area": "Canje",
       "step": "D2 canjea Bono de S/. 5",
       "ok": true,
-      "detail": "cupon BG-6RGGND, le quedan 515 pts"
+      "detail": "cupon BG-NHJHKR, le quedan 515 pts"
     },
     {
       "area": "Puntos",
@@ -598,11 +610,11 @@
       "area": "Canje",
       "step": "D3 canjea Bono de S/. 5",
       "ok": true,
-      "detail": "cupon BG-94DML5, le quedan 140 pts"
+      "detail": "cupon BG-EBN7R8, le quedan 140 pts"
     },
     {
       "area": "Cupon",
-      "step": "P1 aplica BG-3BUSRF",
+      "step": "P1 aplica BG-JXFPGJ",
       "ok": true,
       "detail": "descuento S/ 2"
     },
@@ -610,7 +622,7 @@
       "area": "Viaje",
       "step": "P1->D3 aeropuerto->paseo [con cupon]",
       "ok": true,
-      "detail": "completado S/ 15.5 cash con cupon (antes S/ ?)"
+      "detail": "completado S/ 13.5 cash con cupon (antes S/ 15.5)"
     },
     {
       "area": "Viaje",
@@ -632,7 +644,7 @@
     },
     {
       "area": "Cupon",
-      "step": "P2 aplica BG-XGZBE3",
+      "step": "P2 aplica BG-S84WKK",
       "ok": true,
       "detail": "descuento S/ 2"
     },
@@ -640,7 +652,7 @@
       "area": "Viaje",
       "step": "P2->D2 hospital->aeropuerto [con cupon]",
       "ok": true,
-      "detail": "completado S/ 16.5 yape con cupon (antes S/ ?)"
+      "detail": "completado S/ 14.5 yape con cupon (antes S/ 16.5)"
     },
     {
       "area": "Viaje",
@@ -656,7 +668,7 @@
     },
     {
       "area": "Cupon",
-      "step": "P3 aplica BG-QZFQ9G",
+      "step": "P3 aplica BG-LT9QKK",
       "ok": true,
       "detail": "descuento S/ 2"
     },
@@ -664,7 +676,7 @@
       "area": "Viaje",
       "step": "P3->D1 albarr->aeropuerto [con cupon]",
       "ok": true,
-      "detail": "completado S/ 10.5 cash con cupon (antes S/ ?)"
+      "detail": "completado S/ 8.5 cash con cupon (antes S/ 10.5)"
     },
     {
       "area": "Viaje",
@@ -686,7 +698,7 @@
     },
     {
       "area": "Cupon",
-      "step": "P4 aplica BG-V6T28R",
+      "step": "P4 aplica BG-4FPEDW",
       "ok": true,
       "detail": "descuento S/ 2"
     },
@@ -694,7 +706,13 @@
       "area": "Viaje",
       "step": "P4->D2 mercado->unjbg [con cupon]",
       "ok": true,
-      "detail": "completado S/ 8 yape con cupon (antes S/ ?)"
+      "detail": "completado S/ 6 yape con cupon (antes S/ 8)"
+    },
+    {
+      "area": "Envio",
+      "step": "P4->D3 unjbg->estadio [delivery] entrega confirmada",
+      "ok": true,
+      "detail": "recibio: Sofia Apaza"
     },
     {
       "area": "Viaje",
@@ -710,7 +728,7 @@
     },
     {
       "area": "Cupon",
-      "step": "P5 aplica BG-RUK3QC",
+      "step": "P5 aplica BG-9NQY5U",
       "ok": true,
       "detail": "descuento S/ 2"
     },
@@ -718,7 +736,7 @@
       "area": "Viaje",
       "step": "P5->D2 estadio->albarr [con cupon]",
       "ok": true,
-      "detail": "completado S/ 13 cash con cupon (antes S/ ?)"
+      "detail": "completado S/ 11 cash con cupon (antes S/ 13)"
     },
     {
       "area": "Viaje",
@@ -734,27 +752,27 @@
     },
     {
       "area": "Pago",
-      "step": "bono BG-9UW6HM de D1 pagado por plin",
+      "step": "bono BG-KJDQAX de D1 pagado por plin",
       "ok": true,
-      "detail": "op 88211"
+      "detail": "op 88211 · correo a ghaluix@gmail.com"
     },
     {
       "area": "Pago",
-      "step": "bono BG-6RGGND de D2 pagado por yape",
+      "step": "bono BG-NHJHKR de D2 pagado por yape",
       "ok": true,
-      "detail": "op 88212"
+      "detail": "op 88212 · correo a ghaluix@gmail.com"
     },
     {
       "area": "Pago",
-      "step": "bono BG-94DML5 de D3 pagado por plin",
+      "step": "bono BG-EBN7R8 de D3 pagado por plin",
       "ok": true,
-      "detail": "op 88213"
+      "detail": "op 88213 · correo a ghaluix@gmail.com"
     },
     {
       "area": "Pago",
       "step": "pago manual en efectivo a D2",
       "ok": true,
-      "detail": "S/ 20"
+      "detail": "S/ 20 · correo a ghaluix@gmail.com"
     },
     {
       "area": "Admin",
@@ -802,7 +820,7 @@
       "area": "Sorteo",
       "step": "se sortea \"Sorteo mensual: 1 mes de viajes gratis\"",
       "ok": true,
-      "detail": "ganador ticket BG-000009"
+      "detail": "ganador ticket BG-000008"
     },
     {
       "area": "Sorteo",
@@ -812,9 +830,9 @@
     },
     {
       "area": "Sorteo",
-      "step": "sorteo semanal: ganó Pedro Mendoza Calle",
+      "step": "sorteo semanal: ganó Juan Carlos Pari Vargas",
       "ok": true,
-      "detail": "premio pagado por transferencia"
+      "detail": "premio pagado por transferencia · correo a ghaluix@gmail.com"
     },
     {
       "area": "Rewards",
@@ -856,7 +874,7 @@
       "area": "Reporte",
       "step": "ranking conductores",
       "ok": true,
-      "detail": "{\"year\":2026,\"month\":10,\"page\":1,\"pageSize\":20,\"total\":3,\"totalPages\":1,\"items\":[{\"driverUserId\":\"97cc445f-27f7-4477-ab66-5463881dc4dc\",\"fullName\":\"Juan Carlos "
+      "detail": "{\"year\":2026,\"month\":10,\"page\":1,\"pageSize\":20,\"total\":3,\"totalPages\":1,\"items\":[{\"driverUserId\":\"4def9e92-6eab-40cc-8bf0-abbc95435eb8\",\"fullName\":\"Juan Carlos "
     },
     {
       "area": "Reporte",
@@ -880,7 +898,7 @@
       "area": "Reporte",
       "step": "uso de cupones",
       "ok": true,
-      "detail": "{\"trips\":5,\"tripsCompleted\":5,\"tripsCancelled\":0,\"totalDiscount\":10,\"averageDiscount\":2,\"featureEnabled\":true,\"recent\":[{\"tripId\":\"376b0041-fea8-4c13-b97e-94f86"
+      "detail": "{\"trips\":5,\"tripsCompleted\":5,\"tripsCancelled\":0,\"totalDiscount\":10,\"averageDiscount\":2,\"featureEnabled\":true,\"recent\":[{\"tripId\":\"de316d7f-6d6b-4f36-8383-5f3ad"
     },
     {
       "area": "Reporte",
@@ -898,13 +916,13 @@
       "area": "Reporte",
       "step": "pagos a conductores",
       "ok": true,
-      "detail": "{\"items\":[{\"id\":\"d1f0068e-3d2a-4a1d-b6f7-958873a21473\",\"driverId\":\"da6ce458-c656-446c-9bd9-6f2f20734466\",\"driverName\":\"Pedro Mendoza Calle\",\"amount\":120,\"method"
+      "detail": "{\"items\":[{\"id\":\"ecfa4a48-bb51-4111-b3a2-102db37317dc\",\"driverId\":\"4def9e92-6eab-40cc-8bf0-abbc95435eb8\",\"driverName\":\"Juan Carlos Pari Vargas\",\"amount\":120,\"me"
     },
     {
       "area": "Pagos recibidos",
-      "step": "D1 ve 1 pago(s)",
+      "step": "D1 ve 2 pago(s)",
       "ok": true,
-      "detail": "S/ 5"
+      "detail": "S/ 125"
     },
     {
       "area": "Pagos recibidos",
@@ -914,15 +932,33 @@
     },
     {
       "area": "Pagos recibidos",
-      "step": "D3 ve 2 pago(s)",
+      "step": "D3 ve 1 pago(s)",
       "ok": true,
-      "detail": "S/ 125"
+      "detail": "S/ 5"
     },
     {
       "area": "Cancelacion",
       "step": "hora de cancelacion guardada",
       "ok": true,
-      "detail": "passenger · 2026-10-02T16:01:12.12728"
+      "detail": "passenger · 2026-10-02T17:15:07.971893"
+    },
+    {
+      "area": "Admin",
+      "step": "viajes con nombre de pasajero",
+      "ok": true,
+      "detail": "20/20"
+    },
+    {
+      "area": "Admin",
+      "step": "pagos con nombres",
+      "ok": true,
+      "detail": "Rosa Elena Condori -> Juan Carlos Pari Vargas"
+    },
+    {
+      "area": "Cancelacion",
+      "step": "P3 ve que el conductor cancelo",
+      "ok": true,
+      "detail": "El pasajero no se presenta"
     },
     {
       "area": "Recorrido",
@@ -954,7 +990,7 @@
       "scenario": "directo",
       "stars": 5,
       "comment": "Muy amable y puntual",
-      "tripId": "796fd1c0-1a95-4f88-8fe7-1f581945d179",
+      "tripId": "25835170-95d7-4ef5-8d67-af7f729f12b3",
       "fare": 7.5,
       "final": "completado",
       "coupon": null
@@ -968,7 +1004,7 @@
       "mode": "propose",
       "scenario": "negociado 2 ofertas",
       "stars": 5,
-      "tripId": "c7c37171-85c3-4139-b704-51764b8a9571",
+      "tripId": "ce42097c-ce32-423f-b795-f0b6273ea76d",
       "fare": 13,
       "final": "completado",
       "coupon": null
@@ -983,7 +1019,7 @@
       "scenario": "contraoferta pasajero",
       "stars": 4,
       "comment": "Buen viaje, auto algo caluroso",
-      "tripId": "d5e02288-877e-4e13-be24-f0ba30c0e631",
+      "tripId": "a745a4c1-4d28-4793-ba48-2a053399edcd",
       "fare": 11,
       "final": "completado",
       "coupon": null
@@ -996,7 +1032,7 @@
       "mode": "accept",
       "scenario": "cancelado pendiente",
       "cancel": "pending",
-      "tripId": "b53693e9-2840-4ad8-9a43-1ad10e436b37",
+      "tripId": "18625f16-663e-4c39-aae4-4a11611fb04f",
       "fare": 6,
       "final": "cancelado"
     },
@@ -1010,7 +1046,7 @@
       "scenario": "conductor acepta tarifa",
       "stars": 5,
       "waypoint": "bolognesi",
-      "tripId": "6f928518-fe88-4406-8794-c90de8198e4c",
+      "tripId": "f0240dfb-0556-48b5-9afb-e447880e2cf3",
       "fare": 15,
       "final": "completado",
       "coupon": null
@@ -1024,7 +1060,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "ebea6f8d-6400-4dd3-b1d2-b388010d81ef",
+      "tripId": "07e03641-f9db-4a97-896a-0d5e314bdda6",
       "fare": 9.5,
       "final": "completado",
       "coupon": null
@@ -1038,7 +1074,7 @@
       "mode": "propose",
       "scenario": "cancelado negociando",
       "cancel": "negotiating",
-      "tripId": "6fe82200-eef6-44cc-afc0-f9969e50eab3",
+      "tripId": "e77dd23e-f873-4a44-bd90-e4dc17c35e1f",
       "fare": 7,
       "final": "cancelado"
     },
@@ -1053,7 +1089,7 @@
       "stars": 3,
       "comment": "Manejo un poco brusco",
       "incident": "El conductor no respeto un semaforo en Av. Bolognesi",
-      "tripId": "ebc3cece-aae5-4559-83a0-845b24acd945",
+      "tripId": "89bc9374-b064-475c-8207-119bfb24951d",
       "fare": 13,
       "final": "completado",
       "coupon": null
@@ -1067,9 +1103,10 @@
       "mode": "accept",
       "scenario": "delivery",
       "delivery": "Medicinas para entregar en farmacia",
+      "recipient": "Carmen Flores",
       "fragile": true,
       "stars": 5,
-      "tripId": "74ee08b3-9191-4c9a-8a94-59455761a861",
+      "tripId": "577028b6-f2b6-42b7-96d9-79116c5f0d84",
       "fare": 12.5,
       "final": "completado",
       "coupon": null
@@ -1083,7 +1120,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "96f847a0-4328-4343-bb17-2f96082cfc8f",
+      "tripId": "8e52ab14-c740-432b-9a89-a9b4815b6a5c",
       "fare": 9,
       "final": "completado",
       "coupon": null
@@ -1097,7 +1134,7 @@
       "mode": "accept",
       "scenario": "aceptado y cancelado por conductor",
       "cancel": "accepted",
-      "tripId": "817b6f0c-9539-4945-8982-c0eca8dbd7e3",
+      "tripId": "1b865696-fc7e-494d-bf6f-ee7ea4ab1fa4",
       "fare": 10.5,
       "final": "cancelado"
     },
@@ -1110,7 +1147,7 @@
       "mode": "driverAccept",
       "scenario": "conductor acepta tarifa",
       "stars": 5,
-      "tripId": "9b26437d-353f-42e9-8c7e-69a80aac6a76",
+      "tripId": "291d177e-3b0f-4999-99db-6aac139cffae",
       "fare": 8,
       "final": "completado",
       "coupon": null
@@ -1125,7 +1162,7 @@
       "scenario": "con SOS resuelto",
       "sos": true,
       "stars": 4,
-      "tripId": "aa41fa8c-66ca-4c60-85c2-31522ed80bf8",
+      "tripId": "ee9b8a79-9c8c-41e7-9d10-ac5c1487e6bb",
       "fare": 8.5,
       "final": "completado",
       "coupon": null
@@ -1139,7 +1176,7 @@
       "mode": "propose",
       "scenario": "negociado",
       "stars": 5,
-      "tripId": "648641c8-ef4a-4993-a57b-bc5ae71f9b04",
+      "tripId": "66144e7e-7033-467d-b61b-a5ed142d64ba",
       "fare": 15,
       "final": "completado",
       "coupon": null
@@ -1153,7 +1190,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "e92e1482-73ad-46d8-9405-12c71164f291",
+      "tripId": "9392dc35-ded3-4674-8597-767d2222a936",
       "fare": 9.5,
       "final": "completado",
       "coupon": null
@@ -1167,7 +1204,7 @@
       "mode": "counter",
       "scenario": "contraoferta",
       "stars": 5,
-      "tripId": "da2e3ab9-2130-48c2-aa17-86b2a6767ee9",
+      "tripId": "36bb4116-4933-460a-9348-4702bf5f18b4",
       "fare": 9,
       "final": "completado",
       "coupon": null
@@ -1181,7 +1218,7 @@
       "mode": "accept",
       "scenario": "cancelado pendiente",
       "cancel": "pending",
-      "tripId": "18386821-e169-4153-8b5c-6dcf52674836",
+      "tripId": "e5bd44c6-4815-419e-8b5f-b53c5afb933a",
       "fare": 11,
       "final": "cancelado"
     },
@@ -1195,7 +1232,7 @@
       "scenario": "directo",
       "stars": 5,
       "comment": "Excelente",
-      "tripId": "f8f45d15-c691-45d0-8c16-b9d0fd6dc497",
+      "tripId": "fbeed5ba-3194-4a15-9f27-5032cf342109",
       "fare": 8,
       "final": "completado",
       "coupon": null
@@ -1209,8 +1246,9 @@
       "mode": "accept",
       "scenario": "delivery",
       "delivery": "Documentos en sobre manila",
+      "recipient": "Oficina de Mesa de Partes",
       "stars": 5,
-      "tripId": "5eec3956-2be7-4bbe-8e03-2d45d832073c",
+      "tripId": "c4b869fc-dda4-4b33-bcec-207a7c1f3c4d",
       "fare": 9,
       "final": "completado",
       "coupon": null
@@ -1226,7 +1264,7 @@
       "stars": 4,
       "incident": "El pasajero dejo olvidada una mochila",
       "incidentBy": "driver",
-      "tripId": "40039b95-6a8c-4f87-a2fd-8ff9ebb3f6e9",
+      "tripId": "7525c455-bb8c-4425-aab1-c28913bab7a1",
       "fare": 9.5,
       "final": "completado",
       "coupon": null
@@ -1239,9 +1277,9 @@
       "method": "cash",
       "mode": "accept",
       "scenario": "con cupon",
-      "coupon": "BG-3BUSRF",
+      "coupon": "BG-JXFPGJ",
       "stars": 5,
-      "tripId": "d6bba5fd-23d7-47c7-91ec-b59d94e43e0d",
+      "tripId": "814ec058-313d-46a5-a698-2a93d3219249",
       "fare": 15.5,
       "final": "completado"
     },
@@ -1254,7 +1292,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "7087a448-47ea-4cfd-9b6c-58437fb7aebe",
+      "tripId": "59df8aaa-943d-4cbc-8efb-d011c0167c48",
       "fare": 10.5,
       "final": "completado",
       "coupon": null
@@ -1268,7 +1306,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "d57d52ac-706b-4b36-8685-013ba4ccbbfb",
+      "tripId": "cb1044f8-bd53-4417-8621-fd8bb6fd2a04",
       "fare": 6.5,
       "final": "completado",
       "coupon": null
@@ -1282,7 +1320,7 @@
       "mode": "driverAccept",
       "scenario": "conductor acepta tarifa",
       "stars": 5,
-      "tripId": "381e7cce-1f2d-4cf8-8908-b3f84ecbf0cb",
+      "tripId": "44496411-2c1d-4746-9d73-52a58d5a5304",
       "fare": 12,
       "final": "completado",
       "coupon": null
@@ -1295,9 +1333,9 @@
       "method": "yape",
       "mode": "accept",
       "scenario": "con cupon",
-      "coupon": "BG-XGZBE3",
+      "coupon": "BG-S84WKK",
       "stars": 4,
-      "tripId": "8b7e35b8-8534-4311-95a0-f582312f5f14",
+      "tripId": "5268889c-fc73-4afa-a9a6-868273835dc5",
       "fare": 16.5,
       "final": "completado"
     },
@@ -1310,7 +1348,7 @@
       "mode": "propose",
       "scenario": "negociado",
       "stars": 5,
-      "tripId": "ed515350-b935-4778-b369-15ccc1a8c006",
+      "tripId": "6219dce5-460a-4aaf-86c6-34fc68de37b6",
       "fare": 15,
       "final": "completado",
       "coupon": null
@@ -1324,7 +1362,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "fdae2249-03ef-4f9b-9112-47d8dde2dc47",
+      "tripId": "c8a64977-ce13-416f-aaa3-d848e8c2e33c",
       "fare": 6,
       "final": "completado",
       "coupon": null
@@ -1337,9 +1375,9 @@
       "method": "cash",
       "mode": "accept",
       "scenario": "con cupon",
-      "coupon": "BG-QZFQ9G",
+      "coupon": "BG-LT9QKK",
       "stars": 5,
-      "tripId": "f555599f-12ba-4a92-ab16-469a20858445",
+      "tripId": "9dda26d3-b2ef-461b-883e-319b8922ca95",
       "fare": 10.5,
       "final": "completado"
     },
@@ -1352,7 +1390,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "b7191ee9-1c83-4b46-b900-9d24026365c4",
+      "tripId": "c81e8e0d-66af-4d27-82f4-df068ddac1e8",
       "fare": 14,
       "final": "completado",
       "coupon": null
@@ -1366,7 +1404,7 @@
       "mode": "accept",
       "scenario": "cancelado pendiente",
       "cancel": "pending",
-      "tripId": "96a57611-87f6-459d-86e0-2e90434a399e",
+      "tripId": "4466b839-b88b-4eb6-b532-88131755b9aa",
       "fare": 13,
       "final": "cancelado"
     },
@@ -1379,7 +1417,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "1c53f0c6-3407-46eb-96c9-616e0ca6bcb1",
+      "tripId": "d40e3d06-8544-40b7-a657-83c88c93da96",
       "fare": 12,
       "final": "completado",
       "coupon": null
@@ -1392,9 +1430,9 @@
       "method": "yape",
       "mode": "accept",
       "scenario": "con cupon",
-      "coupon": "BG-V6T28R",
+      "coupon": "BG-4FPEDW",
       "stars": 5,
-      "tripId": "1f45e5b8-3482-40de-9902-ff858d48541c",
+      "tripId": "311bb13d-a546-447c-b4a5-e8682747583e",
       "fare": 8,
       "final": "completado"
     },
@@ -1407,9 +1445,10 @@
       "mode": "accept",
       "scenario": "delivery",
       "delivery": "Torta de cumpleanos",
+      "recipient": "Sofia Apaza",
       "fragile": true,
       "stars": 5,
-      "tripId": "4828f8a1-18a5-45dc-83fa-82f50936ee1d",
+      "tripId": "d577b9cb-a996-48ce-b326-7bc634f51931",
       "fare": 9.5,
       "final": "completado",
       "coupon": null
@@ -1423,7 +1462,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 4,
-      "tripId": "e39d476a-fc8f-4a47-8654-889ce5dab74b",
+      "tripId": "3c53bd91-0b1e-403a-9cb5-a121e3cd14e8",
       "fare": 7,
       "final": "completado",
       "coupon": null
@@ -1436,9 +1475,9 @@
       "method": "cash",
       "mode": "accept",
       "scenario": "con cupon",
-      "coupon": "BG-RUK3QC",
+      "coupon": "BG-9NQY5U",
       "stars": 5,
-      "tripId": "376b0041-fea8-4c13-b97e-94f86bf44103",
+      "tripId": "de316d7f-6d6b-4f36-8383-5f3ad3138b21",
       "fare": 13,
       "final": "completado"
     },
@@ -1451,7 +1490,7 @@
       "mode": "accept",
       "scenario": "aceptado y cancelado por conductor",
       "cancel": "accepted",
-      "tripId": "6096909d-a5b2-4ecf-a0df-c5875ef1ee73",
+      "tripId": "f3f76e5c-32ba-401d-8783-21d2a59bef93",
       "fare": 15.5,
       "final": "cancelado"
     },
@@ -1464,7 +1503,7 @@
       "mode": "accept",
       "scenario": "directo",
       "stars": 5,
-      "tripId": "92030e6d-9ca3-4c10-a97c-8696e1b22a39",
+      "tripId": "3cdf39f9-09db-495c-906c-c481f8a964b3",
       "fare": 9.5,
       "final": "completado",
       "coupon": null
@@ -1478,7 +1517,7 @@
       "mode": "accept",
       "scenario": "EN CURSO para mapa",
       "leaveInProgress": true,
-      "tripId": "3a34ef52-63d5-4732-b789-b7bdb883fda1",
+      "tripId": "dc44153d-bdd4-4ee3-85c4-8630598ec8b3",
       "fare": 15,
       "final": "en curso"
     },
@@ -1491,7 +1530,7 @@
       "mode": "accept",
       "scenario": "PENDIENTE buscando conductor",
       "leavePending": true,
-      "tripId": "e898a57a-a88e-4542-8e7d-f81b4832fda4",
+      "tripId": "fb8a2bc5-c49d-4c71-b6ea-044386267996",
       "fare": 10.5,
       "final": "pendiente"
     }
@@ -1503,15 +1542,15 @@
       "phone": "952100101",
       "email": "lucia.mamani@bugie.test",
       "status": "approved",
-      "userId": "0904ccfb-80a2-4f58-ad25-c2a5d6f2b18f",
+      "userId": "f1630181-55c4-463b-a785-06ed7f25dfaf",
       "role": "passenger",
-      "referralCode": "LUCZNW6X",
+      "referralCode": "LUCZFGEN",
       "coupons": [
-        "BG-P8WHZ6"
+        "BG-KPPCYR"
       ],
       "redeemed": [
-        "BG-3BUSRF",
-        "BG-P8WHZ6"
+        "BG-JXFPGJ",
+        "BG-KPPCYR"
       ]
     },
     {
@@ -1521,12 +1560,12 @@
       "email": "carlos.ticona@bugie.test",
       "status": "approved",
       "referredBy": "P1",
-      "userId": "eb3c5d4c-c317-44b8-a58b-a04dc4a0f008",
+      "userId": "df5e0ca2-dae8-4d64-b466-4f6e632ec579",
       "role": "passenger",
-      "referralCode": "CARP2BJH",
+      "referralCode": "CAR3HVF3",
       "coupons": [],
       "redeemed": [
-        "BG-XGZBE3"
+        "BG-S84WKK"
       ]
     },
     {
@@ -1535,12 +1574,12 @@
       "phone": "952100103",
       "email": "maria.choque@bugie.test",
       "status": "approved",
-      "userId": "d25cc96c-ce64-4810-8542-3366ca9346ad",
+      "userId": "25047af2-b798-43a4-b05b-ad9836586cb7",
       "role": "passenger",
-      "referralCode": "MAR3QZCR",
+      "referralCode": "MAR4V8Z4",
       "coupons": [],
       "redeemed": [
-        "BG-QZFQ9G"
+        "BG-LT9QKK"
       ]
     },
     {
@@ -1549,12 +1588,12 @@
       "phone": "952100104",
       "email": "jorge.apaza@bugie.test",
       "status": "approved",
-      "userId": "1a2bc501-e2c6-48c1-8474-b4c173ee3200",
+      "userId": "95365890-d591-42e3-a269-0f5d0acd6168",
       "role": "passenger",
-      "referralCode": "JORPGTKW",
+      "referralCode": "JORM9WGM",
       "coupons": [],
       "redeemed": [
-        "BG-V6T28R"
+        "BG-4FPEDW"
       ]
     },
     {
@@ -1563,12 +1602,12 @@
       "phone": "952100105",
       "email": "rosa.condori@bugie.test",
       "status": "approved",
-      "userId": "dbf8de3f-ee84-44d3-a0b8-42b9b32016ba",
+      "userId": "917180d4-cafc-4a47-b326-91567417dd48",
       "role": "passenger",
-      "referralCode": "ROSDKNVN",
+      "referralCode": "ROSPCFEW",
       "coupons": [],
       "redeemed": [
-        "BG-RUK3QC"
+        "BG-9NQY5U"
       ]
     },
     {
@@ -1577,7 +1616,7 @@
       "phone": "952100106",
       "email": "diego.huanca@bugie.test",
       "status": "rejected",
-      "userId": "e8d182f1-6f8e-4554-afc0-feffd3a85318",
+      "userId": "18b6caea-efe2-49ef-80d4-1c83d0d37bf7",
       "role": "passenger"
     },
     {
@@ -1586,7 +1625,7 @@
       "phone": "952100107",
       "email": "ana.paredes@bugie.test",
       "status": "pending",
-      "userId": "cf7a6ac6-f95f-4f43-87cc-0da7d9f61a9f",
+      "userId": "3edf18f6-a08d-4574-8699-43700ae1abb8",
       "role": "passenger"
     },
     {
@@ -1607,14 +1646,14 @@
         "lat": -18.0137,
         "lng": -70.251
       },
-      "userId": "97cc445f-27f7-4477-ab66-5463881dc4dc",
+      "userId": "4def9e92-6eab-40cc-8bf0-abbc95435eb8",
       "role": "driver",
-      "driverId": "df18be51-3409-4ec4-a650-b9859735e5b1",
+      "driverId": "8ca7a8c9-a138-4ed5-bbe9-b92ff95cffc7",
       "coupons": [
-        "BG-9UW6HM"
+        "BG-KJDQAX"
       ],
       "redeemed": [
-        "BG-9UW6HM"
+        "BG-KJDQAX"
       ]
     },
     {
@@ -1635,14 +1674,14 @@
         "lat": -18.008,
         "lng": -70.2455
       },
-      "userId": "17f47764-f7fd-47a1-acca-506bb73d322e",
+      "userId": "c1e7fb34-dec5-465b-b733-074c46579b98",
       "role": "driver",
-      "driverId": "782fe533-ec17-40f6-9b07-d6e814366df1",
+      "driverId": "f6da8de6-5f32-4328-af89-c738c09b153b",
       "coupons": [
-        "BG-6RGGND"
+        "BG-NHJHKR"
       ],
       "redeemed": [
-        "BG-6RGGND"
+        "BG-NHJHKR"
       ]
     },
     {
@@ -1664,14 +1703,14 @@
         "lng": -70.2486
       },
       "referredBy": "P1",
-      "userId": "da6ce458-c656-446c-9bd9-6f2f20734466",
+      "userId": "148faaa0-6181-4dd2-83b3-6d7684e62a93",
       "role": "driver",
-      "driverId": "19ba9787-7d4a-4a3c-8801-04361ee69abe",
+      "driverId": "28f1021e-7dc2-468a-a422-891c8913f2a2",
       "coupons": [
-        "BG-94DML5"
+        "BG-EBN7R8"
       ],
       "redeemed": [
-        "BG-94DML5"
+        "BG-EBN7R8"
       ]
     },
     {
@@ -1692,9 +1731,9 @@
         "lat": -17.994,
         "lng": -70.242
       },
-      "userId": "f5e23b5a-eba6-4c57-b177-2454e7779b7e",
+      "userId": "716bfe95-4442-496b-b6f1-dbc9c83a52ae",
       "role": "driver",
-      "driverId": "b8643a2d-57e0-44fd-807b-fe8d9f9d3f4d"
+      "driverId": "ece7c2eb-0281-4002-8904-4f256f9027ab"
     }
   ]
 }

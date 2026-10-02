@@ -106,10 +106,53 @@ public class DeliveryController : ControllerBase
         }
     }
 
+    // ── Conductor: confirmar la entrega en destino ─────────────────────────
+    // Foto de la entrega + nombre de quien recibio. Sin esto no se puede
+    // completar un envio.
+    [HttpPost("{tripId:guid}/delivery-confirmation")]
+    public async Task<IActionResult> DeliveryConfirmation(
+        Guid tripId,
+        [FromForm] IFormFile? photo,
+        [FromForm] string? receivedBy,
+        CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(tripId, ct);
+        if(trip is null) return NotFound(new { error = "Envio no encontrado." });
+        if(trip.DriverId != CurrentUserId) return Forbid();
+        if(photo is null || photo.Length == 0)
+            return BadRequest(new { error = "La foto de la entrega es obligatoria." });
+        if(string.IsNullOrWhiteSpace(receivedBy))
+            return BadRequest(new { error = "Indica quién recibió el envío." });
+
+        try
+        {
+            trip.ConfirmDelivery(receivedBy.Trim().Length > 120 ? receivedBy.Trim()[..120] : receivedBy.Trim());
+
+            await using var s = photo.OpenReadStream();
+            var stored = await _storage.UploadAsync(s, photo.FileName, photo.ContentType,
+                $"trips/{tripId}/delivery", ct);
+            await _photos.AddAsync(
+                TripPhoto.Create(tripId, stored.PublicUrl, TripPhotoKind.DeliveryProof, CurrentUserId), ct);
+
+            await _trips.UpdateAsync(trip, ct);
+            return Ok(new { confirmed = true, trip.DeliveryReceivedBy, trip.DeliveryConfirmedAt });
+        }
+        catch(InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+    }
+
     // ── Listar fotos de un envio ────────────────────────────────────────────
+    // Solo el pasajero, el conductor del viaje o un admin.
     [HttpGet("{tripId:guid}/photos")]
     public async Task<IActionResult> GetPhotos(Guid tripId, CancellationToken ct)
     {
+        var trip = await _trips.GetByIdAsync(tripId, ct);
+        if(trip is null) return NotFound(new { error = "Envio no encontrado." });
+        if(trip.PassengerId != CurrentUserId && trip.DriverId != CurrentUserId && !User.IsInRole("admin"))
+            return Forbid();
+
         var photos = await _photos.GetByTripAsync(tripId, ct);
         return Ok(photos.Select(p => new { p.Id, p.Url, Kind = (int)p.Kind, p.CreatedAt }));
     }

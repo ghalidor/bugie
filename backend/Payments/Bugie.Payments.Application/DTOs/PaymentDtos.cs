@@ -17,7 +17,10 @@ public record PaymentDto(
     // Comision de Bugie y lo que recibe el conductor
     decimal  PlatformFee = 0,
     decimal  DriverAmount = 0,
-    decimal? PlatformFeeRate = null);
+    decimal? PlatformFeeRate = null,
+    // Nombres (solo en el listado del admin)
+    string?  PassengerName = null,
+    string?  DriverName = null);
 
 public record DriverEarningsDto(
     Guid    DriverId,

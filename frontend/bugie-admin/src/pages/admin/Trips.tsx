@@ -262,8 +262,11 @@ export default function AdminTrips() {
                         </div>
 
                         <div className="small bugie-muted mt-2">
+                          <i className="fa-solid fa-user me-1" />{t.passengerName ?? 'Pasajero'}
+                          <span className="mx-2">·</span>
                           <i className="fa-solid fa-car me-1" />
-                          {t.driverId ? 'Conductor asignado' : 'Sin conductor'}
+                          {t.driverId ? (t.driverName ?? 'Conductor asignado') : 'Sin conductor'}
+                          {t.serviceType === 1 && <span className="badge rounded-pill ms-2" style={{ background: '#f59e0b22', color: '#f59e0b' }}><i className="fa-solid fa-box me-1" />Envío</span>}
                         </div>
                         {t.status === 5 && t.cancelledBy && (
                           <div className="small bugie-muted">

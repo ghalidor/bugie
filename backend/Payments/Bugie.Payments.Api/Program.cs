@@ -21,6 +21,16 @@ builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IPlatformFeeRepository, PlatformFeeRepository>();
 builder.Services.AddScoped<IWalletRepository,  WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
+builder.Services.AddScoped<IUserNames, UserNames>();
+
+// Aviso al conductor cuando se le registra un pago: lo envia Rewards (push + correo)
+builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutNotifier,
+                               Bugie.Payments.Infrastructure.External.RewardsPayoutNotifier>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://localhost:5006");
+    c.DefaultRequestHeaders.Add("X-Internal-Token", builder.Configuration["InternalToken"] ?? "");
+    c.Timeout = TimeSpan.FromSeconds(10);
+});
 
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(CreatePaymentCommand).Assembly));

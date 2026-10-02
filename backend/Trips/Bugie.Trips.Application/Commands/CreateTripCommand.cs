@@ -14,5 +14,7 @@ public record CreateTripCommand(
     string? PackageDescription = null,
     decimal? PackageWeightKg = null,
     bool PackageIsFragile = false,
-    string? PackageDetails = null)
+    string? PackageDetails = null,
+    string? RecipientName = null,
+    string? RecipientPhone = null)
     : IRequest<TripDto>;

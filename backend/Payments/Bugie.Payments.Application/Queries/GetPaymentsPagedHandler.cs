@@ -19,11 +19,19 @@ public record PaymentsPagedDto(
 public class GetPaymentsPagedHandler
     : IRequestHandler<GetPaymentsPagedQuery, PaymentsPagedDto> {
     private readonly IPaymentRepository _payments;
-    public GetPaymentsPagedHandler(IPaymentRepository payments) => _payments = payments;
+    private readonly IUserNames         _names;
+    public GetPaymentsPagedHandler(IPaymentRepository payments, IUserNames names)
+        => (_payments, _names) = (payments, names);
 
     public async Task<PaymentsPagedDto> Handle(GetPaymentsPagedQuery q, CancellationToken ct) {
         var (list, total) = await _payments.GetPagedAsync(q.Page, q.PageSize, q.Status, ct);
-        var items = list.Select(CreatePaymentHandler.ToDto).ToList();
+        // Nombres de quien pago y quien cobro, para el admin.
+        var names = await _names.GetByIdsAsync(list.SelectMany(p => new[] { p.PassengerId, p.DriverId }), ct);
+        var items = list.Select(p => CreatePaymentHandler.ToDto(p) with
+        {
+            PassengerName = names.GetValueOrDefault(p.PassengerId),
+            DriverName    = names.GetValueOrDefault(p.DriverId),
+        }).ToList();
         return new PaymentsPagedDto(items, q.Page, q.PageSize, total);
     }
 }

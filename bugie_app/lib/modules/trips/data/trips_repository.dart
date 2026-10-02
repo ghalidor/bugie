@@ -32,6 +32,8 @@ class TripsRepository {
     double? packageWeightKg,
     bool packageIsFragile = false,
     String? packageDetails,
+    String? recipientName,
+    String? recipientPhone,
   }) async {
     final json = await _api.post('${ApiConfig.trips}/trips', body: {
       'originAddress': originAddress,
@@ -48,8 +50,31 @@ class TripsRepository {
       'packageWeightKg': packageWeightKg,
       'packageIsFragile': packageIsFragile,
       'packageDetails': packageDetails,
+      'recipientName': recipientName,
+      'recipientPhone': recipientPhone,
     });
     return Trip.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/trips/{id} — un viaje (aunque ya no este activo). Sirve para
+  /// saber como termino: completado o cancelado, quien y por que.
+  Future<Trip> getById(String tripId) async {
+    final json = await _api.get('${ApiConfig.trips}/trips/$tripId');
+    return Trip.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// POST /api/trips/{id}/delivery-confirmation — el conductor confirma la
+  /// entrega en destino: foto + quien recibio.
+  Future<void> uploadDeliveryConfirmation(
+    String tripId, {
+    required String photoPath,
+    required String receivedBy,
+  }) async {
+    await _api.postMultipartMany(
+      '${ApiConfig.trips}/trips/$tripId/delivery-confirmation',
+      fields: {'receivedBy': receivedBy},
+      files: [MapEntry('photo', photoPath)],
+    );
   }
 
   /// POST /api/trips/{id}/package-photos — el cliente sube fotos del paquete.

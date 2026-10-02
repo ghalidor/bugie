@@ -2,6 +2,7 @@ using MediatR;
 using Bugie.Payments.Application.DTOs;
 using Bugie.Payments.Domain.Common;
 using Bugie.Payments.Domain.Entities;
+using Bugie.Payments.Domain.External;
 using Bugie.Payments.Domain.Interfaces;
 
 namespace Bugie.Payments.Application.Commands;
@@ -19,7 +20,9 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
     public static readonly HashSet<string> SourceTypes = ["reward_redemption", "raffle_prize", "manual"];
 
     private readonly IWithdrawalRepository _payouts;
-    public RegisterPayoutHandler(IWithdrawalRepository payouts) => _payouts = payouts;
+    private readonly IPayoutNotifier       _notifier;
+    public RegisterPayoutHandler(IWithdrawalRepository payouts, IPayoutNotifier notifier)
+        => (_payouts, _notifier) = (payouts, notifier);
 
     public async Task<PayoutDto> Handle(RegisterPayoutCommand cmd, CancellationToken ct)
     {
@@ -57,6 +60,8 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
             sourceType, Trim(sourceRef, 60));
 
         await _payouts.AddAsync(w, ct);
+        // Aviso al conductor (push + correo). No bloquea ni falla el registro.
+        _ = _notifier.NotifyAsync(w);
         return ToDto(w);
     }
 

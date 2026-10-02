@@ -8,6 +8,8 @@ interface Payment {
   amount: number; platformFee: number; driverAmount: number;
   /** % de comision con el que se cobro este pago (config del sistema). */
   platformFeeRate?: number | null;
+  passengerName?: string | null;
+  driverName?: string | null;
   method: string; status: string; reference: string | null;
   createdAt: string; paidAt: string | null;
 }
@@ -190,6 +192,11 @@ export default function Payments() {
                           </span>
                         </div>
 
+                        <div className="small mb-1">
+                          <i className="fa-solid fa-user me-1 bugie-muted" />{p.passengerName ?? 'Pasajero'}
+                          <i className="fa-solid fa-arrow-right mx-2 bugie-muted" style={{ fontSize: '0.7rem' }} />
+                          <i className="fa-solid fa-car me-1 bugie-muted" />{p.driverName ?? 'Conductor'}
+                        </div>
                         <div className="d-flex gap-3 flex-wrap" style={{ fontSize: '0.78rem' }}>
                           <span className="bugie-muted">
                             Comisión{p.platformFeeRate != null ? ` (${p.platformFeeRate}%)` : ''}: <span style={{ color: '#f87171' }}>S/ {(p.platformFee ?? 0).toFixed(2)}</span>

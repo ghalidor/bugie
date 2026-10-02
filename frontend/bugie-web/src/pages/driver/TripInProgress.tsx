@@ -23,6 +23,20 @@ interface Trip {
   waypoints?: Waypoint[];
   // Cuando el conductor aviso que ya esta en el punto de recojo
   driverArrivedAt?: string | null;
+  // Cancelacion (para avisar si la cancelo el pasajero)
+  cancelledBy?: string | null;
+  cancelReason?: string | null;
+  // Envio
+  serviceType?: number;
+  packageDescription?: string | null;
+  packageWeightKg?: number | null;
+  packageIsFragile?: boolean;
+  packageDetails?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  pickupVerified?: boolean;
+  deliveryReceivedBy?: string | null;
+  deliveryConfirmedAt?: string | null;
 }
 
 const PAY: Record<string, string> = { cash: 'Efectivo', yape: 'Yape', plin: 'Plin' };
@@ -35,19 +49,57 @@ const CANCEL_REASONS = [
   'Otro motivo',
 ];
 
+/// Subida multipart (fotos). apiFetch fuerza JSON, por eso se usa fetch directo.
+async function postForm<T>(url: string, fd: FormData): Promise<T> {
+  const token = localStorage.getItem('bugie_token') ?? '';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: fd,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (body as any).error ?? `Error ${res.status}`);
+  return body as T;
+}
+
 export default function DriverTripInProgress() {
   const navigate = useNavigate();
   const [trip,    setTrip]    = useState<Trip | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting,  setActing]  = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+  // El pasajero (o el admin) cancelo el viaje: se muestra el aviso
+  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null } | null>(null);
+  const lastTripId = useRef<string | null>(null);
 
+  // Carga + refresco cada 10 s: si el viaje desaparece, se averigua por que.
   useEffect(() => {
-    apiFetch<Trip | null>(`${API.trips}/trips/active`)
-      .then(d => setTrip(d))
-      .catch(() => setError('No se pudo cargar el viaje activo.'))
-      .finally(() => setLoading(false));
-  }, [navigate]);
+    let alive = true;
+    const load = async () => {
+      try {
+        const d = await apiFetch<Trip | null>(`${API.trips}/trips/active`);
+        if (!alive) return;
+        if (d) {
+          lastTripId.current = d.id;
+          setTrip(prev => prev ? { ...d, waypoints: d.waypoints ?? prev.waypoints } : d);
+        } else if (lastTripId.current) {
+          const gone = lastTripId.current;
+          lastTripId.current = null;
+          const t = await apiFetch<Trip>(`${API.trips}/trips/${gone}`).catch(() => null);
+          if (alive && t?.status === 5 && t.cancelledBy !== 'driver')
+            setCancelledInfo({ by: t.cancelledBy ?? 'passenger', reason: t.cancelReason ?? null });
+          setTrip(null);
+        }
+      } catch {
+        if (alive) setError('No se pudo cargar el viaje activo.');
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    load();
+    const t = setInterval(load, 10_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
 
   // GPS del conductor mientras hay viaje (aceptado o en curso): se manda cada
   // ~10 s con el tripId, asi queda el recorrido real para revisarlo en el admin.
@@ -77,7 +129,7 @@ export default function DriverTripInProgress() {
 
   async function startTrip() {
     if (!trip) return;
-    setActing(true);
+    setActing(true); setError(null);
     try {
       const d = await apiFetch<Trip>(`${API.trips}/trips/${trip.id}/start`, { method: 'PUT' });
       // Preservar waypoints — el endpoint /start no los devuelve
@@ -100,6 +152,48 @@ export default function DriverTripInProgress() {
     } finally { setActing(false); }
   }
 
+  // ── Envio: verificar el paquete al recoger (foto principal + extras) ──
+  const [pkMain,  setPkMain]  = useState<File | null>(null);
+  const [pkExtra, setPkExtra] = useState<File[]>([]);
+  const [pkObs,   setPkObs]   = useState('');
+
+  async function verifyPickup() {
+    if (!trip || !pkMain) { setError('Toma la foto principal del paquete.'); return; }
+    setActing(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('main', pkMain);
+      pkExtra.forEach(f => fd.append('secondary', f));
+      if (pkObs.trim()) fd.append('observation', pkObs.trim());
+      await postForm(`${API.trips}/trips/${trip.id}/pickup-verification`, fd);
+      setTrip({ ...trip, pickupVerified: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo verificar el paquete.');
+    } finally { setActing(false); }
+  }
+
+  // ── Envio: confirmar la entrega en destino (foto + quien recibio) ──
+  const [dlPhoto, setDlPhoto] = useState<File | null>(null);
+  const [dlBy,    setDlBy]    = useState('');
+
+  async function confirmDelivery() {
+    if (!trip) return;
+    if (!dlPhoto) { setError('Toma la foto de la entrega.'); return; }
+    const by = (dlBy || trip.recipientName || '').trim();
+    if (!by) { setError('Escribe quién recibió el envío.'); return; }
+    setActing(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('photo', dlPhoto);
+      fd.append('receivedBy', by);
+      const r = await postForm<{ deliveryReceivedBy: string; deliveryConfirmedAt: string }>(
+        `${API.trips}/trips/${trip.id}/delivery-confirmation`, fd);
+      setTrip({ ...trip, deliveryReceivedBy: r.deliveryReceivedBy, deliveryConfirmedAt: r.deliveryConfirmedAt });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo confirmar la entrega.');
+    } finally { setActing(false); }
+  }
+
   // Cancelar (solo aceptado y sin iniciar). El motivo queda en el reporte.
   const [cancelOpen,   setCancelOpen]   = useState(false);
   const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
@@ -110,6 +204,7 @@ export default function DriverTripInProgress() {
     const reason = cancelReason === 'Otro motivo' ? (cancelOther.trim() || 'Otro motivo') : cancelReason;
     setActing(true); setError(null);
     try {
+      lastTripId.current = null; // lo cancela el conductor: no mostrar el aviso de cancelacion
       await apiFetch(`${API.trips}/trips/${trip.id}/cancel`, {
         method: 'PUT',
         body: JSON.stringify({ reason }),
@@ -123,8 +218,9 @@ export default function DriverTripInProgress() {
 
   async function completeTrip() {
     if (!trip) return;
-    setActing(true);
+    setActing(true); setError(null);
     try {
+      lastTripId.current = null;
       await apiFetch(`${API.trips}/trips/${trip.id}/complete`, {
         method: 'PUT',
         // Se manda la tarifa SIN descuento: el backend resta el cupon al
@@ -146,9 +242,33 @@ export default function DriverTripInProgress() {
     </div>
   );
 
+  // Aviso: el pasajero cancelo
+  const cancelledModal = cancelledInfo && (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1060,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }}>
+      <div className="bugie-card text-center" role="alertdialog" aria-labelledby="cancel-title" style={{ maxWidth: 380, width: '100%' }}>
+        <div className="bugie-card-body p-4">
+          <i className="fa-solid fa-circle-xmark fa-3x text-danger mb-3 d-block" />
+          <h2 id="cancel-title" className="h5 fw-bold mb-2">
+            {cancelledInfo.by === 'admin' ? 'Bugie canceló el viaje' : 'El pasajero canceló el viaje'}
+          </h2>
+          {cancelledInfo.reason && <p className="bugie-muted mb-2">Motivo: {cancelledInfo.reason}</p>}
+          <p className="bugie-muted mb-3">Ya puedes recibir otras solicitudes.</p>
+          <button className="btn btn-bugie text-white rounded-pill w-100"
+                  onClick={() => { setCancelledInfo(null); navigate('/app/conductor/inicio'); }}>
+            Entendido
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (!trip) return (
     <>
       <PageHeader title="Viaje en curso" subtitle="Estado del viaje activo." icon="fa-solid fa-car-side" />
+      {cancelledModal}
       <div className="bugie-card p-5 text-center">
         <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
           <i className="fa-solid fa-car-side" />
@@ -163,15 +283,19 @@ export default function DriverTripInProgress() {
     </>
   );
 
+  const isDelivery = trip.serviceType === 1;
+  const needsPickup = isDelivery && trip.status === 2 && !trip.pickupVerified;
+  const needsDelivery = isDelivery && trip.status === 3 && !trip.deliveryConfirmedAt;
   const sortedWp = [...(trip.waypoints ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
   const wpCoords = sortedWp.map(w => ({ lat: w.lat, lng: w.lng }));
-  const subtitle = trip.status === 3
-    ? 'Lleva al pasajero a su destino.'
-    : 'Confirma que el pasajero está a bordo.';
+  const subtitle = isDelivery
+    ? (trip.status === 3 ? 'Lleva el paquete y confirma la entrega.' : 'Recoge y verifica el paquete.')
+    : (trip.status === 3 ? 'Lleva al pasajero a su destino.' : 'Confirma que el pasajero está a bordo.');
 
   return (
     <>
-      <PageHeader title="Viaje en curso" subtitle={subtitle} icon="fa-solid fa-car-side" />
+      <PageHeader title={isDelivery ? 'Envío en curso' : 'Viaje en curso'} subtitle={subtitle} icon="fa-solid fa-car-side" />
+      {cancelledModal}
       {error && <div className="alert alert-danger small mb-3">{error}</div>}
 
       <div className="row g-3 mb-3">
@@ -213,6 +337,29 @@ export default function DriverTripInProgress() {
           </div>
         </div>
       </div>
+
+      {/* Datos del envio: paquete y a quien se entrega */}
+      {isDelivery && (
+        <div className="bugie-card mb-3">
+          <div className="bugie-card-header"><i className="fa-solid fa-box me-2" />Envío</div>
+          <div className="bugie-card-body small">
+            {trip.packageDescription && <div className="fw-semibold">{trip.packageDescription}</div>}
+            <div className="bugie-muted">
+              {trip.packageWeightKg != null && <>{trip.packageWeightKg} kg</>}
+              {trip.packageIsFragile && <> · <span className="text-warning fw-semibold">Frágil</span></>}
+            </div>
+            {trip.packageDetails && <div className="bugie-muted">{trip.packageDetails}</div>}
+            <div className="mt-2">
+              Entregar a <strong>{trip.recipientName ?? '—'}</strong>
+              {trip.recipientPhone && (
+                <> · <a href={`tel:${trip.recipientPhone}`}><i className="fa-solid fa-phone me-1" />{trip.recipientPhone}</a></>
+              )}
+            </div>
+            {trip.pickupVerified && <div className="text-success mt-1"><i className="fa-solid fa-circle-check me-1" />Paquete verificado al recoger</div>}
+            {trip.deliveryConfirmedAt && <div className="text-success"><i className="fa-solid fa-circle-check me-1" />Entregado a {trip.deliveryReceivedBy}</div>}
+          </div>
+        </div>
+      )}
 
       <div className="bugie-card mb-3">
         <div className="bugie-card-header">Ruta</div>
@@ -262,18 +409,55 @@ export default function DriverTripInProgress() {
             )}
           </>
         )}
+
+        {/* Envio: antes de iniciar hay que verificar el paquete con fotos */}
+        {needsPickup && (
+          <div className="bugie-card p-3">
+            <div className="small fw-semibold mb-2"><i className="fa-solid fa-camera me-1" />Verifica el paquete antes de salir</div>
+            <label className="form-label small mb-1">Foto principal del paquete (obligatoria)</label>
+            <input type="file" accept="image/*" capture="environment" className="form-control form-control-sm mb-2"
+                   onChange={e => setPkMain(e.target.files?.[0] ?? null)} />
+            <label className="form-label small mb-1">Fotos adicionales (opcional)</label>
+            <input type="file" accept="image/*" multiple className="form-control form-control-sm mb-2"
+                   onChange={e => setPkExtra(Array.from(e.target.files ?? []))} />
+            <input className="form-control form-control-sm mb-2" maxLength={300} placeholder="Observación (ej. caja sellada)"
+                   value={pkObs} onChange={e => setPkObs(e.target.value)} />
+            <button className="btn btn-sm btn-bugie text-white rounded-pill" onClick={verifyPickup} disabled={acting || !pkMain}>
+              {acting ? <span className="spinner-border spinner-border-sm" /> : 'Guardar verificación'}
+            </button>
+          </div>
+        )}
+
         {trip.status === 2 && (
-          <button className="btn btn-bugie text-white rounded-pill" onClick={startTrip} disabled={acting}>
+          <button className="btn btn-bugie text-white rounded-pill" onClick={startTrip} disabled={acting || needsPickup}>
             {acting
               ? <span className="spinner-border spinner-border-sm" />
-              : <><i className="fa-solid fa-play me-2" />Pasajero a bordo — Iniciar viaje</>}
+              : <><i className="fa-solid fa-play me-2" />{isDelivery ? 'Paquete a bordo — Iniciar envío' : 'Pasajero a bordo — Iniciar viaje'}</>}
           </button>
         )}
+
+        {/* Envio: en destino, foto de la entrega y quien recibio */}
+        {needsDelivery && (
+          <div className="bugie-card p-3">
+            <div className="small fw-semibold mb-2"><i className="fa-solid fa-box-open me-1" />Confirma la entrega</div>
+            <label className="form-label small mb-1">Foto de la entrega (obligatoria)</label>
+            <input type="file" accept="image/*" capture="environment" className="form-control form-control-sm mb-2"
+                   onChange={e => setDlPhoto(e.target.files?.[0] ?? null)} />
+            <label className="form-label small mb-1">¿Quién lo recibió?</label>
+            <input className="form-control form-control-sm mb-2" maxLength={120}
+                   placeholder={trip.recipientName ?? 'Nombre de quien recibe'}
+                   value={dlBy} onChange={e => setDlBy(e.target.value)} />
+            <button className="btn btn-sm btn-bugie text-white rounded-pill" onClick={confirmDelivery} disabled={acting || !dlPhoto}>
+              {acting ? <span className="spinner-border spinner-border-sm" /> : 'Confirmar entrega'}
+            </button>
+          </div>
+        )}
+
         {trip.status === 3 && (
-          <button className="btn btn-success rounded-pill" onClick={completeTrip} disabled={acting}>
+          <button className="btn btn-success rounded-pill" onClick={completeTrip} disabled={acting || needsDelivery}>
             {acting
               ? <span className="spinner-border spinner-border-sm" />
-              : <><i className="fa-solid fa-flag-checkered me-2" />Completar viaje</>}
+              : <><i className="fa-solid fa-flag-checkered me-2" />{isDelivery ? 'Completar envío' : 'Completar viaje'}</>}
           </button>
         )}
         {trip.status === 2 && !cancelOpen && (

@@ -96,6 +96,17 @@ export default function PassengerRequestRide() {
   const [waypoints,   setWaypoints]   = useState<Waypoint[]>([]);
   const [payMethod,   setPayMethod]   = useState<'cash'|'yape'|'plin'>('cash');
 
+  // Viaje o envio de paquete
+  const [service,     setService]     = useState<'ride'|'delivery'>('ride');
+  const [pkgDesc,     setPkgDesc]     = useState('');
+  const [pkgWeight,   setPkgWeight]   = useState('');
+  const [pkgFragile,  setPkgFragile]  = useState(false);
+  const [pkgDetails,  setPkgDetails]  = useState('');
+  const [rcpName,     setRcpName]     = useState('');
+  const [rcpPhone,    setRcpPhone]    = useState('');
+  const [pkgPhotos,   setPkgPhotos]   = useState<File[]>([]);
+  const isDelivery = service === 'delivery';
+
   const [originSugg, setOriginSugg] = useState<GeoResult[]>([]);
   const [destSugg,   setDestSugg]   = useState<GeoResult[]>([]);
   const [wpSugg,     setWpSugg]     = useState<GeoResult[][]>([]);
@@ -230,9 +241,14 @@ export default function PassengerRequestRide() {
       return;
     }
 
+    if (isDelivery) {
+      if (!pkgDesc.trim()) { setError('Describe qué vas a enviar.'); return; }
+      if (!rcpName.trim() || !rcpPhone.trim()) { setError('Indica el nombre y teléfono de quien recibe.'); return; }
+    }
+
     setLoading(true); setError(null);
     try {
-      await apiFetch(`${API.trips}/trips`, {
+      const created = await apiFetch<{ id: string }>(`${API.trips}/trips`, {
         method: 'POST',
         body: JSON.stringify({
           originAddress: originText, originLat: originCoord.lat, originLng: originCoord.lng,
@@ -242,8 +258,29 @@ export default function PassengerRequestRide() {
           waypoints: waypoints.filter(w => w.coord).map(w => ({
             address: w.address, lat: w.coord!.lat, lng: w.coord!.lng,
           })),
+          ...(isDelivery ? {
+            serviceType: 1,
+            packageDescription: pkgDesc.trim(),
+            packageWeightKg: pkgWeight ? Number(pkgWeight) : null,
+            packageIsFragile: pkgFragile,
+            packageDetails: pkgDetails.trim() || null,
+            recipientName: rcpName.trim(),
+            recipientPhone: rcpPhone.trim(),
+          } : {}),
         }),
       });
+
+      // Fotos del paquete (opcionales). Si fallan, el envio ya quedo creado.
+      if (isDelivery && created?.id && pkgPhotos.length > 0) {
+        const fd = new FormData();
+        pkgPhotos.forEach(f => fd.append('files', f));
+        const token = localStorage.getItem('bugie_token') ?? '';
+        await fetch(`${API.trips}/trips/${created.id}/package-photos`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: fd,
+        }).catch(() => { /* no bloquea */ });
+      }
       navigate('/app/pasajero/seguimiento');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error al crear el viaje.');
@@ -264,6 +301,18 @@ export default function PassengerRequestRide() {
       <div className="row g-3">
         <div className="col-lg-4">
           <form onSubmit={onSubmit} className="bugie-card p-3 d-grid gap-3">
+
+            {/* Viaje o envio */}
+            <div className="btn-group w-100" role="group" aria-label="Tipo de servicio">
+              <button type="button" className={`btn btn-sm ${!isDelivery ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
+                      onClick={() => setService('ride')}>
+                <i className="fa-solid fa-car me-1" />Viaje
+              </button>
+              <button type="button" className={`btn btn-sm ${isDelivery ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
+                      onClick={() => setService('delivery')}>
+                <i className="fa-solid fa-box me-1" />Envío
+              </button>
+            </div>
 
             <AddressInput label="Origen" color="#7C6AF7"
               value={originText} coord={originCoord}
@@ -301,6 +350,34 @@ export default function PassengerRequestRide() {
               onChange={onDestChange} onSelect={selectDest}
               onFocus={() => { setFocusId('dest'); setActive('dest'); }}
               onBlur={() => setTimeout(() => setFocusId(null), 150)} />
+
+            {/* Datos del envio */}
+            {isDelivery && (
+              <div className="bugie-card p-3 d-grid gap-2" style={{ background: 'var(--bugie-bg-2)' }}>
+                <div className="small fw-semibold"><i className="fa-solid fa-box me-1" />Paquete</div>
+                <input className="form-control form-control-sm" maxLength={200} placeholder="¿Qué envías? (ej. documentos, una caja)"
+                       value={pkgDesc} onChange={e => setPkgDesc(e.target.value)} aria-label="Descripción del paquete" />
+                <div className="d-flex gap-2 align-items-center">
+                  <input className="form-control form-control-sm" type="number" min="0" step="0.1" placeholder="Peso (kg)"
+                         value={pkgWeight} onChange={e => setPkgWeight(e.target.value)} aria-label="Peso en kg" />
+                  <div className="form-check text-nowrap mb-0">
+                    <input className="form-check-input" type="checkbox" id="pkgFragile"
+                           checked={pkgFragile} onChange={e => setPkgFragile(e.target.checked)} />
+                    <label className="form-check-label small" htmlFor="pkgFragile">Frágil</label>
+                  </div>
+                </div>
+                <input className="form-control form-control-sm" maxLength={300} placeholder="Detalles (opcional)"
+                       value={pkgDetails} onChange={e => setPkgDetails(e.target.value)} aria-label="Detalles" />
+                <label className="form-label small mb-0">Fotos del paquete (opcional)</label>
+                <input className="form-control form-control-sm" type="file" accept="image/*" multiple
+                       onChange={e => setPkgPhotos(Array.from(e.target.files ?? []))} />
+                <div className="small fw-semibold mt-1"><i className="fa-solid fa-user me-1" />Quién recibe</div>
+                <input className="form-control form-control-sm" maxLength={120} placeholder="Nombre de quien recibe"
+                       value={rcpName} onChange={e => setRcpName(e.target.value)} aria-label="Nombre de quien recibe" />
+                <input className="form-control form-control-sm" type="tel" maxLength={20} placeholder="Teléfono de quien recibe"
+                       value={rcpPhone} onChange={e => setRcpPhone(e.target.value)} aria-label="Teléfono de quien recibe" />
+              </div>
+            )}
 
             <div>
               <label className="form-label" style={{ fontSize: '0.82rem' }}>Método de pago</label>
@@ -385,7 +462,9 @@ export default function PassengerRequestRide() {
               type="submit" disabled={loading || !originCoord || !destCoord || proposedFareInvalid || proposedFare === ''}>
               {loading
                 ? <><span className="spinner-border spinner-border-sm me-2" />Buscando conductor…</>
-                : <><i className="fa-solid fa-car me-2" />Solicitar viaje</>}
+                : isDelivery
+                  ? <><i className="fa-solid fa-box me-2" />Solicitar envío</>
+                  : <><i className="fa-solid fa-car me-2" />Solicitar viaje</>}
             </button>
           </form>
         </div>

@@ -30,7 +30,18 @@ class DriverArrivedEvent {
   DriverArrivedEvent(this.tripId) : at = DateTime.now();
 }
 
+/// Aviso "viaje cancelado" recibido por push. Las pantallas del viaje
+/// (pasajero y conductor) lo escuchan para refrescar y mostrar el motivo.
+class TripCancelledEvent {
+  final String? tripId;
+  final DateTime at;
+  TripCancelledEvent(this.tripId) : at = DateTime.now();
+}
+
 class FcmService {
+  /// Ultimo aviso de viaje cancelado.
+  static final ValueNotifier<TripCancelledEvent?> tripCancelled = ValueNotifier(null);
+
   /// Ultimo aviso de llegada del conductor (lo escucha tracking_screen).
   static final ValueNotifier<DriverArrivedEvent?> driverArrived = ValueNotifier(null);
 
@@ -155,6 +166,11 @@ class FcmService {
       return;
     }
 
+    // Viaje cancelado: las pantallas del viaje refrescan y muestran el motivo.
+    if (msg.data['type'] == 'trip_cancelled') {
+      tripCancelled.value = TripCancelledEvent(msg.data['trip_id'] as String?);
+    }
+
     final notif = msg.notification;
     final title = notif?.title ?? msg.data['title'] as String? ?? 'Bugie';
     final body  = notif?.body  ?? msg.data['body']  as String? ?? '';
@@ -214,6 +230,9 @@ class FcmService {
     // Toco el aviso "tu conductor llego": al abrir el seguimiento se muestra el popup.
     if (msg.data['type'] == 'driver_arrived') {
       driverArrived.value = DriverArrivedEvent(msg.data['trip_id'] as String?);
+    }
+    if (msg.data['type'] == 'trip_cancelled') {
+      tripCancelled.value = TripCancelledEvent(msg.data['trip_id'] as String?);
     }
   }
 }

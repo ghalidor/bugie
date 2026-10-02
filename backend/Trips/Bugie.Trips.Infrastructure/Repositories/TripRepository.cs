@@ -58,7 +58,7 @@ public class TripRepository : ITripRepository {
                  ServiceType, PackageDescription, PackageWeightKg, PackageIsFragile, PackageDetails,
                  PickupVerified, PickupObservation,
                  CreatedAt, AcceptedAt, DriverArrivedAt, StartedAt, CompletedAt,
-                 CancelledBy, CancelReason)
+                 CancelledBy, CancelReason, RecipientName, RecipientPhone)
             VALUES
                 (@Id, @PassengerId, @DriverId, @VehicleId,
                  @OriginAddress, @OriginLat, @OriginLng,
@@ -68,7 +68,7 @@ public class TripRepository : ITripRepository {
                  @ServiceType, @PackageDescription, @PackageWeightKg, @PackageIsFragile, @PackageDetails,
                  @PickupVerified, @PickupObservation,
                  @CreatedAt, @AcceptedAt, @DriverArrivedAt, @StartedAt, @CompletedAt,
-                 @CancelledBy, @CancelReason)",
+                 @CancelledBy, @CancelReason, @RecipientName, @RecipientPhone)",
             trip);
 
     public async Task<List<Trip>> GetSosActiveAsync(CancellationToken ct = default) {
@@ -118,6 +118,8 @@ public class TripRepository : ITripRepository {
                 CancelledBy      = @CancelledBy,
                 CancelReason     = @CancelReason,
                 CancelledAt      = @CancelledAt,
+                DeliveryReceivedBy  = @DeliveryReceivedBy,
+                DeliveryConfirmedAt = @DeliveryConfirmedAt,
                 CouponCode         = @CouponCode,
                 DiscountAmount     = @DiscountAmount,
                 FareBeforeDiscount = @FareBeforeDiscount

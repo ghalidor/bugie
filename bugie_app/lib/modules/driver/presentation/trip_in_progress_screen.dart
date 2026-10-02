@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'driver_delivery_confirmation_screen.dart';
 import 'driver_pickup_verification_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/ui/app_messenger.dart';
@@ -45,10 +47,18 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   LatLng? _myPosition;
   Timer? _myPositionTimer;
 
+  /// Refresco del viaje cada 10 s: si el pasajero cancela, el conductor se
+  /// entera aunque no le llegue el push.
+  Timer? _pollTimer;
+  /// Ya se resolvio el final del viaje (evita avisos dobles).
+  bool _endHandled = false;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
+    FcmService.tripCancelled.addListener(_poll);
     // Tick local para refrescar la posición del pin del conductor en el mapa.
     // No envía nada al backend; solo lee el último valor del tracking service.
     _myPositionTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -69,6 +79,8 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   @override
   void dispose() {
     _myPositionTimer?.cancel();
+    _pollTimer?.cancel();
+    FcmService.tripCancelled.removeListener(_poll);
     // Al salir de la pantalla del viaje (completado / cancelado), el conductor
     // sigue ONLINE pero deja de mandar GPS.
     // Política nueva: GPS solo durante un viaje activo. Cuando se acaba el
@@ -264,6 +276,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     otroCtrl.dispose();
     if (ok != true || !mounted) return;
 
+    _endHandled = true;
     setState(() {
       _busy = true;
       _error = null;
@@ -287,8 +300,69 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   String _hhmm(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
+  /// Revisa si el viaje sigue activo. Si desaparece y fue cancelado por el
+  /// pasajero (o por Bugie), avisa con el motivo y vuelve al inicio.
+  Future<void> _poll() async {
+    if (!mounted || _busy || _endHandled || _trip == null) return;
+    final repo = context.read<TripsRepository>();
+    final prevId = _trip!.id;
+    try {
+      final t = await repo.getActive();
+      if (!mounted) return;
+      if (t != null) {
+        setState(() => _trip = t);
+        return;
+      }
+      _endHandled = true;
+      final fin = await repo.getById(prevId);
+      if (!mounted) return;
+      if (fin.status == TripStatus.cancelled && fin.cancelledBy != 'driver') {
+        final tracking = context.read<LocationTrackingService>();
+        if (tracking.isRunning) tracking.stop();
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.cancel_outlined, size: 48, color: BugieColors.danger),
+            title: Text(fin.cancelledBy == 'admin'
+                ? 'Bugie canceló el viaje'
+                : 'El pasajero canceló el viaje'),
+            content: Text(
+              '${fin.cancelReason != null ? 'Motivo: ${fin.cancelReason}\n\n' : ''}'
+              'Ya puedes recibir otras solicitudes.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido'),
+              ),
+            ],
+          ),
+        );
+        if (mounted) context.go('/driver');
+      }
+    } catch (_) {
+      // sin red: se reintenta en el proximo tick
+      _endHandled = false;
+    }
+  }
+
   Future<void> _complete() async {
     if (_trip == null) return;
+    // Envio: antes de completar hay que confirmar la entrega (foto + quien recibio).
+    if (_trip!.isDelivery && _trip!.deliveryConfirmedAt == null) {
+      final ok = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => DriverDeliveryConfirmationScreen(
+            tripId: _trip!.id,
+            recipientName: _trip!.recipientName,
+          ),
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    _endHandled = true;
     setState(() {
       _busy = true;
       _error = null;
@@ -503,6 +577,37 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                       ),
                     ],
                   ),
+                  // Envio: que lleva y a quien se entrega
+                  if (t.isDelivery) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: BugieColors.primary.withOpacity(0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            const Icon(Icons.inventory_2_outlined, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(t.packageDescription ?? 'Envío',
+                                style: const TextStyle(fontWeight: FontWeight.w600))),
+                          ]),
+                          if (t.recipientName != null) ...[
+                            const SizedBox(height: 4),
+                            Text('Entregar a: ${t.recipientName}'
+                                '${t.recipientPhone != null ? ' · ${t.recipientPhone}' : ''}',
+                                style: const TextStyle(fontSize: 13)),
+                          ],
+                          if (t.deliveryConfirmedAt != null)
+                            Text('Entregado a ${t.deliveryReceivedBy ?? ''}',
+                                style: const TextStyle(fontSize: 12, color: BugieColors.success)),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 8),
                     Text(_error!,

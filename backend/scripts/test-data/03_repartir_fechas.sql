@@ -122,6 +122,7 @@ UPDATE trips.trips t SET
     completedat         = pg_temp.ft(t.id, t.completedat),
     passengerlocationat = pg_temp.ft(t.id, t.passengerlocationat),
     cancelledat         = pg_temp.ft(t.id, t.cancelledat),
+    deliveryconfirmedat = pg_temp.ft(t.id, t.deliveryconfirmedat),
     createdat           = pg_temp.ft(t.id, t.createdat)
  WHERE t.id IN (SELECT id FROM a);
 

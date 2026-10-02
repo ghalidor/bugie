@@ -120,4 +120,18 @@ ALTER TABLE trips.tripproposals
 -- ---------------------------------------------------------------------
 ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS cancelledat timestamp without time zone;
 
+-- ---------------------------------------------------------------------
+-- 9) Envios: destinatario y confirmacion de entrega en destino.
+--    tripphotos.kind 3 = foto de la entrega (DeliveryProof).
+-- ---------------------------------------------------------------------
+ALTER TABLE trips.trips
+    ADD COLUMN IF NOT EXISTS recipientname       character varying(120),
+    ADD COLUMN IF NOT EXISTS recipientphone      character varying(20),
+    ADD COLUMN IF NOT EXISTS deliveryreceivedby  character varying(120),
+    ADD COLUMN IF NOT EXISTS deliveryconfirmedat timestamp without time zone;
+
+ALTER TABLE trips.tripphotos DROP CONSTRAINT IF EXISTS ck_tripphotos_kind;
+ALTER TABLE trips.tripphotos
+    ADD CONSTRAINT ck_tripphotos_kind CHECK (kind >= 0 AND kind <= 3);
+
 COMMIT;

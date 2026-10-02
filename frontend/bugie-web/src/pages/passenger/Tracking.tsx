@@ -51,6 +51,9 @@ interface Trip {
   waypoints?: Waypoint[];
   // Cuando el conductor aviso que ya esta en el punto de recojo
   driverArrivedAt?: string | null;
+  // Si se cancelo: quien y por que
+  cancelledBy?: string | null;
+  cancelReason?: string | null;
 }
 
 const STATUS_MSG: Record<number, string> = {
@@ -87,6 +90,9 @@ export default function PassengerTracking() {
   // Aviso "tu conductor llego": se muestra una vez por viaje al detectarlo
   const [arrivedOpen, setArrivedOpen] = useState(false);
   const arrivedShownFor = useRef<string | null>(null);
+  // El conductor (o Bugie) cancelo el viaje: aviso con el motivo
+  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null } | null>(null);
+  const lastTripId = useRef<string | null>(null);
   const [cuponAbierto, setCuponAbierto] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -119,6 +125,15 @@ export default function PassengerTracking() {
     const load = () =>
       apiFetch<Trip | null>(`${API.trips}/trips/active`)
         .then(async d => {
+          // El viaje ya no esta activo: si lo cancelo el conductor, avisar con el motivo.
+          if (!d && lastTripId.current) {
+            const gone = lastTripId.current;
+            lastTripId.current = null;
+            const t = await apiFetch<Trip>(`${API.trips}/trips/${gone}`).catch(() => null);
+            if (t?.status === 5 && t.cancelledBy && t.cancelledBy !== 'passenger')
+              setCancelledInfo({ by: t.cancelledBy, reason: t.cancelReason ?? null });
+          }
+          if (d) lastTripId.current = d.id;
           setTrip(d);
           if (d && d.status === 2 && d.driverArrivedAt && arrivedShownFor.current !== d.id) {
             arrivedShownFor.current = d.id;
@@ -232,6 +247,7 @@ export default function PassengerTracking() {
   async function cancel() {
     if (!trip) return;
     try {
+      lastTripId.current = null; // lo cancela el propio pasajero: sin aviso
       await apiFetch(`${API.trips}/trips/${trip.id}/cancel`, { method: 'PUT' });
       navigate('/app/pasajero/inicio');
     } catch (err) { setError(err instanceof ApiError ? err.message : 'Error al cancelar.'); }
@@ -268,6 +284,32 @@ export default function PassengerTracking() {
   if (!trip) return (
     <>
       <PageHeader title="Seguimiento" subtitle="Estado de tu viaje en curso." icon="fa-solid fa-location-dot" />
+      {cancelledInfo && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1060,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}>
+          <div className="bugie-card text-center" role="alertdialog" aria-labelledby="cancel-title" style={{ maxWidth: 380, width: '100%' }}>
+            <div className="bugie-card-body p-4">
+              <i className="fa-solid fa-circle-xmark fa-3x text-danger mb-3 d-block" />
+              <h2 id="cancel-title" className="h5 fw-bold mb-2">
+                {cancelledInfo.by === 'driver' ? 'Tu conductor canceló el viaje' : 'Bugie canceló tu viaje'}
+              </h2>
+              {cancelledInfo.reason && <p className="bugie-muted mb-2">Motivo: {cancelledInfo.reason}</p>}
+              <p className="bugie-muted mb-3">Puedes solicitar otro viaje cuando quieras.</p>
+              <div className="d-grid gap-2">
+                <button className="btn btn-bugie text-white rounded-pill"
+                        onClick={() => { setCancelledInfo(null); navigate('/app/pasajero/solicitar'); }}>
+                  Solicitar otro viaje
+                </button>
+                <button className="btn btn-bugie-outline rounded-pill" onClick={() => setCancelledInfo(null)}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bugie-card p-5 text-center">
         <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
           <i className="fa-solid fa-car-side" />

@@ -124,6 +124,14 @@ class Trip {
   final bool packageIsFragile;
   final String? packageDetails;
   final bool pickupVerified;
+  /// Envio: a quien se entrega y la confirmacion en destino.
+  final String? recipientName;
+  final String? recipientPhone;
+  final String? deliveryReceivedBy;
+  final DateTime? deliveryConfirmedAt;
+  /// Si se cancelo: 'passenger' | 'driver' | 'admin' y el motivo.
+  final String? cancelledBy;
+  final String? cancelReason;
   final String? pickupObservation;
 
   bool get isDelivery => serviceType == 1;
@@ -170,6 +178,12 @@ class Trip {
     this.packageIsFragile = false,
     this.packageDetails,
     this.pickupVerified = false,
+    this.recipientName,
+    this.recipientPhone,
+    this.deliveryReceivedBy,
+    this.deliveryConfirmedAt,
+    this.cancelledBy,
+    this.cancelReason,
     this.pickupObservation,
   });
 
@@ -218,6 +232,12 @@ class Trip {
         packageIsFragile:   j['packageIsFragile'] == true,
         packageDetails:    j['packageDetails']?.toString(),
         pickupVerified:     j['pickupVerified'] == true,
+        recipientName:      j['recipientName']?.toString(),
+        recipientPhone:     j['recipientPhone']?.toString(),
+        deliveryReceivedBy: j['deliveryReceivedBy']?.toString(),
+        deliveryConfirmedAt: DateTime.tryParse(j['deliveryConfirmedAt'] ?? ''),
+        cancelledBy:        j['cancelledBy']?.toString(),
+        cancelReason:       j['cancelReason']?.toString(),
         pickupObservation: j['pickupObservation']?.toString(),
       );
 }

@@ -5,10 +5,12 @@ namespace Bugie.Trips.Domain.Enums;
 /// RequestPackage  = fotos del paquete que sube el CLIENTE al solicitar el envío.
 /// PickupMain      = foto principal del paquete con el cliente, al recoger (conductor).
 /// PickupSecondary = fotos secundarias del paquete al recoger (conductor), pueden ser varias.
+/// DeliveryProof   = foto de la entrega en destino (conductor), con quien lo recibio.
 /// </summary>
 public enum TripPhotoKind
 {
     RequestPackage = 0,
     PickupMain = 1,
-    PickupSecondary = 2
+    PickupSecondary = 2,
+    DeliveryProof = 3
 }

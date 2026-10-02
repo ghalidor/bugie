@@ -65,7 +65,7 @@ public class SmtpEmailSender : IEmailSender
             };
 
             await client.SendMailAsync(msg, ct);
-            _log.LogInformation("Invitación enviada a {Email}", toEmail);
+            _log.LogInformation("Correo enviado a {Email}: {Subject}", toEmail, subject);
         }
         catch (Exception ex)
         {

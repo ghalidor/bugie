@@ -1,6 +1,7 @@
 using MediatR;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Domain.Entities;
+using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 
@@ -56,6 +57,13 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
                 "Ya tienes un viaje en curso. Termínalo o cancélalo antes de solicitar otro.");
         }
 
+        // Envio: hace falta saber a quien se entrega.
+        var recipientName  = cmd.RecipientName?.Trim();
+        var recipientPhone = cmd.RecipientPhone?.Trim();
+        if(cmd.ServiceType == ServiceType.Delivery &&
+           (string.IsNullOrWhiteSpace(recipientName) || string.IsNullOrWhiteSpace(recipientPhone)))
+            throw new InvalidOperationException("Indica el nombre y el teléfono de quien recibe el envío.");
+
         var trip = Trip.Create(
             cmd.PassengerId,
             cmd.OriginAddress, cmd.OriginLat, cmd.OriginLng,
@@ -65,7 +73,9 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
             packageDescription: cmd.PackageDescription,
             packageWeightKg: cmd.PackageWeightKg,
             packageIsFragile: cmd.PackageIsFragile,
-            packageDetails: cmd.PackageDetails);
+            packageDetails: cmd.PackageDetails,
+            recipientName: cmd.ServiceType == ServiceType.Delivery ? recipientName : null,
+            recipientPhone: cmd.ServiceType == ServiceType.Delivery ? recipientPhone : null);
 
         await _trips.AddAsync(trip, ct);
 
@@ -170,5 +180,6 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
         passengerStars,
         t.CouponCode, t.DiscountAmount, t.FareBeforeDiscount,
         t.AcceptedAt, t.DriverArrivedAt,
-        t.CancelledBy, t.CancelReason, t.CancelledAt);
+        t.CancelledBy, t.CancelReason, t.CancelledAt,
+        t.RecipientName, t.RecipientPhone, t.DeliveryReceivedBy, t.DeliveryConfirmedAt);
 }
