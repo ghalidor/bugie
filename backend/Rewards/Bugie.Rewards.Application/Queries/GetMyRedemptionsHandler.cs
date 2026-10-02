@@ -27,5 +27,5 @@ public class GetMyRedemptionsHandler
     internal static RedemptionDto ToDto(Redemption r) => new(
         r.Id, r.Code, r.ItemName, r.PointsSpent, r.RewardType,
         r.AmountSoles, r.Quantity, r.Percentage, r.Status,
-        r.ExpiresAt, r.UsedAt, r.UsedNote, r.CreatedAt);
+        r.ExpiresAt, r.UsedAt, r.UsedNote, r.CreatedAt, r.UserId);
 }

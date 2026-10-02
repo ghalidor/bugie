@@ -1,4 +1,5 @@
-﻿using MediatR;
+﻿using Bugie.Trips.Domain.Common;
+using MediatR;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Domain.Interfaces;
 
@@ -20,9 +21,9 @@ public class GetDriverRankingHandler
         var page = q.Page < 1 ? 1 : q.Page;
         var pageSize = q.PageSize < 1 ? 20 : (q.PageSize > 100 ? 100 : q.PageSize);
 
-        // Rango de fechas del mes (inicio inclusivo, fin exclusivo).
-        var from = new DateTime(year, month, 1);
-        var to = from.AddMonths(1);
+        // Rango del mes en hora de Peru (inicio inclusivo, fin exclusivo), pasado a UTC.
+        var from = BugieTime.PeruToUtc(new DateTime(year, month, 1));
+        var to = BugieTime.PeruToUtc(new DateTime(year, month, 1).AddMonths(1));
 
         // 1) Total para paginación
         var total = await _reports.CountDriversRatedInRangeAsync(from, to, ct);

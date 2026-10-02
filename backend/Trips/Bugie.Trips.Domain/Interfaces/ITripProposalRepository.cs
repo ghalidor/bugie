@@ -75,4 +75,12 @@ public interface ITripProposalRepository
     /// </summary>
     Task<int> ExpireStaleAcceptedByPassengerAsync(
         DateTime cutoffUtc, CancellationToken ct = default);
+
+    /// <summary>
+    /// Al cancelarse un viaje se cierra su negociación: todas las propuestas
+    /// abiertas (pending, accepted_by_passenger, driver_accepted) pasan a
+    /// 'cancelled'. Devuelve los conductores (userId) que tenían propuesta,
+    /// para avisarles.
+    /// </summary>
+    Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, CancellationToken ct = default);
 }

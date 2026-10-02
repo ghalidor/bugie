@@ -67,7 +67,6 @@ public static class SettingKeys
     public const string RatingPointsDriver      = "rating_points_driver";
     public const string RatingRequireFiveStars  = "rating_require_five_stars";
     public const string CouponsApplyToFare      = "coupons_apply_to_fare";
-    public const string CouponMaxIsCommission   = "coupon_max_is_commission";
     public const string NoCancelMinTrips        = "no_cancel_min_trips";
     public const string NoCancelPoints          = "no_cancel_points";
 }

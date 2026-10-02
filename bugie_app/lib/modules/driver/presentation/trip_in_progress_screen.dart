@@ -182,6 +182,111 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     }
   }
 
+  /// "Ya llegué": avisa al pasajero (push) que el conductor está en el
+  /// punto de recojo. Se puede repetir si el pasajero no sale.
+  Future<void> _arrived() async {
+    if (_trip == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<TripsRepository>().markArrived(_trip!.id);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Le avisamos al pasajero que ya llegaste.'),
+        ));
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// El conductor cancela un viaje aceptado (antes de iniciarlo).
+  /// Se pide el motivo: queda en el reporte como "cancelado por el conductor".
+  Future<void> _cancelByDriver() async {
+    if (_trip == null) return;
+    const motivos = [
+      'El pasajero no se presenta',
+      'No puedo llegar al punto de recojo',
+      'Problema con el vehículo',
+      'El pasajero pidió cancelar',
+      'Otro motivo',
+    ];
+    String elegido = motivos.first;
+    final otroCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Cancelar viaje'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('¿Por qué cancelas? Se le avisará al pasajero.'),
+              const SizedBox(height: 8),
+              for (final m in motivos)
+                RadioListTile<String>(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(m),
+                  value: m,
+                  groupValue: elegido,
+                  onChanged: (v) => setD(() => elegido = v!),
+                ),
+              if (elegido == 'Otro motivo')
+                TextField(
+                  controller: otroCtrl,
+                  maxLength: 200,
+                  decoration: const InputDecoration(hintText: 'Escribe el motivo'),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Volver'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Cancelar viaje'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final motivo = elegido == 'Otro motivo' ? otroCtrl.text.trim() : elegido;
+    otroCtrl.dispose();
+    if (ok != true || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context
+          .read<TripsRepository>()
+          .cancel(_trip!.id, reason: motivo.isEmpty ? 'Otro motivo' : motivo);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Viaje cancelado. Le avisamos al pasajero.')),
+      );
+      context.go('/driver');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _hhmm(DateTime d) =>
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
   Future<void> _complete() async {
     if (_trip == null) return;
     setState(() {
@@ -404,6 +509,29 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                         style: const TextStyle(color: BugieColors.danger)),
                   ],
                   const SizedBox(height: 12),
+                  // Avisar al pasajero que ya está en el punto de recojo
+                  if (canStart) ...[
+                    OutlinedButton.icon(
+                      icon: Icon(t.driverArrivedAt == null
+                          ? Icons.place
+                          : Icons.notifications_active),
+                      label: Text(t.driverArrivedAt == null
+                          ? 'Ya llegué'
+                          : 'Avisar de nuevo al pasajero'),
+                      onPressed: _busy ? null : _arrived,
+                    ),
+                    if (t.driverArrivedAt != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Pasajero avisado a las ${_hhmm(t.driverArrivedAt!)}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 12, color: BugieColors.success),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
                   if (canStart)
                     ElevatedButton.icon(
                       icon: const Icon(Icons.play_arrow),
@@ -444,6 +572,16 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                         ],
                       ),
                     ),
+                  // Cancelar: solo con el viaje aceptado y antes de iniciarlo
+                  if (canStart) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: BugieColors.danger),
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: const Text('Cancelar viaje'),
+                      onPressed: _busy ? null : _cancelByDriver,
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(

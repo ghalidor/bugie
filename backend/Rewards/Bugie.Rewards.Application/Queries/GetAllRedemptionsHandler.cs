@@ -8,7 +8,9 @@ public class GetAllRedemptionsHandler
     : IRequestHandler<GetAllRedemptionsQuery, PagedResult<RedemptionDto>>
 {
     private readonly IRedemptionRepository _redemptions;
-    public GetAllRedemptionsHandler(IRedemptionRepository r) => _redemptions = r;
+    private readonly IUserDirectory        _users;
+    public GetAllRedemptionsHandler(IRedemptionRepository r, IUserDirectory users)
+        => (_redemptions, _users) = (r, users);
 
     public async Task<PagedResult<RedemptionDto>> Handle(
         GetAllRedemptionsQuery q, CancellationToken ct)
@@ -19,7 +21,14 @@ public class GetAllRedemptionsHandler
         var (items, total) = await _redemptions.GetPagedAsync(
             q.Status, q.UserType, page, pageSize, ct);
 
-        return new PagedResult<RedemptionDto>(
-            items.Select(GetMyRedemptionsHandler.ToDto).ToList(), total, page, pageSize);
+        // Nombre y rol de quien canjeo: el admin necesita saber a quien entregar o pagar.
+        var users = await _users.GetByIdsAsync(items.Select(i => i.UserId), ct);
+        var dtos = items.Select(i =>
+        {
+            var u = users.GetValueOrDefault(i.UserId);
+            return GetMyRedemptionsHandler.ToDto(i) with { UserName = u?.FullName, UserRole = u?.Role };
+        }).ToList();
+
+        return new PagedResult<RedemptionDto>(dtos, total, page, pageSize);
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import BugieMap from '../../components/BugieMap';
@@ -21,9 +21,19 @@ interface Trip {
   fareBeforeDiscount?: number | null;
   status: number;
   waypoints?: Waypoint[];
+  // Cuando el conductor aviso que ya esta en el punto de recojo
+  driverArrivedAt?: string | null;
 }
 
 const PAY: Record<string, string> = { cash: 'Efectivo', yape: 'Yape', plin: 'Plin' };
+
+const CANCEL_REASONS = [
+  'El pasajero no se presenta',
+  'No puedo llegar al punto de recojo',
+  'Problema con el vehículo',
+  'El pasajero pidió cancelar',
+  'Otro motivo',
+];
 
 export default function DriverTripInProgress() {
   const navigate = useNavigate();
@@ -39,6 +49,32 @@ export default function DriverTripInProgress() {
       .finally(() => setLoading(false));
   }, [navigate]);
 
+  // GPS del conductor mientras hay viaje (aceptado o en curso): se manda cada
+  // ~10 s con el tripId, asi queda el recorrido real para revisarlo en el admin.
+  const lastSent = useRef(0);
+  const tripId = trip?.id;
+  const tripActive = trip?.status === 2 || trip?.status === 3;
+  useEffect(() => {
+    if (!tripId || !tripActive || !('geolocation' in navigator)) return;
+    const watch = navigator.geolocation.watchPosition(pos => {
+      const now = Date.now();
+      if (now - lastSent.current < 10_000) return;
+      lastSent.current = now;
+      apiFetch(`${API.drivers}/drivers/location`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          driverId: '00000000-0000-0000-0000-000000000000', // el backend usa el usuario del token
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          tripId,
+          speedKmh: pos.coords.speed != null ? pos.coords.speed * 3.6 : null,
+          heading: pos.coords.heading,
+        }),
+      }).catch(() => { /* sin red: se reintenta en el proximo punto */ });
+    }, () => { /* sin permiso de ubicacion: no se envia */ }, { enableHighAccuracy: true, maximumAge: 5000 });
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [tripId, tripActive]);
+
   async function startTrip() {
     if (!trip) return;
     setActing(true);
@@ -51,17 +87,50 @@ export default function DriverTripInProgress() {
     } finally { setActing(false); }
   }
 
+  // "Ya llegue": avisa al pasajero (push a su celular) que ya esta en el
+  // punto de recojo. Se puede repetir si el pasajero no sale.
+  async function markArrived() {
+    if (!trip) return;
+    setActing(true); setError(null);
+    try {
+      const d = await apiFetch<Trip>(`${API.trips}/trips/${trip.id}/arrived`, { method: 'PUT' });
+      setTrip({ ...trip, driverArrivedAt: d.driverArrivedAt });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo avisar al pasajero.');
+    } finally { setActing(false); }
+  }
+
+  // Cancelar (solo aceptado y sin iniciar). El motivo queda en el reporte.
+  const [cancelOpen,   setCancelOpen]   = useState(false);
+  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
+  const [cancelOther,  setCancelOther]  = useState('');
+
+  async function cancelTrip() {
+    if (!trip) return;
+    const reason = cancelReason === 'Otro motivo' ? (cancelOther.trim() || 'Otro motivo') : cancelReason;
+    setActing(true); setError(null);
+    try {
+      await apiFetch(`${API.trips}/trips/${trip.id}/cancel`, {
+        method: 'PUT',
+        body: JSON.stringify({ reason }),
+      });
+      navigate('/app/conductor/inicio');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo cancelar el viaje.');
+      setActing(false);
+    }
+  }
+
   async function completeTrip() {
     if (!trip) return;
     setActing(true);
     try {
       await apiFetch(`${API.trips}/trips/${trip.id}/complete`, {
         method: 'PUT',
-        // La tarifa que se cobra es la YA DESCONTADA si el pasajero aplico
-        // un cupon. Mandar la original haria que el conductor cobre de mas y
-        // que el descuento no sirviera de nada.
+        // Se manda la tarifa SIN descuento: el backend resta el cupon al
+        // completar. Si se restara aqui, el descuento se aplicaria dos veces.
         body: JSON.stringify({
-          finalFare: (trip.fareBeforeDiscount ?? trip.estimatedFare) - (trip.discountAmount ?? 0),
+          finalFare: trip.estimatedFare,
         }),
       });
       navigate('/app/conductor/inicio');
@@ -180,6 +249,20 @@ export default function DriverTripInProgress() {
 
       <div className="d-grid gap-2">
         {trip.status === 2 && (
+          <>
+            <button className="btn btn-bugie-outline rounded-pill" onClick={markArrived} disabled={acting}>
+              <i className={`fa-solid ${trip.driverArrivedAt ? 'fa-bell' : 'fa-location-dot'} me-2`} />
+              {trip.driverArrivedAt ? 'Avisar de nuevo al pasajero' : 'Ya llegué al punto de recojo'}
+            </button>
+            {trip.driverArrivedAt && (
+              <div className="small text-center" style={{ color: 'var(--bugie-ok, #16a34a)' }}>
+                <i className="fa-solid fa-circle-check me-1" />
+                Pasajero avisado a las {new Date(trip.driverArrivedAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+          </>
+        )}
+        {trip.status === 2 && (
           <button className="btn btn-bugie text-white rounded-pill" onClick={startTrip} disabled={acting}>
             {acting
               ? <span className="spinner-border spinner-border-sm" />
@@ -192,6 +275,32 @@ export default function DriverTripInProgress() {
               ? <span className="spinner-border spinner-border-sm" />
               : <><i className="fa-solid fa-flag-checkered me-2" />Completar viaje</>}
           </button>
+        )}
+        {trip.status === 2 && !cancelOpen && (
+          <button className="btn btn-link text-danger small" onClick={() => setCancelOpen(true)} disabled={acting}>
+            <i className="fa-solid fa-ban me-1" />Cancelar viaje
+          </button>
+        )}
+        {trip.status === 2 && cancelOpen && (
+          <div className="bugie-card p-3">
+            <div className="small fw-semibold mb-2">¿Por qué cancelas? Se le avisará al pasajero.</div>
+            <select className="form-select form-select-sm mb-2" value={cancelReason}
+                    onChange={e => setCancelReason(e.target.value)} aria-label="Motivo de cancelación">
+              {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {cancelReason === 'Otro motivo' && (
+              <input className="form-control form-control-sm mb-2" maxLength={200} placeholder="Escribe el motivo"
+                     value={cancelOther} onChange={e => setCancelOther(e.target.value)} />
+            )}
+            <div className="d-flex gap-2">
+              <button className="btn btn-sm btn-danger rounded-pill" onClick={cancelTrip} disabled={acting}>
+                {acting ? <span className="spinner-border spinner-border-sm" /> : 'Cancelar viaje'}
+              </button>
+              <button className="btn btn-sm btn-bugie-outline rounded-pill" onClick={() => setCancelOpen(false)} disabled={acting}>
+                Volver
+              </button>
+            </div>
+          </div>
         )}
         <div className="mt-2">
           <div className="small bugie-muted text-center mb-2">Solo en caso de emergencia real</div>

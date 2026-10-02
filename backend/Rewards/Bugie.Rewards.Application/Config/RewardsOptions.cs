@@ -46,8 +46,6 @@ public sealed class RewardsOptions
     /// <summary>Apagado por defecto: los cupones solo se acumulan.</summary>
     public bool    CouponsApplyToFare      { get; init; } = false;
 
-    /// <summary>Recorta el descuento a la comisión, para que el conductor no cobre de menos.</summary>
-    public bool    CouponMaxIsCommission   { get; init; } = true;
 
     // ── Bono diario sin cancelaciones ──
 
@@ -100,7 +98,6 @@ public sealed class RewardsOptions
         RatingPointsDriver      = IntOrZero(settings, SettingKeys.RatingPointsDriver, 50),
         RatingRequireFiveStars  = Bool(settings, SettingKeys.RatingRequireFiveStars, true),
         CouponsApplyToFare      = Bool(settings, SettingKeys.CouponsApplyToFare, false),
-        CouponMaxIsCommission   = Bool(settings, SettingKeys.CouponMaxIsCommission, true),
         NoCancelMinTrips        = IntOrZero(settings, SettingKeys.NoCancelMinTrips, 3),
         NoCancelPoints          = IntOrZero(settings, SettingKeys.NoCancelPoints, 100),
         RafflePointsPerTicket = IntOrZero(settings, SettingKeys.RafflePointsPerTicket, 500),

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 const STORAGE_KEY = 'bugie_theme'
 
-export function applyTheme(theme) {
+export function applyTheme(theme: string | null) {
   const t = theme === 'dark' ? 'dark' : 'light'
   document.body.setAttribute('data-theme', t)
   localStorage.setItem(STORAGE_KEY, t)

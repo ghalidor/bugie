@@ -9,6 +9,7 @@ import 'package:vibration/vibration.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/services/admin_settings_service.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import 'apply_coupon_sheet.dart';
@@ -116,10 +117,17 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   /// episodio de desvío hasta que se reincorpore a la ruta).
   bool _alertShown = false;
 
+  /// Viaje para el que ya mostramos "tu conductor llegó" (por sondeo).
+  String? _arrivedShownTripId;
+  /// Evita abrir dos avisos de llegada a la vez.
+  bool _arrivedDialogOpen = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Push "tu conductor llegó" (app abierta o al tocar la notificación).
+    FcmService.driverArrived.addListener(_onDriverArrivedPush);
     _load();
     _loadDeviationFlag();
     _loadFavoriteDrivers();
@@ -164,6 +172,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
 
   @override
   void dispose() {
+    FcmService.driverArrived.removeListener(_onDriverArrivedPush);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _staleTickTimer?.cancel();
@@ -353,6 +362,48 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     }
   }
 
+  /// Llegó el push "tu conductor llegó": refresca el viaje y muestra el aviso.
+  /// Si el conductor vuelve a avisar, se muestra de nuevo.
+  void _onDriverArrivedPush() {
+    if (!mounted || FcmService.driverArrived.value == null) return;
+    _load();
+    _showDriverArrivedDialog();
+  }
+
+  /// Aviso emergente: el conductor ya está en el punto de recojo.
+  Future<void> _showDriverArrivedDialog() async {
+    if (!mounted || _arrivedDialogOpen) return;
+    _arrivedDialogOpen = true;
+    try {
+      if (await Vibration.hasVibrator()) Vibration.vibrate(duration: 600);
+    } catch (_) {}
+    if (!mounted) { _arrivedDialogOpen = false; return; }
+    final t = _trip;
+    final detalle = [
+      if (t?.driverName != null) t!.driverName!,
+      if (t?.vehiclePlate != null) 'Placa ${t!.vehiclePlate}',
+    ].join(' · ');
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.place, size: 48, color: BugieColors.success),
+        title: const Text('Tu conductor llegó'),
+        content: Text(
+          'Tu conductor ya está en el punto de recojo. Sal a su encuentro.'
+          '${detalle.isEmpty ? '' : '\n\n$detalle'}',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+    _arrivedDialogOpen = false;
+  }
+
   /// Muestra el alert dialog cuando se detecta el primer desvío del episodio.
   void _showDeviationAlert(double meters) {
     showDialog(
@@ -492,6 +543,15 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
               prevTrip.status == TripStatus.sosActive)) {
         _completionHandledTripId = prevTrip.id;
         _handleTripFinished(prevTrip);
+      }
+
+      // El conductor avisó que llegó (por si el push no llegó): una vez por viaje.
+      if (trip != null &&
+          trip.status == TripStatus.accepted &&
+          trip.driverArrivedAt != null &&
+          _arrivedShownTripId != trip.id) {
+        _arrivedShownTripId = trip.id;
+        _showDriverArrivedDialog();
       }
 
       // Ajusta el tracking de ubicación del pasajero al nuevo estado.

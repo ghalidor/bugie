@@ -8,7 +8,8 @@ public static class EmailTemplates
 {
     private const string Brand = "Bugie";
     private const string Color = "#4F7DF5";
-    private const string AppUrl = "http://localhost:5173";
+    /// <summary>URL de la web (App:WebBaseUrl en appsettings). La fija Program.cs al arrancar.</summary>
+    public static string AppUrl { get; set; } = "http://localhost:5173";
 
     // ─────────────────────────────────────────────────────────────────────
     // Bienvenida al pasajero
@@ -108,6 +109,43 @@ public static class EmailTemplates
           </a>
         </p>
         <p>Recuerda que el DNI debe estar legible, sin reflejos y con todas sus esquinas visibles.</p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Recuperacion de contrasena: enlace de 1 hora, un solo uso
+    // ─────────────────────────────────────────────────────────────────────
+    public static string PasswordReset(string fullName, string token, string city) => Wrap(city,
+        "Restablece tu contraseña",
+        $@"
+        <p>Hola <strong>{fullName}</strong>,</p>
+        <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta de <strong>{Brand}</strong>.</p>
+        <p>Haz clic en el botón para crear una nueva contraseña:</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/auth/restablecer?token={Uri.EscapeDataString(token)}""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Crear nueva contraseña
+          </a>
+        </p>
+        <p><strong>Este enlace vence en 1 hora</strong> y solo se puede usar una vez.
+        Si vence, solicita uno nuevo desde ""Olvidé mi contraseña"".</p>
+        <p>Si tú no pediste este cambio, ignora este correo: tu contraseña actual sigue funcionando.</p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Aviso: la contrasena se cambio
+    // ─────────────────────────────────────────────────────────────────────
+    public static string PasswordChanged(string fullName, string city) => Wrap(city,
+        "Tu contraseña fue cambiada",
+        $@"
+        <p>Hola <strong>{fullName}</strong>,</p>
+        <p>Te confirmamos que la contraseña de tu cuenta de <strong>{Brand}</strong> se cambió correctamente.</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/auth/login""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Ingresar a Bugie
+          </a>
+        </p>
+        <p>Si tú no hiciste este cambio, escríbenos de inmediato a soporte.</p>");
 
     // ─────────────────────────────────────────────────────────────────────
     private static string Wrap(string city, string title, string innerHtml) => $@"

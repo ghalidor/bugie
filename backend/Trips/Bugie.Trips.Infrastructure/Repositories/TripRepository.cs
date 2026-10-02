@@ -116,7 +116,11 @@ public class TripRepository : ITripRepository {
                 StartedAt        = @StartedAt,
                 CompletedAt      = @CompletedAt,
                 CancelledBy      = @CancelledBy,
-                CancelReason     = @CancelReason
+                CancelReason     = @CancelReason,
+                CancelledAt      = @CancelledAt,
+                CouponCode         = @CouponCode,
+                DiscountAmount     = @DiscountAmount,
+                FareBeforeDiscount = @FareBeforeDiscount
             WHERE Id = @Id",
             trip);
 

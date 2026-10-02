@@ -1,3 +1,4 @@
+using Bugie.Trips.Infrastructure.Time;
 using System.Data;
 using System.Text;
 using FluentValidation;
@@ -18,7 +19,9 @@ using Bugie.Trips.Api.Realtime;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("Default")));
+    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+BugieTimeSetup.ConfigureDapper();
 
 // Configuración tipada (binding con appsettings.json)
 builder.Services.Configure<TripFilteringOptions>(
@@ -42,6 +45,7 @@ builder.Services.AddScoped<IAdminReportsRepository, AdminReportsRepository>();
 builder.Services.AddScoped<IPassengerAcceptanceCancellationRepository,
     PassengerAcceptanceCancellationRepository>();
 builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
+builder.Services.AddScoped<IDriverDayStatsRepository, DriverDayStatsRepository>();
 
 builder.Services.AddHttpClient<IRoutingService, GraphHopperRoutingService>(client =>
 {
@@ -128,7 +132,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -139,7 +144,8 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 // ?? SignalR para monitor admin en tiempo real ?????????????????????????????
 // El hub /hubs/monitor empuja eventos al panel admin (alerta SOS instantánea
 // en lugar de esperar al poll de 10s).
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddScoped<IAdminNotifier, SignalRAdminNotifier>();
 
 // ?? Expirador de propuestas accepted_by_passenger ?????????????????????????
@@ -165,7 +171,7 @@ var app = builder.Build();
 try
 {
     using var _fixConn = new NpgsqlConnection(
-        app.Configuration.GetConnectionString("Default"));
+        BugieTimeSetup.UtcConnectionString(app.Configuration.GetConnectionString("Default")));
     _fixConn.Open();
     using var _fixCmd = _fixConn.CreateCommand();
     _fixCmd.CommandText = @"
@@ -185,7 +191,7 @@ try
           ALTER TABLE trips.TripProposals
             ADD CONSTRAINT CK_TripProposals_Status
             CHECK (Status IN ('pending','accepted','rejected','superseded',
-                              'accepted_by_passenger','driver_accepted'));
+                              'accepted_by_passenger','driver_accepted','cancelled'));
         END $$;";
     _fixCmd.ExecuteNonQuery();
     Console.WriteLine("[startup] CHECK de TripProposals.Status verificado (incluye driver_accepted).");

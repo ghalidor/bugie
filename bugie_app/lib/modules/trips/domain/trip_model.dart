@@ -106,6 +106,8 @@ class Trip {
   final String paymentMethod;
   final DateTime createdAt;
   final DateTime? acceptedAt;
+  /// Cuando el conductor avisó que ya está en el punto de recojo.
+  final DateTime? driverArrivedAt;
   final List<Waypoint> waypoints;
 
   /// Última posición conocida del conductor asignado.
@@ -157,6 +159,7 @@ class Trip {
     required this.paymentMethod,
     required this.createdAt,
     this.acceptedAt,
+    this.driverArrivedAt,
     this.waypoints = const [],
     this.driverCurrentLat,
     this.driverCurrentLng,
@@ -201,6 +204,7 @@ class Trip {
         paymentMethod:  j['paymentMethod'] ?? 'cash',
         createdAt:      DateTime.tryParse(j['createdAt'] ?? '') ?? DateTime.now(),
         acceptedAt:     DateTime.tryParse(j['acceptedAt'] ?? ''),
+        driverArrivedAt: DateTime.tryParse(j['driverArrivedAt'] ?? ''),
         waypoints: (j['waypoints'] as List?)
                 ?.map((w) => Waypoint.fromJson(w as Map<String, dynamic>))
                 .toList() ??

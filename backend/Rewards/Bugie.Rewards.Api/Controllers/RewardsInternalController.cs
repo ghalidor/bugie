@@ -167,8 +167,7 @@ public class RewardsInternalController : ControllerBase
     public record ValidateCouponRequest(
         string  Code,
         Guid    UserId,
-        decimal Fare,
-        decimal PlatformFee);
+        decimal Fare);
 
     /// <summary>
     /// POST /api/rewards/internal/coupon/validate
@@ -187,7 +186,7 @@ public class RewardsInternalController : ControllerBase
         if (!IsInternalTokenValid(token, out var error)) return error!;
 
         var dto = await _mediator.Send(new ValidateCouponForTripQuery(
-            req.Code ?? string.Empty, req.UserId, req.Fare, req.PlatformFee), ct);
+            req.Code ?? string.Empty, req.UserId, req.Fare), ct);
 
         return Ok(dto);
     }

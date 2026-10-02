@@ -109,7 +109,8 @@ export function useLanding(lang = 'es') {
     return { ...data, sections };
   }, [data, draft]);
 
-  return { data: merged, error };
+  // Cargando = todavia no llego la respuesta ni hubo error.
+  return { data: merged, error, loading: data === null && !error };
 }
 
 export function parse<T>(sections: SectionItem[], key: string, fallback: T): T {

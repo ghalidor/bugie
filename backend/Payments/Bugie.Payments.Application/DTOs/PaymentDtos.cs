@@ -13,7 +13,11 @@ public record PaymentDto(
     string   Status,
     string?  Reference,
     DateTime CreatedAt,
-    DateTime? PaidAt);
+    DateTime? PaidAt,
+    // Comision de Bugie y lo que recibe el conductor
+    decimal  PlatformFee = 0,
+    decimal  DriverAmount = 0,
+    decimal? PlatformFeeRate = null);
 
 public record DriverEarningsDto(
     Guid    DriverId,

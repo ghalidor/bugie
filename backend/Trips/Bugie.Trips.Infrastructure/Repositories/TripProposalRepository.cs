@@ -246,4 +246,17 @@ public class TripProposalRepository : ITripProposalRepository
               AND CreatedAt  < @Cutoff",
             new { Cutoff = cutoffUtc });
     }
+
+    public async Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, CancellationToken ct = default)
+    {
+        // Viaje cancelado = negociacion cerrada. RejectedBy deja constancia del motivo.
+        var drivers = await _db.QueryAsync<Guid>(@"
+            UPDATE trips.TripProposals
+               SET Status = 'cancelled', RejectedBy = 'trip_cancelled'
+             WHERE TripId = @TripId
+               AND Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')
+            RETURNING DriverId",
+            new { TripId = tripId });
+        return drivers.Distinct().ToList();
+    }
 }

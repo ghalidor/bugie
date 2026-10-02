@@ -3,8 +3,8 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Rewards.Application.Commands;
-using Bugie.Rewards.Application.Queries;
 using Bugie.Rewards.Application.DTOs;
+using Bugie.Rewards.Application.Queries;
 
 namespace Bugie.Rewards.Api.Controllers;
 

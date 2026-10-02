@@ -4,6 +4,7 @@ import PageHeader from '../../components/PageHeader';
 import BugieMap from '../../components/BugieMap';
 import { API, apiFetch, ApiError } from '../../state/api';
 import { useDefaultLocation } from '../../hooks/useDefaultLocation';
+import { usePlatformConfig, calcularTarifa } from '../../hooks/usePlatformConfig';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 
@@ -187,7 +188,11 @@ export default function PassengerRequestRide() {
   }
 
   const allCoords = [originCoord, ...waypoints.map(w => w.coord), destCoord].filter(Boolean) as LatLng[];
-  const fare = routeInfo ? Math.max(5, Math.round(routeInfo.km * 1.5 * 10) / 10) : null;
+  // La tarifa sale de la configuracion del admin, no de numeros escritos
+  // aqui. Antes decia Math.max(5, km * 1.5), con el 5 y el 1.5 fijos, mientras
+  // el admin tenia esos mismos campos editables sin efecto alguno.
+  const fareConfig = usePlatformConfig();
+  const fare = routeInfo ? calcularTarifa(routeInfo.km, fareConfig) : null;
 
   // Cuando cambia la ruta (y por tanto el fare sugerido), pre-llenamos el input.
   // Si el usuario ya editó manualmente, no sobreescribimos.

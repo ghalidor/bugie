@@ -75,7 +75,15 @@ const FALLBACK_TESTIMONIALS = {
   ],
 };
 
-const FALLBACK_CTA = {
+// Los botones pueden traer enlace e icono propios desde el gestor de la landing.
+interface CtaContent {
+  eyebrow: string; title: string; text: string;
+  ctaPrimary: string; ctaSecondary: string;
+  ctaPrimaryHref?: string;   ctaPrimaryIcon?: string;
+  ctaSecondaryHref?: string; ctaSecondaryIcon?: string;
+}
+
+const FALLBACK_CTA: CtaContent = {
   eyebrow: 'Siguiente paso', title: 'Empieza a movilizarte de forma segura hoy.',
   text: 'Regístrate y solicita tu primer viaje verificado.',
   ctaPrimary: 'Solicitar viaje', ctaSecondary: 'Contactar equipo',

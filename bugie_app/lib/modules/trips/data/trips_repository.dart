@@ -95,8 +95,13 @@ class TripsRepository {
   }
 
   /// PUT /api/trips/{id}/cancel
-  Future<void> cancel(String tripId) async {
-    await _api.put('${ApiConfig.trips}/trips/$tripId/cancel');
+  /// PUT /api/trips/{id}/cancel — lo usa el pasajero y el conductor.
+  /// El backend registra quién canceló; [reason] es opcional.
+  Future<void> cancel(String tripId, {String? reason}) async {
+    await _api.put(
+      '${ApiConfig.trips}/trips/$tripId/cancel',
+      body: reason == null || reason.trim().isEmpty ? null : {'reason': reason.trim()},
+    );
   }
 
   /// PUT /api/trips/passenger-location
@@ -273,6 +278,13 @@ class TripsRepository {
         DriverCounterInfo.fromJson(value as Map<String, dynamic>),
       ),
     );
+  }
+
+  /// PUT /api/trips/{id}/arrived — el conductor avisa al pasajero que ya
+  /// está en el punto de recojo (le llega un push). Se puede repetir.
+  Future<Trip> markArrived(String tripId) async {
+    final json = await _api.put('${ApiConfig.trips}/trips/$tripId/arrived');
+    return Trip.fromJson(json as Map<String, dynamic>);
   }
 
   /// PUT /api/trips/{id}/start

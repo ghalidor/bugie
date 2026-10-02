@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../../state/api';
+import { API, apiFetch } from '../../state/api';
 import PageHeader from '../../components/PageHeader';
 import { Link } from 'react-router-dom';
 
@@ -128,13 +128,15 @@ export default function Dashboard() {
             </div>
             <div className="bugie-card-body p-0">
               {[
-                { name: 'Auth.Api',     port: 5001, desc: 'Autenticación y usuarios'   },
-                { name: 'Trips.Api',    port: 5002, desc: 'Viajes y rutas'             },
-                { name: 'Drivers.Api',  port: 5003, desc: 'Conductores y vehículos'    },
-                { name: 'Payments.Api', port: 5004, desc: 'Pagos y ganancias'          },
-                { name: 'Landing.Api',  port: 5005, desc: 'Contenido público'          },
+                // URLs del .env (VITE_API_*): funciona igual en local y en el servidor
+                { name: 'Auth.Api',     url: `${API.auth}/health`,             desc: 'Autenticación y usuarios'   },
+                { name: 'Trips.Api',    url: `${API.trips}/health`,            desc: 'Viajes y rutas'             },
+                { name: 'Drivers.Api',  url: `${API.drivers}/health`,          desc: 'Conductores y vehículos'    },
+                { name: 'Payments.Api', url: `${API.payments}/health`,         desc: 'Pagos y ganancias'          },
+                { name: 'Landing.Api',  url: `${API.landing}/health`,          desc: 'Contenido público'          },
+                { name: 'Rewards.Api',  url: `${API.rewards}/rewards/health`,  desc: 'Puntos, canjes y sorteos'   },
               ].map((api, i, arr) => (
-                <ApiStatus key={api.name} name={api.name} port={api.port} desc={api.desc}
+                <ApiStatus key={api.name} name={api.name} url={api.url} desc={api.desc}
                   isLast={i === arr.length - 1} />
               ))}
             </div>
@@ -146,18 +148,16 @@ export default function Dashboard() {
   );
 }
 
-function ApiStatus({ name, port, desc, isLast }: { name: string; port: number; desc: string; isLast: boolean }) {
+function ApiStatus({ name, url, desc, isLast }: { name: string; url: string; desc: string; isLast: boolean }) {
   const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   useEffect(() => {
     // Endpoint /api/health es público en TODAS las APIs.
     // No requiere token ni rol, así que el admin puede consultarlo sin permisos especiales.
-    const url = `http://localhost:${port}/api/health`;
-
     fetch(url, { method: 'GET', signal: AbortSignal.timeout(3000) })
       .then(r => r.ok ? setStatus('online') : setStatus('offline'))
       .catch(() => setStatus('offline'));
-  }, [port]);
+  }, [url]);
 
   const cfg = {
     online:   { color: '#34d399', label: 'Online',     icon: 'fa-circle-check'  },
@@ -173,7 +173,7 @@ function ApiStatus({ name, port, desc, isLast }: { name: string; port: number; d
       </div>
       <div className="flex-grow-1">
         <div className="fw-semibold small">{name}</div>
-        <div className="bugie-muted" style={{ fontSize: '0.72rem' }}>{desc} · :{port}</div>
+        <div className="bugie-muted" style={{ fontSize: '0.72rem' }}>{desc}</div>
       </div>
       <span className="badge rounded-pill" style={{ background: cfg.color + '22', color: cfg.color, fontSize: '0.72rem' }}>
         {cfg.label}

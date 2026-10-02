@@ -25,12 +25,10 @@ public class Trip
     public decimal? DiscountAmount     { get; set; }
     /// <summary>Tarifa antes del descuento. Sin esto no se puede auditar nada.</summary>
     public decimal? FareBeforeDiscount { get; set; }
-    /// <summary>Lo que la plataforma le queda debiendo al conductor.</summary>
-    public decimal? PlatformOwesDriver { get; set; }
 
     /// <summary>Lo que el pasajero paga de verdad, ya con el descuento.</summary>
     public decimal AmountToPay =>
-        (FinalFare ?? ProposedFare ?? EstimatedFare) - (DiscountAmount ?? 0);
+        (FinalFare ?? EstimatedFare) - (DiscountAmount ?? 0);
     public string PaymentMethod { get; set; } = string.Empty;
     public TripStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -40,6 +38,8 @@ public class Trip
     public DateTime? CompletedAt { get; set; }
     public string? CancelledBy { get; set; }
     public string? CancelReason { get; set; }
+    /// <summary>Cuándo se canceló (null si no se canceló).</summary>
+    public DateTime? CancelledAt { get; set; }
 
     // ---- Envio (Delivery) ----
     public ServiceType ServiceType { get; set; } = ServiceType.Ride;
@@ -133,9 +133,13 @@ public class Trip
         Status = TripStatus.Pending;
     }
 
+    // El conductor avisa que ya esta en el punto de recojo (antes de iniciar).
+    // Se guarda la primera vez; si vuelve a avisar se conserva esa hora.
     public void MarkDriverArrived()
     {
-        DriverArrivedAt = DateTime.UtcNow;
+        if (Status != TripStatus.Accepted)
+            throw new InvalidOperationException("Solo puedes avisar tu llegada con el viaje aceptado y antes de iniciarlo.");
+        DriverArrivedAt ??= DateTime.UtcNow;
     }
 
     // Envio: el conductor registra la verificacion del paquete al recoger
@@ -178,14 +182,14 @@ public class Trip
         Status = TripStatus.Cancelled;
         CancelledBy = cancelledBy;
         CancelReason = reason;
+        CancelledAt = DateTime.UtcNow;
     }
 
     /// <summary>
     /// Deja el cupon anotado en el viaje. NO lo consume: eso pasa al
     /// completar. Si el viaje se cancela, el cupon queda libre.
     /// </summary>
-    public void ApplyCoupon(string code, decimal discount, decimal fareBefore,
-                            decimal owedToDriver)
+    public void ApplyCoupon(string code, decimal discount, decimal fareBefore)
     {
         if(discount <= 0)
             throw new InvalidOperationException("El descuento debe ser mayor a cero.");
@@ -197,7 +201,6 @@ public class Trip
         CouponCode         = code;
         DiscountAmount     = discount;
         FareBeforeDiscount = fareBefore;
-        PlatformOwesDriver = owedToDriver > 0 ? owedToDriver : null;
     }
 
     public void RemoveCoupon()
@@ -205,7 +208,6 @@ public class Trip
         CouponCode         = null;
         DiscountAmount     = null;
         FareBeforeDiscount = null;
-        PlatformOwesDriver = null;
     }
 
     public bool HasCoupon => !string.IsNullOrWhiteSpace(CouponCode);

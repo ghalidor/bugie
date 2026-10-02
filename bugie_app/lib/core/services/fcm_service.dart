@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 import '../api/api_client.dart';
 import '../api/api_config.dart';
@@ -21,7 +22,26 @@ import 'in_app_alert_service.dart';
 ///      vía GoRouter (ej. al detalle del viaje o a la lista).
 ///
 /// Se llama una vez desde main.dart después de Firebase.initializeApp().
+/// Aviso "tu conductor llego" recibido por push. La pantalla de seguimiento
+/// del pasajero lo escucha y muestra el popup.
+class DriverArrivedEvent {
+  final String? tripId;
+  final DateTime at;
+  DriverArrivedEvent(this.tripId) : at = DateTime.now();
+}
+
 class FcmService {
+  /// Ultimo aviso de llegada del conductor (lo escucha tracking_screen).
+  static final ValueNotifier<DriverArrivedEvent?> driverArrived = ValueNotifier(null);
+
+  /// Canal Android de alta prioridad (el backend manda ChannelId=bugie_high_priority).
+  static const _channel = AndroidNotificationChannel(
+    'bugie_high_priority',
+    'Avisos de viaje',
+    description: 'Solicitudes, llegada del conductor y avisos del viaje.',
+    importance: Importance.high,
+  );
+
   static final FcmService _instance = FcmService._internal();
   factory FcmService() => _instance;
   FcmService._internal();
@@ -42,6 +62,17 @@ class FcmService {
   }) async {
     _api = api;
     _router = router;
+
+    // 0) Crear el canal de alta prioridad para que el aviso salga destacado.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await FlutterLocalNotificationsPlugin()
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(_channel);
+      } catch (e) {
+        debugPrint('FCM: no se pudo crear el canal: $e');
+      }
+    }
 
     // 1) Pedir permiso (Android 13+ y iOS muestran prompt nativo).
     final settings = await _messaging.requestPermission(
@@ -73,18 +104,25 @@ class FcmService {
       });
     }
 
-    // 5) Obtener el token actual y mandarlo al backend.
+    // 5) Obtener el token actual y mandarlo al backend (si ya hay sesion).
+    //    Si no hay sesion todavia, se registra al iniciar sesion (registerToken).
     await _registerTokenWithBackend();
 
     // 6) Escuchar rotación del token (Firebase puede rotarlo).
     _messaging.onTokenRefresh.listen((_) => _registerTokenWithBackend());
   }
 
-  /// Logout: borra el token del backend para que no le sigan llegando
-  /// notificaciones a un usuario que ya cerró sesión.
+  /// Llamar despues de iniciar sesion o registrarse: asocia este celular
+  /// al usuario para que le lleguen los avisos (push).
+  Future<void> registerToken() => _registerTokenWithBackend();
+
+  /// Logout: borra SOLO el token de este celular, para que no le sigan
+  /// llegando notificaciones aqui. Sus otros celulares siguen recibiendo.
   Future<void> unregister() async {
     try {
-      await _api?.delete('${ApiConfig.auth}/auth/me/fcm-token');
+      final token = await _messaging.getToken();
+      final query = token == null ? '' : '?token=${Uri.encodeQueryComponent(token)}';
+      await _api?.delete('${ApiConfig.auth}/auth/me/fcm-token$query');
     } catch (_) {
       // No es crítico — si falla, el token quedará huérfano hasta que
       // sea reemplazado por el del próximo login.
@@ -109,6 +147,14 @@ class FcmService {
   }
 
   void _handleForegroundMessage(RemoteMessage msg) {
+    // Llego el conductor: con la app abierta se va al seguimiento y se
+    // muestra el popup (no hace falta el banner).
+    if (msg.data['type'] == 'driver_arrived') {
+      _router?.go('/passenger/tracking');
+      driverArrived.value = DriverArrivedEvent(msg.data['trip_id'] as String?);
+      return;
+    }
+
     final notif = msg.notification;
     final title = notif?.title ?? msg.data['title'] as String? ?? 'Bugie';
     final body  = notif?.body  ?? msg.data['body']  as String? ?? '';
@@ -164,6 +210,10 @@ class FcmService {
     final route = msg.data['route'] as String?;
     if (route != null && route.isNotEmpty) {
       _router?.go(route);
+    }
+    // Toco el aviso "tu conductor llego": al abrir el seguimiento se muestra el popup.
+    if (msg.data['type'] == 'driver_arrived') {
+      driverArrived.value = DriverArrivedEvent(msg.data['trip_id'] as String?);
     }
   }
 }

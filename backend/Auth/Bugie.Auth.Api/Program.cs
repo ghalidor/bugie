@@ -1,3 +1,4 @@
+using Bugie.Auth.Infrastructure.Time;
 using System.Data;
 using System.Text;
 using FluentValidation;
@@ -22,10 +23,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── Base de datos ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("Default")));
+    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+BugieTimeSetup.ConfigureDapper();
+
+// URL de la web para los enlaces de los correos (en produccion: el dominio)
+Bugie.Auth.Application.Email.EmailTemplates.AppUrl =
+    (builder.Configuration["App:WebBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
 
 // ── Repositorios ──────────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IPasswordResetRepository, PasswordResetRepository>();
 builder.Services.AddScoped<IPassengerDocumentRepository, PassengerDocumentRepository>();
 builder.Services.AddScoped<IAdminRoleRepository, AdminRoleRepository>();
 builder.Services.AddScoped<IUserFcmTokenRepository, UserFcmTokenRepository>();
@@ -109,7 +117,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

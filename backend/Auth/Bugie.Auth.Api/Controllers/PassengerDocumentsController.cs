@@ -52,6 +52,7 @@ public class PassengerDocumentsController : ControllerBase {
     // GET /api/auth/passengers/documents/by-user/{userId}  (admin)
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("by-user/{userId:guid}")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetByUser(Guid userId, CancellationToken ct) {
         var docs = await _docs.GetByUserAsync(userId, ct);
         return Ok(docs.Select(ToDto));
@@ -115,6 +116,7 @@ public class PassengerDocumentsController : ControllerBase {
     // GET /api/auth/passengers/documents/{id}/download
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("{id:guid}/download")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Download(Guid id, CancellationToken ct) {
         var doc = await _docs.GetByIdAsync(id, ct);
         if(doc is null || string.IsNullOrWhiteSpace(doc.StorageFileId))
@@ -128,6 +130,7 @@ public class PassengerDocumentsController : ControllerBase {
     // PUT /api/auth/passengers/documents/{id}/approve
     // ─────────────────────────────────────────────────────────────────────
     [HttpPut("{id:guid}/approve")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Approve(Guid id, CancellationToken ct) {
         var adminId = GetUserId();
         if(adminId is null) return Unauthorized();
@@ -144,6 +147,7 @@ public class PassengerDocumentsController : ControllerBase {
     // PUT /api/auth/passengers/documents/{id}/reject
     // ─────────────────────────────────────────────────────────────────────
     [HttpPut("{id:guid}/reject")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Reject(Guid id, [FromBody] PassengerDocRejectRequest body, CancellationToken ct) {
         var adminId = GetUserId();
         if(adminId is null) return Unauthorized();

@@ -24,15 +24,29 @@ public class PaymentsController : ControllerBase {
         Ok(await _mediator.Send(
             new CreatePaymentCommand(req.TripId, req.PassengerId, req.DriverId, req.Amount, req.Method), ct));
 
+    /// <summary>PUT /api/payments/{id}/complete  body: { "reference": "..." } (opcional)</summary>
     [HttpPut("{id:guid}/complete")]
     public async Task<IActionResult> Complete(
-        Guid id, [FromBody] string? reference, CancellationToken ct) =>
-        Ok(await _mediator.Send(new CompletePaymentCommand(id, reference), ct));
+        Guid id, [FromBody] CompletePaymentBody? body, CancellationToken ct) =>
+        Ok(await _mediator.Send(new CompletePaymentCommand(id, body?.Reference), ct));
+
+    public record CompletePaymentBody(string? Reference);
 
     [HttpGet("earnings")]
     [Authorize(Roles = "driver")]
     public async Task<IActionResult> Earnings(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetDriverEarningsQuery(CurrentUserId), ct));
+
+    /// <summary>
+    /// GET /api/payments/payouts/me — pagos que Bugie le hizo al conductor
+    /// (bonos canjeados, premios de sorteo, pagos manuales) con su total.
+    /// </summary>
+    [HttpGet("payouts/me")]
+    [Authorize(Roles = "driver")]
+    public async Task<IActionResult> MyPayouts(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default) =>
+        Ok(await _mediator.Send(
+            new GetPayoutsQuery(CurrentUserId, null, null, null, null, null, page, pageSize), ct));
 
     [HttpGet("my-payments")]
     public async Task<IActionResult> MyPayments(CancellationToken ct) =>

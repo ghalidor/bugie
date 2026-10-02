@@ -70,7 +70,6 @@ public record CouponUsageDto(
     decimal   FareBeforeDiscount,
     decimal   DiscountAmount,
     decimal   AmountPaid,
-    decimal   PlatformOwesDriver,
     string?   PassengerName,
     string?   DriverName,
     /// <summary>completed | cancelled | in_progress</summary>
@@ -83,8 +82,6 @@ public record CouponUsageReportDto(
     int     TripsCompleted,
     int     TripsCancelled,
     decimal TotalDiscount,
-    /// <summary>Lo que la plataforma le quedó debiendo a los conductores.</summary>
-    decimal TotalOwed,
     /// <summary>Descuento promedio por viaje.</summary>
     decimal AverageDiscount,
     /// <summary>true si el interruptor está apagado: entonces esto no crece.</summary>

@@ -444,6 +444,26 @@ public class TripsController : ControllerBase
         return Ok(dto);
     }
 
+    /// <summary>
+    /// PUT /api/trips/{id}/arrived — el conductor avisa que ya esta en el
+    /// punto de recojo. Solo el conductor del viaje y con el viaje aceptado.
+    /// Envia un push al pasajero; se puede volver a avisar (reenvia el push).
+    /// </summary>
+    [HttpPut("{id:guid}/arrived")]
+    public async Task<IActionResult> Arrived(Guid id, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound();
+        if(trip.DriverId != CurrentUserId) return Forbid();
+        if(trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Accepted)
+            return Conflict(new { error = "Solo puedes avisar tu llegada con el viaje aceptado y antes de iniciarlo." });
+
+        trip.MarkDriverArrived();
+        await _trips.UpdateAsync(trip, ct);
+        _ = _notify.NotifyPassengerDriverArrivedAsync(trip.PassengerId, id);
+        return Ok(CreateTripHandler.ToDto(trip));
+    }
+
     [HttpPut("{id:guid}/complete")]
     public async Task<IActionResult> Complete(Guid id, [FromBody] CompleteTripRequest? req, CancellationToken ct)
     {
@@ -537,22 +557,46 @@ public class TripsController : ControllerBase
         catch (InvalidOperationException ex)   { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>
+    /// PUT /api/trips/{id}/cancel  body opcional: { "reason": "..." }
+    /// Se guarda QUIEN cancela de verdad (pasajero, conductor o admin):
+    ///  - pasajero: mientras el viaje no termine.
+    ///  - conductor: solo con el viaje aceptado y antes de iniciarlo
+    ///    (ya en curso, se usa SOS o se completa).
+    /// Cancelar cierra la negociacion: las propuestas abiertas pasan a
+    /// 'cancelled' y se avisa a esos conductores.
+    /// </summary>
     [HttpPut("{id:guid}/cancel")]
-    public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Cancel(Guid id, [FromBody] CancelTripRequest? req, CancellationToken ct)
     {
-        // Identificar a la contraparte antes de cancelar para notificarla.
         var trip = await _trips.GetByIdAsync(id, ct);
-        var dto = await _mediator.Send(new CancelTripCommand(id), ct);
+        if(trip is null) return NotFound();
+        if(trip.Status is Bugie.Trips.Domain.Enums.TripStatus.Completed
+                       or Bugie.Trips.Domain.Enums.TripStatus.Cancelled)
+            return Conflict(new { error = "Este viaje ya no se puede cancelar." });
 
-        if(trip is not null)
-        {
-            // Si el que cancela es el pasajero, avisar al conductor.
-            // Si cancela el conductor (DriverId != null), avisar al pasajero.
-            if(CurrentUserId == trip.PassengerId && trip.DriverId.HasValue)
-                _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, "passenger");
-            else if(trip.DriverId.HasValue && CurrentUserId == trip.DriverId.Value)
-                _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, "driver");
-        }
+        string by;
+        if(CurrentUserId == trip.PassengerId) by = "passenger";
+        else if(trip.DriverId == CurrentUserId) by = "driver";
+        else if(User.IsInRole("admin")) by = "admin";
+        else return Forbid();
+
+        if(by == "driver" && trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Accepted)
+            return Conflict(new { error = "Solo puedes cancelar un viaje aceptado que todavía no empezó." });
+
+        var dto = await _mediator.Send(new CancelTripCommand(id, by, req?.Reason), ct);
+
+        // Cerrar la negociacion y avisar a los conductores que habian ofertado.
+        var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, ct);
+        foreach(var driverUserId in proposalDrivers.Where(d => d != trip.DriverId))
+            _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by);
+
+        // Avisar a la contraparte del viaje.
+        if(by != "passenger")
+            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by);
+        if(by != "driver" && trip.DriverId.HasValue)
+            _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by);
+
         return Ok(dto);
     }
 

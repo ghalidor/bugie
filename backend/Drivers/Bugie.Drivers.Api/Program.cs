@@ -1,3 +1,4 @@
+using Bugie.Drivers.Infrastructure.Time;
 using System.Data;
 using System.Text;
 using Bugie.Drivers.Application.Commands;
@@ -19,7 +20,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── Base de datos ────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("Default")));
+    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+BugieTimeSetup.ConfigureDapper();
+
+// URLs de la web y del admin para los enlaces de los correos (en produccion: el dominio)
+Bugie.Drivers.Application.Email.DriverEmailTemplates.AppUrl =
+    (builder.Configuration["App:WebBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+Bugie.Drivers.Application.Email.DriverEmailTemplates.AdminUrl =
+    (builder.Configuration["App:AdminBaseUrl"] ?? "http://localhost:5174").TrimEnd('/');
 
 // ── Repositorios ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDriverRepository, DriverRepository>();
@@ -132,7 +141,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>

@@ -8,7 +8,9 @@ namespace Bugie.Rewards.Application.Queries;
 public class GetRafflesHandler : IRequestHandler<GetRafflesQuery, List<RaffleDto>>
 {
     private readonly IRaffleRepository _raffles;
-    public GetRafflesHandler(IRaffleRepository raffles) => _raffles = raffles;
+    private readonly IUserDirectory    _users;
+    public GetRafflesHandler(IRaffleRepository raffles, IUserDirectory users)
+        => (_raffles, _users) = (raffles, users);
 
     public async Task<List<RaffleDto>> Handle(GetRafflesQuery q, CancellationToken ct)
     {
@@ -22,7 +24,17 @@ public class GetRafflesHandler : IRequestHandler<GetRafflesQuery, List<RaffleDto
             salida.Add(ToDto(r, tickets, winners));
         }
 
-        return salida;
+        // Nombre y rol de los ganadores (para entregar o pagar el premio).
+        var ids   = salida.SelectMany(s => s.Winners).Select(w => w.UserId);
+        var users = await _users.GetByIdsAsync(ids, ct);
+        return salida.Select(s => s with
+        {
+            Winners = s.Winners.Select(w =>
+            {
+                var u = users.GetValueOrDefault(w.UserId);
+                return w with { UserName = u?.FullName, UserRole = u?.Role };
+            }).ToList(),
+        }).ToList();
     }
 
     internal static RaffleDto ToDto(Raffle r, int tickets, List<RaffleWinner> winners) => new(

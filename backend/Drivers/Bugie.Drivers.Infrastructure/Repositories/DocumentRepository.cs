@@ -86,14 +86,14 @@ public class DocumentRepository : IDocumentRepository
                 dr.UserId   AS DriverUserId,
                 d.DocType   AS DocType,
                 d.ExpiresAt AS ExpiresAt,
-                (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) AS DaysUntilExpiry
+                (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) AS DaysUntilExpiry
             FROM drivers.Documents d
             INNER JOIN drivers.Drivers dr ON dr.Id = d.DriverId
             WHERE d.Status = 'approved'
               AND dr.Status = 3
               AND d.DocType IN ('license', 'soat', 'revision_tecnica')
               AND d.ExpiresAt IS NOT NULL
-              AND (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) IN (0, 3, 6);";
+              AND (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) IN (0, 3, 6);";
 
         var rows = await _db.QueryAsync<ExpiringDocumentDto>(sql);
         return rows.ToList();
@@ -109,14 +109,14 @@ public class DocumentRepository : IDocumentRepository
                 dr.UserId   AS DriverUserId,
                 d.DocType   AS DocType,
                 d.ExpiresAt AS ExpiresAt,
-                (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) AS DaysUntilExpiry
+                (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) AS DaysUntilExpiry
             FROM drivers.Documents d
             INNER JOIN drivers.Drivers dr ON dr.Id = d.DriverId
             WHERE d.Status = 'approved'
               AND dr.Status = 3
               AND d.DocType IN ('license', 'soat', 'revision_tecnica')
               AND d.ExpiresAt IS NOT NULL
-              AND (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) <= @Days
+              AND (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) <= @Days
             ORDER BY d.ExpiresAt ASC;";
 
         var rows = await _db.QueryAsync<ExpiringDocumentDto>(sql, new { Days = days });
@@ -133,14 +133,14 @@ public class DocumentRepository : IDocumentRepository
                 dr.UserId   AS DriverUserId,
                 d.DocType   AS DocType,
                 d.ExpiresAt AS ExpiresAt,
-                (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) AS DaysUntilExpiry
+                (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) AS DaysUntilExpiry
             FROM drivers.Documents d
             INNER JOIN drivers.Drivers dr ON dr.Id = d.DriverId
             WHERE d.DriverId = @DriverId
               AND d.Status = 'approved'
               AND d.DocType IN ('license', 'soat', 'revision_tecnica')
               AND d.ExpiresAt IS NOT NULL
-              AND (CAST(d.ExpiresAt AS DATE) - CAST((now() at time zone 'utc') AS DATE)) <= @Days
+              AND (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) <= @Days
             ORDER BY d.ExpiresAt ASC;";
 
         var rows = await _db.QueryAsync<ExpiringDocumentDto>(sql, new { DriverId = driverId, Days = days });

@@ -1,0 +1,1700 @@
+{
+  "report": [
+    {
+      "area": "Admin",
+      "step": "login admin@bugie.pe",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Admin",
+      "step": "crear rol \"soporte\"",
+      "ok": true,
+      "detail": "7 permisos"
+    },
+    {
+      "area": "Admin",
+      "step": "crear admin soporte@bugie.test",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "activar cupones en tarifa",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "promocion \"Doble puntos de lanzamiento\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "promocion \"Bono primer viaje del dia\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "promocion \"Yape suma mas (conductores)\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "promocion \"Fiestas Patrias (finalizada)\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "sorteo \"Sorteo mensual: 1 mes de viajes gratis\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "sorteo \"Sorteo semanal conductores: kit de mantenimiento\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Rewards",
+      "step": "sorteo \"Sorteo especial aniversario\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Lucia Mamani Quispe",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P1 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P1 activado por admin",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Carlos Ticona Flores",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZNW6X"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P2 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P2 activado por admin",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Maria Fernanda Choque",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P3 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P3 activado por admin",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Jorge Luis Apaza",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P4 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P4 activado por admin",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Rosa Elena Condori",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P5 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P5 activado por admin",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Diego Huanca Rivera",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P6 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P6 rechazado por admin",
+      "ok": true,
+      "detail": "correo \"vuelve a subir documentos\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Registro",
+      "step": "passenger Ana Paredes Coaquira",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Pasajero",
+      "step": "P7 sube DNI (frente y reverso)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Pasajero",
+      "step": "P7 queda pendiente de revision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Registro",
+      "step": "driver Juan Carlos Pari Vargas",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D1 sube 7 documentos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D1 registra vehiculo Toyota Yaris Z1A-101 con foto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D1 envia a revision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D1 documentos aprobados y conductor activado",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D1 selfie de presencia + en linea en Plaza de Armas de Tacna",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Registro",
+      "step": "driver Miguel Angel Cutipa",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D2 sube 7 documentos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D2 registra vehiculo Hyundai Accent Z2B-202 con foto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D2 envia a revision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D2 documentos aprobados y conductor activado",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D2 selfie de presencia + en linea en Hospital Hipolito Unanue, Tacna",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Registro",
+      "step": "driver Pedro Mendoza Calle",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com, referido con LUCZNW6X"
+    },
+    {
+      "area": "Conductor",
+      "step": "D3 sube 7 documentos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D3 registra vehiculo Kia Rio Z3C-303 con foto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D3 envia a revision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D3 documentos aprobados y conductor activado",
+      "ok": true,
+      "detail": "correo \"cuenta activa\" a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D3 selfie de presencia + en linea en Universidad Nacional Jorge Basadre Grohmann",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Registro",
+      "step": "driver Raul Ccama Limachi",
+      "ok": true,
+      "detail": "correo de bienvenida a ghaluix@gmail.com"
+    },
+    {
+      "area": "Conductor",
+      "step": "D4 sube 7 documentos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D4 registra vehiculo Suzuki Swift Z4D-404 con foto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D4 envia a revision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Conductor",
+      "step": "D4 queda en revision con SOAT rechazado",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D1 plaza->unjbg [directo]",
+      "ok": true,
+      "detail": "completado S/ 7.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D2 unjbg->pocollay [negociado 2 ofertas]",
+      "ok": true,
+      "detail": "completado S/ 15 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D3 pocollay->mercado [contraoferta pasajero]",
+      "ok": true,
+      "detail": "completado S/ 9.5 plin"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D1 mercado->plaza [cancelado pendiente]",
+      "ok": true,
+      "detail": "cancelado por pasajero antes de asignar"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D2 plaza->aeropuerto [conductor acepta tarifa]",
+      "ok": true,
+      "detail": "completado S/ 15 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D3 terminal->plaza [directo]",
+      "ok": true,
+      "detail": "completado S/ 9.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D1 plaza->estadio [cancelado negociando]",
+      "ok": true,
+      "detail": "cancelado negociando: 0 ofertas cerradas"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D2 estadio->albarr [directo]",
+      "ok": true,
+      "detail": "completado S/ 13 plin"
+    },
+    {
+      "area": "Incidente",
+      "step": "pasajero reporta incidente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D1 albarr->hospital [delivery]",
+      "ok": true,
+      "detail": "completado S/ 12.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D2 hospital->ciudadN [directo]",
+      "ok": true,
+      "detail": "completado S/ 9 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D3 ciudadN->paseo [aceptado y cancelado por conductor]",
+      "ok": true,
+      "detail": "cancelado por el CONDUCTOR (motivo: El pasajero no se presenta)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D1 paseo->unjbg [conductor acepta tarifa]",
+      "ok": true,
+      "detail": "completado S/ 8 yape"
+    },
+    {
+      "area": "SOS",
+      "step": "P3 activa SOS en viaje",
+      "ok": true,
+      "detail": "alerta 49d7a250-82c9-4d4d-bc0e-17cfe2cf7ab3"
+    },
+    {
+      "area": "SOS",
+      "step": "admin resuelve SOS",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D3 unjbg->albarr [con SOS resuelto]",
+      "ok": true,
+      "detail": "completado S/ 8.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D1 aeropuerto->plaza [negociado]",
+      "ok": true,
+      "detail": "completado S/ 17 plin"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D2 plaza->terminal [directo]",
+      "ok": true,
+      "detail": "completado S/ 9.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D3 terminal->pocollay [contraoferta]",
+      "ok": true,
+      "detail": "completado S/ 7.5 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D1 pocollay->mercado [cancelado pendiente]",
+      "ok": true,
+      "detail": "cancelado por pasajero antes de asignar"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D3 bolognesi->hospital [directo]",
+      "ok": true,
+      "detail": "completado S/ 8 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D2 hospital->unjbg [delivery]",
+      "ok": true,
+      "detail": "completado S/ 9 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D1 unjbg->estadio [negociado]",
+      "ok": true,
+      "detail": "completado S/ 11.5 plin"
+    },
+    {
+      "area": "Incidente",
+      "step": "driver reporta incidente",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Puntos",
+      "step": "P1 tiene 2155 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "P1 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-3BUSRF, le quedan 1655 pts"
+    },
+    {
+      "area": "Canje",
+      "step": "P1 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-P8WHZ6, le quedan 1155 pts"
+    },
+    {
+      "area": "Puntos",
+      "step": "P2 tiene 810 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "P2 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-XGZBE3, le quedan 310 pts"
+    },
+    {
+      "area": "Canje",
+      "step": "P2 pass_discount_2",
+      "ok": false,
+      "detail": "puntos insuficientes (310)"
+    },
+    {
+      "area": "Puntos",
+      "step": "P3 tiene 620 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "P3 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-QZFQ9G, le quedan 120 pts"
+    },
+    {
+      "area": "Canje",
+      "step": "P3 pass_discount_2",
+      "ok": false,
+      "detail": "puntos insuficientes (120)"
+    },
+    {
+      "area": "Puntos",
+      "step": "P4 tiene 820 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "P4 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-V6T28R, le quedan 320 pts"
+    },
+    {
+      "area": "Canje",
+      "step": "P4 pass_discount_2",
+      "ok": false,
+      "detail": "puntos insuficientes (320)"
+    },
+    {
+      "area": "Puntos",
+      "step": "P5 tiene 680 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "P5 canjea S/. 2 de descuento",
+      "ok": true,
+      "detail": "cupon BG-RUK3QC, le quedan 180 pts"
+    },
+    {
+      "area": "Canje",
+      "step": "P5 pass_discount_2",
+      "ok": false,
+      "detail": "puntos insuficientes (180)"
+    },
+    {
+      "area": "Puntos",
+      "step": "D1 tiene 795 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "D1 canjea Bono de S/. 5",
+      "ok": true,
+      "detail": "cupon BG-9UW6HM, le quedan 295 pts"
+    },
+    {
+      "area": "Puntos",
+      "step": "D2 tiene 1015 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "D2 canjea Bono de S/. 5",
+      "ok": true,
+      "detail": "cupon BG-6RGGND, le quedan 515 pts"
+    },
+    {
+      "area": "Puntos",
+      "step": "D3 tiene 640 pts disponibles",
+      "ok": true,
+      "detail": "nivel bronze"
+    },
+    {
+      "area": "Canje",
+      "step": "D3 canjea Bono de S/. 5",
+      "ok": true,
+      "detail": "cupon BG-94DML5, le quedan 140 pts"
+    },
+    {
+      "area": "Cupon",
+      "step": "P1 aplica BG-3BUSRF",
+      "ok": true,
+      "detail": "descuento S/ 2"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D3 aeropuerto->paseo [con cupon]",
+      "ok": true,
+      "detail": "completado S/ 15.5 cash con cupon (antes S/ ?)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D1 paseo->ciudadN [directo]",
+      "ok": true,
+      "detail": "completado S/ 10.5 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D2 ciudadN->terminal [directo]",
+      "ok": true,
+      "detail": "completado S/ 6.5 plin"
+    },
+    {
+      "area": "Viaje",
+      "step": "P1->D3 terminal->unjbg [conductor acepta tarifa]",
+      "ok": true,
+      "detail": "completado S/ 12 cash"
+    },
+    {
+      "area": "Cupon",
+      "step": "P2 aplica BG-XGZBE3",
+      "ok": true,
+      "detail": "descuento S/ 2"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D2 hospital->aeropuerto [con cupon]",
+      "ok": true,
+      "detail": "completado S/ 16.5 yape con cupon (antes S/ ?)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D3 aeropuerto->plaza [negociado]",
+      "ok": true,
+      "detail": "completado S/ 17 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D1 plaza->mercado [directo]",
+      "ok": true,
+      "detail": "completado S/ 6 plin"
+    },
+    {
+      "area": "Cupon",
+      "step": "P3 aplica BG-QZFQ9G",
+      "ok": true,
+      "detail": "descuento S/ 2"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D1 albarr->aeropuerto [con cupon]",
+      "ok": true,
+      "detail": "completado S/ 10.5 cash con cupon (antes S/ ?)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D2 aeropuerto->bolognesi [directo]",
+      "ok": true,
+      "detail": "completado S/ 14 yape"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D3 bolognesi->pocollay [cancelado pendiente]",
+      "ok": true,
+      "detail": "cancelado por pasajero antes de asignar"
+    },
+    {
+      "area": "Viaje",
+      "step": "P3->D1 pocollay->plaza [directo]",
+      "ok": true,
+      "detail": "completado S/ 12 cash"
+    },
+    {
+      "area": "Cupon",
+      "step": "P4 aplica BG-V6T28R",
+      "ok": true,
+      "detail": "descuento S/ 2"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D2 mercado->unjbg [con cupon]",
+      "ok": true,
+      "detail": "completado S/ 8 yape con cupon (antes S/ ?)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D3 unjbg->estadio [delivery]",
+      "ok": true,
+      "detail": "completado S/ 9.5 cash"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D1 estadio->plaza [directo]",
+      "ok": true,
+      "detail": "completado S/ 7 plin"
+    },
+    {
+      "area": "Cupon",
+      "step": "P5 aplica BG-RUK3QC",
+      "ok": true,
+      "detail": "descuento S/ 2"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D2 estadio->albarr [con cupon]",
+      "ok": true,
+      "detail": "completado S/ 13 cash con cupon (antes S/ ?)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D3 albarr->terminal [aceptado y cancelado por conductor]",
+      "ok": true,
+      "detail": "cancelado por el CONDUCTOR (motivo: El pasajero no se presenta)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P5->D1 terminal->plaza [directo]",
+      "ok": true,
+      "detail": "completado S/ 9.5 cash"
+    },
+    {
+      "area": "Pago",
+      "step": "bono BG-9UW6HM de D1 pagado por plin",
+      "ok": true,
+      "detail": "op 88211"
+    },
+    {
+      "area": "Pago",
+      "step": "bono BG-6RGGND de D2 pagado por yape",
+      "ok": true,
+      "detail": "op 88212"
+    },
+    {
+      "area": "Pago",
+      "step": "bono BG-94DML5 de D3 pagado por plin",
+      "ok": true,
+      "detail": "op 88213"
+    },
+    {
+      "area": "Pago",
+      "step": "pago manual en efectivo a D2",
+      "ok": true,
+      "detail": "S/ 20"
+    },
+    {
+      "area": "Admin",
+      "step": "ajuste +200 pts a P3",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Admin",
+      "step": "ajuste +150 pts a D2",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Admin",
+      "step": "ajuste -50 pts a P2",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Sorteo",
+      "step": "repartir tickets (mantenimiento)",
+      "ok": true,
+      "detail": "{\"ticketsGranted\":59,\"rafflesDrawn\":0,\"messages\":[\"Sorteo semanal conductores: kit de mantenimiento: 8 tickets entregados.\",\"Sorteo mensual: 1 mes de "
+    },
+    {
+      "area": "Sorteo",
+      "step": "\"Sorteo especial aniversario\"",
+      "ok": true,
+      "detail": "31 tickets"
+    },
+    {
+      "area": "Sorteo",
+      "step": "\"Sorteo mensual: 1 mes de viajes gratis\"",
+      "ok": true,
+      "detail": "20 tickets"
+    },
+    {
+      "area": "Sorteo",
+      "step": "\"Sorteo semanal conductores: kit de mantenimiento\"",
+      "ok": true,
+      "detail": "8 tickets"
+    },
+    {
+      "area": "Sorteo",
+      "step": "se sortea \"Sorteo mensual: 1 mes de viajes gratis\"",
+      "ok": true,
+      "detail": "ganador ticket BG-000009"
+    },
+    {
+      "area": "Sorteo",
+      "step": "premio entregado",
+      "ok": true,
+      "detail": "a Lucia Mamani Quispe"
+    },
+    {
+      "area": "Sorteo",
+      "step": "sorteo semanal: ganó Pedro Mendoza Calle",
+      "ok": true,
+      "detail": "premio pagado por transferencia"
+    },
+    {
+      "area": "Rewards",
+      "step": "bono sin cancelaciones",
+      "ok": true,
+      "detail": "{\"awarded\":2,\"points\":200,\"driversChecked\":3,\"reason\":null}"
+    },
+    {
+      "area": "Referido",
+      "step": "P1 invita por correo",
+      "ok": true,
+      "detail": "correo de invitacion a ghaluix@gmail.com"
+    },
+    {
+      "area": "Contacto",
+      "step": "mensaje desde la web",
+      "ok": true,
+      "detail": "correo de aviso al admin"
+    },
+    {
+      "area": "Contacto",
+      "step": "admin responde",
+      "ok": true,
+      "detail": "correo de respuesta a ghaluix@gmail.com"
+    },
+    {
+      "area": "Contacto",
+      "step": "segundo mensaje sin leer (para bandeja del admin)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "Reporte",
+      "step": "viajes stats",
+      "ok": true,
+      "detail": "{\"total\":37,\"pending\":0,\"inProgress\":0,\"completed\":31,\"totalFare\":327.5}"
+    },
+    {
+      "area": "Reporte",
+      "step": "ranking conductores",
+      "ok": true,
+      "detail": "{\"year\":2026,\"month\":10,\"page\":1,\"pageSize\":20,\"total\":3,\"totalPages\":1,\"items\":[{\"driverUserId\":\"97cc445f-27f7-4477-ab66-5463881dc4dc\",\"fullName\":\"Juan Carlos "
+    },
+    {
+      "area": "Reporte",
+      "step": "pagos stats",
+      "ok": true,
+      "detail": "{\"totalAmount\":327.5,\"totalFee\":32.75,\"totalDriver\":294.75,\"pendingCount\":0,\"completedCount\":31}"
+    },
+    {
+      "area": "Reporte",
+      "step": "usuarios stats",
+      "ok": true,
+      "detail": "{\"total\":13,\"activos\":7,\"pasajeros\":7,\"conductores\":4,\"verificados\":6,\"noVerificados\":7}"
+    },
+    {
+      "area": "Reporte",
+      "step": "conductores stats",
+      "ok": true,
+      "detail": "{\"total\":4,\"online\":3,\"pendingDocs\":0,\"underReview\":1,\"approved\":3,\"expired\":0}"
+    },
+    {
+      "area": "Reporte",
+      "step": "uso de cupones",
+      "ok": true,
+      "detail": "{\"trips\":5,\"tripsCompleted\":5,\"tripsCancelled\":0,\"totalDiscount\":10,\"averageDiscount\":2,\"featureEnabled\":true,\"recent\":[{\"tripId\":\"376b0041-fea8-4c13-b97e-94f86"
+    },
+    {
+      "area": "Reporte",
+      "step": "balance de puntos",
+      "ok": true,
+      "detail": "{\"profiles\":8,\"profilesWithPoints\":8,\"pointsIssued\":14170,\"pointsAvailable\":9620,\"pointsRedeemed\":4500,\"pointsExpired\":0,\"activeRedemptions\":1,\"redemptionRate\":"
+    },
+    {
+      "area": "Reporte",
+      "step": "SOS",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "area": "Reporte",
+      "step": "pagos a conductores",
+      "ok": true,
+      "detail": "{\"items\":[{\"id\":\"d1f0068e-3d2a-4a1d-b6f7-958873a21473\",\"driverId\":\"da6ce458-c656-446c-9bd9-6f2f20734466\",\"driverName\":\"Pedro Mendoza Calle\",\"amount\":120,\"method"
+    },
+    {
+      "area": "Pagos recibidos",
+      "step": "D1 ve 1 pago(s)",
+      "ok": true,
+      "detail": "S/ 5"
+    },
+    {
+      "area": "Pagos recibidos",
+      "step": "D2 ve 2 pago(s)",
+      "ok": true,
+      "detail": "S/ 25"
+    },
+    {
+      "area": "Pagos recibidos",
+      "step": "D3 ve 2 pago(s)",
+      "ok": true,
+      "detail": "S/ 125"
+    },
+    {
+      "area": "Cancelacion",
+      "step": "hora de cancelacion guardada",
+      "ok": true,
+      "detail": "passenger · 2026-10-02T16:01:12.12728"
+    },
+    {
+      "area": "Recorrido",
+      "step": "viaje P1->D1",
+      "ok": true,
+      "detail": "16 puntos GPS, 2.21 km"
+    },
+    {
+      "area": "Viaje",
+      "step": "P2->D1 plaza->aeropuerto [EN CURSO para mapa]",
+      "ok": true,
+      "detail": "queda EN CURSO (seguimiento en mapa)"
+    },
+    {
+      "area": "Viaje",
+      "step": "P4->D2 hospital->pocollay [PENDIENTE buscando conductor]",
+      "ok": true,
+      "detail": "queda pendiente buscando conductor"
+    }
+  ],
+  "trips": [
+    {
+      "p": "P1",
+      "d": "D1",
+      "from": "plaza",
+      "to": "unjbg",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "comment": "Muy amable y puntual",
+      "tripId": "796fd1c0-1a95-4f88-8fe7-1f581945d179",
+      "fare": 7.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D2",
+      "from": "unjbg",
+      "to": "pocollay",
+      "method": "yape",
+      "mode": "propose",
+      "scenario": "negociado 2 ofertas",
+      "stars": 5,
+      "tripId": "c7c37171-85c3-4139-b704-51764b8a9571",
+      "fare": 13,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D3",
+      "from": "pocollay",
+      "to": "mercado",
+      "method": "plin",
+      "mode": "counter",
+      "scenario": "contraoferta pasajero",
+      "stars": 4,
+      "comment": "Buen viaje, auto algo caluroso",
+      "tripId": "d5e02288-877e-4e13-be24-f0ba30c0e631",
+      "fare": 11,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D1",
+      "from": "mercado",
+      "to": "plaza",
+      "mode": "accept",
+      "scenario": "cancelado pendiente",
+      "cancel": "pending",
+      "tripId": "b53693e9-2840-4ad8-9a43-1ad10e436b37",
+      "fare": 6,
+      "final": "cancelado"
+    },
+    {
+      "p": "P1",
+      "d": "D2",
+      "from": "plaza",
+      "to": "aeropuerto",
+      "method": "yape",
+      "mode": "driverAccept",
+      "scenario": "conductor acepta tarifa",
+      "stars": 5,
+      "waypoint": "bolognesi",
+      "tripId": "6f928518-fe88-4406-8794-c90de8198e4c",
+      "fare": 15,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D3",
+      "from": "terminal",
+      "to": "plaza",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "ebea6f8d-6400-4dd3-b1d2-b388010d81ef",
+      "fare": 9.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D1",
+      "from": "plaza",
+      "to": "estadio",
+      "method": "yape",
+      "mode": "propose",
+      "scenario": "cancelado negociando",
+      "cancel": "negotiating",
+      "tripId": "6fe82200-eef6-44cc-afc0-f9969e50eab3",
+      "fare": 7,
+      "final": "cancelado"
+    },
+    {
+      "p": "P2",
+      "d": "D2",
+      "from": "estadio",
+      "to": "albarr",
+      "method": "plin",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 3,
+      "comment": "Manejo un poco brusco",
+      "incident": "El conductor no respeto un semaforo en Av. Bolognesi",
+      "tripId": "ebc3cece-aae5-4559-83a0-845b24acd945",
+      "fare": 13,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D1",
+      "from": "albarr",
+      "to": "hospital",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "delivery",
+      "delivery": "Medicinas para entregar en farmacia",
+      "fragile": true,
+      "stars": 5,
+      "tripId": "74ee08b3-9191-4c9a-8a94-59455761a861",
+      "fare": 12.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P3",
+      "d": "D2",
+      "from": "hospital",
+      "to": "ciudadN",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "96f847a0-4328-4343-bb17-2f96082cfc8f",
+      "fare": 9,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P3",
+      "d": "D3",
+      "from": "ciudadN",
+      "to": "paseo",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "aceptado y cancelado por conductor",
+      "cancel": "accepted",
+      "tripId": "817b6f0c-9539-4945-8982-c0eca8dbd7e3",
+      "fare": 10.5,
+      "final": "cancelado"
+    },
+    {
+      "p": "P3",
+      "d": "D1",
+      "from": "paseo",
+      "to": "unjbg",
+      "method": "yape",
+      "mode": "driverAccept",
+      "scenario": "conductor acepta tarifa",
+      "stars": 5,
+      "tripId": "9b26437d-353f-42e9-8c7e-69a80aac6a76",
+      "fare": 8,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P3",
+      "d": "D3",
+      "from": "unjbg",
+      "to": "albarr",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "con SOS resuelto",
+      "sos": true,
+      "stars": 4,
+      "tripId": "aa41fa8c-66ca-4c60-85c2-31522ed80bf8",
+      "fare": 8.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D1",
+      "from": "aeropuerto",
+      "to": "plaza",
+      "method": "plin",
+      "mode": "propose",
+      "scenario": "negociado",
+      "stars": 5,
+      "tripId": "648641c8-ef4a-4993-a57b-bc5ae71f9b04",
+      "fare": 15,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D2",
+      "from": "plaza",
+      "to": "terminal",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "e92e1482-73ad-46d8-9405-12c71164f291",
+      "fare": 9.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D3",
+      "from": "terminal",
+      "to": "pocollay",
+      "method": "yape",
+      "mode": "counter",
+      "scenario": "contraoferta",
+      "stars": 5,
+      "tripId": "da2e3ab9-2130-48c2-aa17-86b2a6767ee9",
+      "fare": 9,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D1",
+      "from": "pocollay",
+      "to": "mercado",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "cancelado pendiente",
+      "cancel": "pending",
+      "tripId": "18386821-e169-4153-8b5c-6dcf52674836",
+      "fare": 11,
+      "final": "cancelado"
+    },
+    {
+      "p": "P5",
+      "d": "D3",
+      "from": "bolognesi",
+      "to": "hospital",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "comment": "Excelente",
+      "tripId": "f8f45d15-c691-45d0-8c16-b9d0fd6dc497",
+      "fare": 8,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P5",
+      "d": "D2",
+      "from": "hospital",
+      "to": "unjbg",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "delivery",
+      "delivery": "Documentos en sobre manila",
+      "stars": 5,
+      "tripId": "5eec3956-2be7-4bbe-8e03-2d45d832073c",
+      "fare": 9,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P5",
+      "d": "D1",
+      "from": "unjbg",
+      "to": "estadio",
+      "method": "plin",
+      "mode": "propose",
+      "scenario": "negociado",
+      "stars": 4,
+      "incident": "El pasajero dejo olvidada una mochila",
+      "incidentBy": "driver",
+      "tripId": "40039b95-6a8c-4f87-a2fd-8ff9ebb3f6e9",
+      "fare": 9.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D3",
+      "from": "aeropuerto",
+      "to": "paseo",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "con cupon",
+      "coupon": "BG-3BUSRF",
+      "stars": 5,
+      "tripId": "d6bba5fd-23d7-47c7-91ec-b59d94e43e0d",
+      "fare": 15.5,
+      "final": "completado"
+    },
+    {
+      "p": "P1",
+      "d": "D1",
+      "from": "paseo",
+      "to": "ciudadN",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "7087a448-47ea-4cfd-9b6c-58437fb7aebe",
+      "fare": 10.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D2",
+      "from": "ciudadN",
+      "to": "terminal",
+      "method": "plin",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "d57d52ac-706b-4b36-8685-013ba4ccbbfb",
+      "fare": 6.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P1",
+      "d": "D3",
+      "from": "terminal",
+      "to": "unjbg",
+      "method": "cash",
+      "mode": "driverAccept",
+      "scenario": "conductor acepta tarifa",
+      "stars": 5,
+      "tripId": "381e7cce-1f2d-4cf8-8908-b3f84ecbf0cb",
+      "fare": 12,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D2",
+      "from": "hospital",
+      "to": "aeropuerto",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "con cupon",
+      "coupon": "BG-XGZBE3",
+      "stars": 4,
+      "tripId": "8b7e35b8-8534-4311-95a0-f582312f5f14",
+      "fare": 16.5,
+      "final": "completado"
+    },
+    {
+      "p": "P2",
+      "d": "D3",
+      "from": "aeropuerto",
+      "to": "plaza",
+      "method": "cash",
+      "mode": "propose",
+      "scenario": "negociado",
+      "stars": 5,
+      "tripId": "ed515350-b935-4778-b369-15ccc1a8c006",
+      "fare": 15,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D1",
+      "from": "plaza",
+      "to": "mercado",
+      "method": "plin",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "fdae2249-03ef-4f9b-9112-47d8dde2dc47",
+      "fare": 6,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P3",
+      "d": "D1",
+      "from": "albarr",
+      "to": "aeropuerto",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "con cupon",
+      "coupon": "BG-QZFQ9G",
+      "stars": 5,
+      "tripId": "f555599f-12ba-4a92-ab16-469a20858445",
+      "fare": 10.5,
+      "final": "completado"
+    },
+    {
+      "p": "P3",
+      "d": "D2",
+      "from": "aeropuerto",
+      "to": "bolognesi",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "b7191ee9-1c83-4b46-b900-9d24026365c4",
+      "fare": 14,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P3",
+      "d": "D3",
+      "from": "bolognesi",
+      "to": "pocollay",
+      "method": "plin",
+      "mode": "accept",
+      "scenario": "cancelado pendiente",
+      "cancel": "pending",
+      "tripId": "96a57611-87f6-459d-86e0-2e90434a399e",
+      "fare": 13,
+      "final": "cancelado"
+    },
+    {
+      "p": "P3",
+      "d": "D1",
+      "from": "pocollay",
+      "to": "plaza",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "1c53f0c6-3407-46eb-96c9-616e0ca6bcb1",
+      "fare": 12,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D2",
+      "from": "mercado",
+      "to": "unjbg",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "con cupon",
+      "coupon": "BG-V6T28R",
+      "stars": 5,
+      "tripId": "1f45e5b8-3482-40de-9902-ff858d48541c",
+      "fare": 8,
+      "final": "completado"
+    },
+    {
+      "p": "P4",
+      "d": "D3",
+      "from": "unjbg",
+      "to": "estadio",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "delivery",
+      "delivery": "Torta de cumpleanos",
+      "fragile": true,
+      "stars": 5,
+      "tripId": "4828f8a1-18a5-45dc-83fa-82f50936ee1d",
+      "fare": 9.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P4",
+      "d": "D1",
+      "from": "estadio",
+      "to": "plaza",
+      "method": "plin",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 4,
+      "tripId": "e39d476a-fc8f-4a47-8654-889ce5dab74b",
+      "fare": 7,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P5",
+      "d": "D2",
+      "from": "estadio",
+      "to": "albarr",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "con cupon",
+      "coupon": "BG-RUK3QC",
+      "stars": 5,
+      "tripId": "376b0041-fea8-4c13-b97e-94f86bf44103",
+      "fare": 13,
+      "final": "completado"
+    },
+    {
+      "p": "P5",
+      "d": "D3",
+      "from": "albarr",
+      "to": "terminal",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "aceptado y cancelado por conductor",
+      "cancel": "accepted",
+      "tripId": "6096909d-a5b2-4ecf-a0df-c5875ef1ee73",
+      "fare": 15.5,
+      "final": "cancelado"
+    },
+    {
+      "p": "P5",
+      "d": "D1",
+      "from": "terminal",
+      "to": "plaza",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "directo",
+      "stars": 5,
+      "tripId": "92030e6d-9ca3-4c10-a97c-8696e1b22a39",
+      "fare": 9.5,
+      "final": "completado",
+      "coupon": null
+    },
+    {
+      "p": "P2",
+      "d": "D1",
+      "from": "plaza",
+      "to": "aeropuerto",
+      "method": "yape",
+      "mode": "accept",
+      "scenario": "EN CURSO para mapa",
+      "leaveInProgress": true,
+      "tripId": "3a34ef52-63d5-4732-b789-b7bdb883fda1",
+      "fare": 15,
+      "final": "en curso"
+    },
+    {
+      "p": "P4",
+      "d": "D2",
+      "from": "hospital",
+      "to": "pocollay",
+      "method": "cash",
+      "mode": "accept",
+      "scenario": "PENDIENTE buscando conductor",
+      "leavePending": true,
+      "tripId": "e898a57a-a88e-4542-8e7d-f81b4832fda4",
+      "fare": 10.5,
+      "final": "pendiente"
+    }
+  ],
+  "users": [
+    {
+      "key": "P1",
+      "name": "Lucia Mamani Quispe",
+      "phone": "952100101",
+      "email": "lucia.mamani@bugie.test",
+      "status": "approved",
+      "userId": "0904ccfb-80a2-4f58-ad25-c2a5d6f2b18f",
+      "role": "passenger",
+      "referralCode": "LUCZNW6X",
+      "coupons": [
+        "BG-P8WHZ6"
+      ],
+      "redeemed": [
+        "BG-3BUSRF",
+        "BG-P8WHZ6"
+      ]
+    },
+    {
+      "key": "P2",
+      "name": "Carlos Ticona Flores",
+      "phone": "952100102",
+      "email": "carlos.ticona@bugie.test",
+      "status": "approved",
+      "referredBy": "P1",
+      "userId": "eb3c5d4c-c317-44b8-a58b-a04dc4a0f008",
+      "role": "passenger",
+      "referralCode": "CARP2BJH",
+      "coupons": [],
+      "redeemed": [
+        "BG-XGZBE3"
+      ]
+    },
+    {
+      "key": "P3",
+      "name": "Maria Fernanda Choque",
+      "phone": "952100103",
+      "email": "maria.choque@bugie.test",
+      "status": "approved",
+      "userId": "d25cc96c-ce64-4810-8542-3366ca9346ad",
+      "role": "passenger",
+      "referralCode": "MAR3QZCR",
+      "coupons": [],
+      "redeemed": [
+        "BG-QZFQ9G"
+      ]
+    },
+    {
+      "key": "P4",
+      "name": "Jorge Luis Apaza",
+      "phone": "952100104",
+      "email": "jorge.apaza@bugie.test",
+      "status": "approved",
+      "userId": "1a2bc501-e2c6-48c1-8474-b4c173ee3200",
+      "role": "passenger",
+      "referralCode": "JORPGTKW",
+      "coupons": [],
+      "redeemed": [
+        "BG-V6T28R"
+      ]
+    },
+    {
+      "key": "P5",
+      "name": "Rosa Elena Condori",
+      "phone": "952100105",
+      "email": "rosa.condori@bugie.test",
+      "status": "approved",
+      "userId": "dbf8de3f-ee84-44d3-a0b8-42b9b32016ba",
+      "role": "passenger",
+      "referralCode": "ROSDKNVN",
+      "coupons": [],
+      "redeemed": [
+        "BG-RUK3QC"
+      ]
+    },
+    {
+      "key": "P6",
+      "name": "Diego Huanca Rivera",
+      "phone": "952100106",
+      "email": "diego.huanca@bugie.test",
+      "status": "rejected",
+      "userId": "e8d182f1-6f8e-4554-afc0-feffd3a85318",
+      "role": "passenger"
+    },
+    {
+      "key": "P7",
+      "name": "Ana Paredes Coaquira",
+      "phone": "952100107",
+      "email": "ana.paredes@bugie.test",
+      "status": "pending",
+      "userId": "cf7a6ac6-f95f-4f43-87cc-0da7d9f61a9f",
+      "role": "passenger"
+    },
+    {
+      "key": "D1",
+      "name": "Juan Carlos Pari Vargas",
+      "phone": "953200201",
+      "email": "juan.pari@bugie.test",
+      "status": "approved",
+      "vehicle": {
+        "plate": "Z1A-101",
+        "brand": "Toyota",
+        "model": "Yaris",
+        "year": 2019,
+        "color": "Blanco"
+      },
+      "at": {
+        "address": "Plaza de Armas de Tacna",
+        "lat": -18.0137,
+        "lng": -70.251
+      },
+      "userId": "97cc445f-27f7-4477-ab66-5463881dc4dc",
+      "role": "driver",
+      "driverId": "df18be51-3409-4ec4-a650-b9859735e5b1",
+      "coupons": [
+        "BG-9UW6HM"
+      ],
+      "redeemed": [
+        "BG-9UW6HM"
+      ]
+    },
+    {
+      "key": "D2",
+      "name": "Miguel Angel Cutipa",
+      "phone": "953200202",
+      "email": "miguel.cutipa@bugie.test",
+      "status": "approved",
+      "vehicle": {
+        "plate": "Z2B-202",
+        "brand": "Hyundai",
+        "model": "Accent",
+        "year": 2020,
+        "color": "Plata"
+      },
+      "at": {
+        "address": "Hospital Hipolito Unanue, Tacna",
+        "lat": -18.008,
+        "lng": -70.2455
+      },
+      "userId": "17f47764-f7fd-47a1-acca-506bb73d322e",
+      "role": "driver",
+      "driverId": "782fe533-ec17-40f6-9b07-d6e814366df1",
+      "coupons": [
+        "BG-6RGGND"
+      ],
+      "redeemed": [
+        "BG-6RGGND"
+      ]
+    },
+    {
+      "key": "D3",
+      "name": "Pedro Mendoza Calle",
+      "phone": "953200203",
+      "email": "pedro.mendoza@bugie.test",
+      "status": "approved",
+      "vehicle": {
+        "plate": "Z3C-303",
+        "brand": "Kia",
+        "model": "Rio",
+        "year": 2021,
+        "color": "Rojo"
+      },
+      "at": {
+        "address": "Universidad Nacional Jorge Basadre Grohmann",
+        "lat": -18.0255,
+        "lng": -70.2486
+      },
+      "referredBy": "P1",
+      "userId": "da6ce458-c656-446c-9bd9-6f2f20734466",
+      "role": "driver",
+      "driverId": "19ba9787-7d4a-4a3c-8801-04361ee69abe",
+      "coupons": [
+        "BG-94DML5"
+      ],
+      "redeemed": [
+        "BG-94DML5"
+      ]
+    },
+    {
+      "key": "D4",
+      "name": "Raul Ccama Limachi",
+      "phone": "953200204",
+      "email": "raul.ccama@bugie.test",
+      "status": "pending",
+      "vehicle": {
+        "plate": "Z4D-404",
+        "brand": "Suzuki",
+        "model": "Swift",
+        "year": 2018,
+        "color": "Azul"
+      },
+      "at": {
+        "address": "Terminal Terrestre Collasuyo, Alto de la Alianza",
+        "lat": -17.994,
+        "lng": -70.242
+      },
+      "userId": "f5e23b5a-eba6-4c57-b177-2454e7779b7e",
+      "role": "driver",
+      "driverId": "b8643a2d-57e0-44fd-807b-fe8d9f9d3f4d"
+    }
+  ]
+}

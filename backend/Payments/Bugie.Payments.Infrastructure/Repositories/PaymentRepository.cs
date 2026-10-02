@@ -45,10 +45,12 @@ public class PaymentRepository : IPaymentRepository {
         _db.ExecuteAsync(@"
             INSERT INTO payments.Payments
                 (Id, TripId, PassengerId, DriverId, Amount, PlatformFee,
-                 DriverAmount, Method, Status, Reference, CreatedAt, PaidAt)
+                 PlatformFeeRate, DriverAmount, Method, Status, Reference,
+                 CreatedAt, PaidAt)
             VALUES
                 (@Id, @TripId, @PassengerId, @DriverId, @Amount, @PlatformFee,
-                 @DriverAmount, @Method, @Status, @Reference, @CreatedAt, @PaidAt)",
+                 @PlatformFeeRate, @DriverAmount, @Method, @Status, @Reference,
+                 @CreatedAt, @PaidAt)",
             payment);
 
     public Task UpdateAsync(Payment payment, CancellationToken ct = default) =>

@@ -101,7 +101,8 @@ public class LandingController : ControllerBase
             Title = req.Title,
             Summary = req.Summary,
             Lang = req.Lang,
-            IsPublished = true,
+            // Sin indicar = publicada (como antes). false = borrador.
+            IsPublished = req.IsPublished ?? true,
             PublishedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
         };
@@ -121,6 +122,9 @@ public class LandingController : ControllerBase
         existing.Tag = req.Tag;
         existing.Title = req.Title;
         existing.Summary = req.Summary;
+        // Al pasar de borrador a publicada, la fecha de publicacion es la de hoy.
+        if(!existing.IsPublished && req.IsPublished == true)
+            existing.PublishedAt = DateTime.UtcNow;
         existing.IsPublished = req.IsPublished ?? existing.IsPublished;
 
         await _news.UpdateAsync(existing, ct);
@@ -231,6 +235,20 @@ public class LandingController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetSettings(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetSettingsQuery(), ct));
+
+    // Lo usan Auth y Drivers (LandingSettingsClient) para leer una sola clave,
+    // por ejemplo default_city.
+    [HttpGet("settings/{key}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetSetting(string key, CancellationToken ct)
+    {
+        var settings = await _mediator.Send(new GetSettingsQuery(), ct);
+        var s = settings.FirstOrDefault(x =>
+            string.Equals(x.SettingKey, key, StringComparison.OrdinalIgnoreCase));
+        return s is null
+            ? NotFound(new { error = $"No existe la clave '{key}'." })
+            : Ok(new { settingKey = s.SettingKey, value = s.Value });
+    }
 
     [HttpPut("settings/{key}")]
     [Authorize(Roles = "admin")]

@@ -85,18 +85,40 @@ public class TripNotificationService : ITripNotificationService
                 ["trip_id"] = tripId.ToString(),
             }));
 
+    // ── EVENTO: el conductor llegó al punto de recojo ────────────────────
+    // type=driver_arrived: la app abre el seguimiento y muestra un aviso.
+    public Task NotifyPassengerDriverArrivedAsync(
+        Guid passengerUserId, Guid tripId) =>
+        SafeSend(passengerUserId, new FcmPushMessage(
+            Title: "Tu conductor llegó",
+            Body: "Tu conductor ya está en el punto de recojo. Sal a su encuentro.",
+            Route: "/passenger/tracking",
+            ExtraData: new Dictionary<string, string>
+            {
+                ["alert_type"] = "arrived",
+                ["type"]       = "driver_arrived",
+                ["trip_id"]    = tripId.ToString(),
+            }));
+
     // ── EVENTO: viaje cancelado ──────────────────────────────────────────
     public Task NotifyTripCancelledAsync(
         Guid recipientUserId, Guid tripId, string cancelledByRole)
     {
-        var who = cancelledByRole == "passenger" ? "El pasajero" : "El conductor";
+        var who = cancelledByRole switch
+        {
+            "passenger" => "El pasajero",
+            "driver"    => "El conductor",
+            _            => "Bugie",
+        };
         return SafeSend(recipientUserId, new FcmPushMessage(
             Title: "Viaje cancelado",
             Body: $"{who} canceló el viaje.",
             Route: null,
             ExtraData: new Dictionary<string, string>
             {
-                ["alert_type"] = "sos",
+                // Antes iba como "sos" (copiado por error): es un aviso de viaje.
+                ["alert_type"] = "trip",
+                ["type"]       = "trip_cancelled",
                 ["trip_id"] = tripId.ToString(),
             }));
     }

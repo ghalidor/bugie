@@ -105,14 +105,16 @@ public class AdminQueryRepository : IAdminQueryRepository
         int months, CancellationToken ct = default)
     {
         var rows = await _db.QueryAsync<MonthlyPoints>(@"
-            SELECT to_char(date_trunc('month', CreatedAt), 'YYYY-MM') AS Month,
+            -- Meses de Peru: CreatedAt esta en UTC.
+            SELECT to_char(date_trunc('month', CreatedAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima'), 'YYYY-MM') AS Month,
                    COALESCE(SUM(Points) FILTER
                      (WHERE Type IN ('earn','bonus','adjust_add')), 0)::int  AS Issued,
                    COALESCE(SUM(Points) FILTER (WHERE Type = 'redeem'), 0)::int AS Redeemed
             FROM rewards.PointsTransactions
-            WHERE CreatedAt >= date_trunc('month', now()) - (@Months * INTERVAL '1 month')
-            GROUP BY date_trunc('month', CreatedAt)
-            ORDER BY date_trunc('month', CreatedAt)",
+            WHERE CreatedAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima'
+                  >= date_trunc('month', now() AT TIME ZONE 'America/Lima') - (@Months * INTERVAL '1 month')
+            GROUP BY 1
+            ORDER BY 1",
             new { Months = months });
 
         return rows.ToList();
@@ -135,7 +137,6 @@ public class AdminQueryRepository : IAdminQueryRepository
                    COALESCE(t.FareBeforeDiscount, 0)      AS FareBeforeDiscount,
                    COALESCE(t.DiscountAmount, 0)          AS DiscountAmount,
                    COALESCE(t.FinalFare, t.EstimatedFare) AS AmountPaid,
-                   COALESCE(t.PlatformOwesDriver, 0)      AS PlatformOwesDriver,
                    up.FullName                            AS PassengerName,
                    ud.FullName                            AS DriverName,
                    t.Status,
@@ -156,7 +157,6 @@ public class AdminQueryRepository : IAdminQueryRepository
         _db.QuerySingleAsync<CouponUsageTotals>(@"
             SELECT COUNT(*)::int                                   AS Trips,
                    COALESCE(SUM(DiscountAmount), 0)                AS TotalDiscount,
-                   COALESCE(SUM(PlatformOwesDriver), 0)            AS TotalOwed,
                    COUNT(*) FILTER (WHERE Status = 4)::int         AS TripsCompleted,
                    COUNT(*) FILTER (WHERE Status = 5)::int         AS TripsCancelled
             FROM trips.Trips

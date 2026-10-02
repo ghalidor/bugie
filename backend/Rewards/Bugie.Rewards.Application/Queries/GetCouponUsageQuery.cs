@@ -42,13 +42,12 @@ public class GetCouponUsageHandler
             totales.TripsCompleted,
             totales.TripsCancelled,
             totales.TotalDiscount,
-            totales.TotalOwed,
             promedio,
             options.CouponsApplyToFare,
             filas.Select(f => new CouponUsageDto(
                 f.TripId, f.CouponCode, f.ItemName,
                 f.FareBeforeDiscount, f.DiscountAmount, f.AmountPaid,
-                f.PlatformOwesDriver, f.PassengerName, f.DriverName,
+                f.PassengerName, f.DriverName,
                 Estado(f.Status), f.CreatedAt, f.CompletedAt)).ToList());
     }
 

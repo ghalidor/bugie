@@ -116,7 +116,9 @@ public class ReferralRepository : IReferralRepository
     public Task<int> CountInvitationsTodayAsync(Guid referrerUserId, CancellationToken ct = default) =>
         _db.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) FROM rewards.ReferralInvitations
-            WHERE ReferrerUserId = @Id AND SentAt >= date_trunc('day', now())",
+            WHERE ReferrerUserId = @Id
+              AND (SentAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima')::date
+                  = (now() AT TIME ZONE 'America/Lima')::date",
             new { Id = referrerUserId });
 
     /* ── Admin ───────────────────────────────────────────────────────── */

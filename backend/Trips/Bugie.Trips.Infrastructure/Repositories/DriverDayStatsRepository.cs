@@ -28,8 +28,8 @@ public class DriverDayStatsRepository : IDriverDayStatsRepository
                    COUNT(*) FILTER (WHERE Status = 5 AND CancelledBy = 'driver')::int AS CancelledByDriver
             FROM trips.Trips
             WHERE DriverId IS NOT NULL
-              AND COALESCE(CompletedAt, UpdatedAt, CreatedAt) >= @Desde
-              AND COALESCE(CompletedAt, UpdatedAt, CreatedAt) <  @Hasta
+              AND COALESCE(CompletedAt, CancelledAt, CreatedAt) >= @Desde
+              AND COALESCE(CompletedAt, CancelledAt, CreatedAt) <  @Hasta
               AND Status IN (4, 5)
             GROUP BY DriverId",
             new { Desde = desde, Hasta = hasta });

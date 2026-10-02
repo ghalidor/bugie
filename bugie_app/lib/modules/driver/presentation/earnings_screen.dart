@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_card.dart';
@@ -15,6 +16,8 @@ class EarningsScreen extends StatefulWidget {
 
 class _EarningsScreenState extends State<EarningsScreen> {
   DriverEarnings? _earnings;
+  /// Pagos que Bugie le hizo (bonos, premios). Null = no se pudo cargar.
+  DriverPayouts? _payouts;
   bool _loading = true;
   String? _error;
 
@@ -26,8 +29,15 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
   Future<void> _load() async {
     try {
-      final e = await context.read<PaymentsRepository>().getEarnings();
-      if (mounted) setState(() { _earnings = e; _loading = false; });
+      final repo = context.read<PaymentsRepository>();
+      final e = await repo.getEarnings();
+      DriverPayouts? p;
+      try {
+        p = await repo.getMyPayouts();
+      } catch (_) {
+        p = null; // no bloquea la pantalla de ganancias
+      }
+      if (mounted) setState(() { _earnings = e; _payouts = p; _loading = false; });
     } catch (_) {
       if (mounted) setState(() { _loading = false; _error = 'No se pudo cargar.'; });
     }
@@ -106,6 +116,54 @@ class _EarningsScreenState extends State<EarningsScreen> {
                           ),
                         ],
                       ),
+
+                      // Pagos recibidos de Bugie (bonos canjeados, premios)
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text('Pagos recibidos de Bugie',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                          if (_payouts != null && _payouts!.items.isNotEmpty)
+                            Text('S/ ${_payouts!.totalAmount.toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (_payouts == null)
+                        const Text('No se pudieron cargar los pagos.',
+                            style: TextStyle(color: BugieColors.textMuted))
+                      else if (_payouts!.items.isEmpty)
+                        const Text(
+                          'Aún no recibiste pagos. Aquí verás los bonos que canjees '
+                          'con tus puntos y los premios de sorteos.',
+                          style: TextStyle(color: BugieColors.textMuted),
+                        )
+                      else
+                        ..._payouts!.items.map((p) => BugieCard(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  p.method == 'efectivo'
+                                      ? Icons.payments_outlined
+                                      : p.method == 'transferencia'
+                                          ? Icons.account_balance_outlined
+                                          : Icons.phone_android,
+                                  color: BugieColors.primary,
+                                ),
+                                title: Text(p.sourceLabel),
+                                subtitle: Text([
+                                  p.methodLabel,
+                                  if (p.operationNumber != null) 'op ${p.operationNumber}',
+                                  if (p.paidAt != null)
+                                    DateFormat('dd MMM yyyy, HH:mm', 'es_PE').format(p.paidAt!),
+                                  if (p.note != null) p.note!,
+                                ].join(' · ')),
+                                trailing: Text('S/ ${p.amount.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            )),
                     ],
                   ),
                 ),

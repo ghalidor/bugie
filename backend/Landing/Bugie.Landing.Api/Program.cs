@@ -1,3 +1,4 @@
+using Bugie.Landing.Infrastructure.Time;
 using System.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -11,7 +12,9 @@ using Bugie.Landing.Infrastructure.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("Default")));
+    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+BugieTimeSetup.ConfigureDapper();
 
 builder.Services.AddScoped<ILandingRepository, LandingRepository>();
 builder.Services.AddScoped<IContactRepository, ContactRepository>();
@@ -41,7 +44,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>

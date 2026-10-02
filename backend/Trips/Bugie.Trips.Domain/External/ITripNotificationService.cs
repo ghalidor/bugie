@@ -49,6 +49,13 @@ public interface ITripNotificationService
         Guid passengerUserId, Guid tripId);
 
     /// <summary>
+    /// El conductor avisa que ya esta en el punto de recojo.
+    /// → Push al PASAJERO (la app muestra un aviso emergente).
+    /// </summary>
+    Task NotifyPassengerDriverArrivedAsync(
+        Guid passengerUserId, Guid tripId);
+
+    /// <summary>
     /// El conductor o pasajero canceló el viaje.
     /// → Push a la CONTRAPARTE.
     /// </summary>

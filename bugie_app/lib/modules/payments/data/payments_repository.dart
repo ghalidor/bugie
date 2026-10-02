@@ -13,6 +13,13 @@ class PaymentsRepository {
     return DriverEarnings.fromJson(json as Map<String, dynamic>);
   }
 
+  /// GET /api/payments/payouts/me  (solo driver)
+  /// Pagos que Bugie le hizo: bonos canjeados, premios de sorteo, manuales.
+  Future<DriverPayouts> getMyPayouts() async {
+    final json = await _api.get('${ApiConfig.payments}/payments/payouts/me');
+    return DriverPayouts.fromJson(json as Map<String, dynamic>);
+  }
+
   /// GET /api/payments/my-payments  (pasajero)
   Future<List<Payment>> getMyPayments() async {
     final json = await _api.get('${ApiConfig.payments}/payments/my-payments');

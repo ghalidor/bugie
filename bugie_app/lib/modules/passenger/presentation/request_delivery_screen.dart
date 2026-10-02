@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/admin_settings_service.dart';
 import '../../../core/services/default_location_service.dart';
 import '../../../core/services/geocoding_service.dart';
 import '../../../core/theme/bugie_theme.dart';
@@ -47,6 +48,11 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
   final _geocoding = GeocodingService();
 
   // Origen / destino
+  // Tarifas del admin. Arrancan con los valores que antes estaban
+  // escritos a mano, y se actualizan al cargar la configuracion.
+  double _baseFare = 5.0;
+  double _perKm    = 1.5;
+
   String _originText = '';
   String _destText = '';
   LatLng? _originCoord;
@@ -208,6 +214,12 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
   @override
   void initState() {
     super.initState();
+    // La configuracion llega despues; mientras tanto se usan los valores de
+    // respaldo, asi la pantalla nunca queda sin tarifa que mostrar.
+    context.read<AdminSettingsService>().getFareConfig().then((c) {
+      if (!mounted) return;
+      setState(() { _baseFare = c.baseFare; _perKm = c.perKm; });
+    });
     _loadInitialLocation();
     _loadFavorites();
   }
@@ -475,12 +487,13 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
     }
   }
 
-  /// Tarifa estimada igual al web: max(5, km * 1.5).
+  /// Tarifa estimada igual al web: max(base, km * porKm), con los
+  /// valores que el admin configura.
   double? get _fare {
     if (_routeInfo == null || _routeInfo!.options.isEmpty) return null;
     final km = _routeInfo!.options.first.distanceKm;
-    final fare = (km * 1.5);
-    final r = fare < 5 ? 5.0 : fare;
+    final fare = km * _perKm;
+    final r = fare < _baseFare ? _baseFare : fare;
     return double.parse(r.toStringAsFixed(2));
   }
 

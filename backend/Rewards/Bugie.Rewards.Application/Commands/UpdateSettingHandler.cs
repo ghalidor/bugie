@@ -40,7 +40,6 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
             case SettingKeys.RafflesEnabled:
             case SettingKeys.RatingRequireFiveStars:
             case SettingKeys.CouponsApplyToFare:
-            case SettingKeys.CouponMaxIsCommission:
             case SettingKeys.ReferralsEnabled:
                 if (!bool.TryParse(value, out _))
                     throw new ArgumentException("Debe ser true o false.");

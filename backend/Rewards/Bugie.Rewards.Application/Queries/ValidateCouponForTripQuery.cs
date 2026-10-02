@@ -15,8 +15,7 @@ namespace Bugie.Rewards.Application.Queries;
 public record ValidateCouponForTripQuery(
     string  Code,
     Guid    UserId,
-    decimal Fare,
-    decimal PlatformFee) : IRequest<CouponValidationDto>;
+    decimal Fare) : IRequest<CouponValidationDto>;
 
 public class ValidateCouponForTripHandler
     : IRequestHandler<ValidateCouponForTripQuery, CouponValidationDto>
@@ -83,40 +82,21 @@ public class ValidateCouponForTripHandler
         if (bruto <= 0)
             return No("Ese cupón no tiene un descuento configurado.");
 
-        // El recorte a la comisión: el conductor cobra en persona, así que un
-        // descuento mayor a la comisión lo dejaría cobrando de menos.
-        var aplicado = bruto;
-        string? aviso = null;
-
-        if (options.CouponMaxIsCommission && q.PlatformFee >= 0 && bruto > q.PlatformFee)
-        {
-            aplicado = q.PlatformFee;
-            aviso = aplicado <= 0
-                ? "Este viaje no admite descuento."
-                : $"Se aplicará S/ {aplicado:0.00} de los S/ {bruto:0.00} del cupón.";
-
-            if (aplicado <= 0)
-                return No("Este viaje no admite descuento.");
-        }
-
-        // Lo que la plataforma le quedaría debiendo al conductor: solo ocurre
-        // cuando NO se recorta a la comisión y el descuento la supera.
-        var debeAlConductor = options.CouponMaxIsCommission
-            ? 0m
-            : Math.Max(0m, aplicado - q.PlatformFee);
-
+        // El descuento se aplica entero. La comisión se calcula después sobre
+        // lo que de verdad se pagó, así que un cupón grande no deja al
+        // conductor debiendo nada: simplemente cobra menos y la comisión de
+        // ese viaje baja en la misma proporción.
         return new CouponValidationDto(
             Valid:          true,
             Code:           cupon.Code,
             ItemName:       cupon.ItemName,
             RewardType:     cupon.RewardType,
-            DiscountAmount: aplicado,
+            DiscountAmount: bruto,
             FullDiscount:   bruto,
-            OwedToDriver:   debeAlConductor,
             Reason:         null,
-            Warning:        aviso);
+            Warning:        null);
     }
 
     private static CouponValidationDto No(string motivo) =>
-        new(false, null, null, null, 0, 0, 0, motivo, null);
+        new(false, null, null, null, 0, 0, motivo, null);
 }

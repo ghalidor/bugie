@@ -24,7 +24,6 @@ class Driver {
   final int status;
   final bool isOnline;
   final double? rating;
-  final int totalTrips;
   /// URL de la foto de perfil (subida por el conductor en /profile/me/photo).
   /// Viene como URL relativa del backend → resolver con ApiConfig.resolveMediaUrl.
   final String? profilePhotoUrl;
@@ -36,7 +35,6 @@ class Driver {
     required this.status,
     required this.isOnline,
     this.rating,
-    this.totalTrips = 0,
     this.profilePhotoUrl,
     required this.createdAt,
   });
@@ -47,7 +45,6 @@ class Driver {
         status:     (j['status'] ?? 1) as int,
         isOnline:   j['isOnline'] == true,
         rating:     (j['rating'] as num?)?.toDouble(),
-        totalTrips: (j['totalTrips'] ?? 0) as int,
         profilePhotoUrl: j['profilePhotoUrl'] as String?,
         createdAt:  DateTime.tryParse(j['createdAt'] ?? '') ?? DateTime.now(),
       );
@@ -70,7 +67,8 @@ class NearbyDriver {
   });
 
   factory NearbyDriver.fromJson(Map<String, dynamic> j) => NearbyDriver(
-        id: j['id'].toString(),
+        // El backend manda driverId (no "id")
+        id: (j['driverId'] ?? j['id'] ?? '').toString(),
         lat: (j['lat'] as num).toDouble(),
         lng: (j['lng'] as num).toDouble(),
         distanceKm: (j['distanceKm'] as num? ?? 0).toDouble(),

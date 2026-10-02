@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch, API, ApiError } from '../../state/api';
+import TripDetailModal, { TripDetail, CANCELLED_BY } from '../../components/TripDetailModal';
 
-interface Trip {
-  id: string; originAddress: string; destAddress: string;
-  estimatedFare: number; finalFare: number | null;
-  paymentMethod: string; status: number; createdAt: string;
-  passengerId: string; driverId: string | null;
+interface Trip extends TripDetail {
+  passengerId: string;
 }
 
 interface Incident {
@@ -69,6 +67,7 @@ export default function AdminTrips() {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [error,    setError]    = useState<string | null>(null);
   const [viewing,  setViewing]  = useState<Trip | null>(null);
+  const [detail,   setDetail]   = useState<Trip | null>(null);
 
   // Debounce search
   const debounceRef = useRef<number | null>(null);
@@ -266,6 +265,13 @@ export default function AdminTrips() {
                           <i className="fa-solid fa-car me-1" />
                           {t.driverId ? 'Conductor asignado' : 'Sin conductor'}
                         </div>
+                        {t.status === 5 && t.cancelledBy && (
+                          <div className="small bugie-muted">
+                            <i className="fa-solid fa-circle-xmark me-1" />
+                            Cancelado por {CANCELLED_BY[t.cancelledBy] ?? t.cancelledBy}
+                            {t.cancelReason && <> · {t.cancelReason}</>}
+                          </div>
+                        )}
                       </div>
 
                       <div className="d-flex flex-column align-items-end gap-2 flex-shrink-0">
@@ -277,6 +283,10 @@ export default function AdminTrips() {
                           </div>
                         </div>
 
+                        <button onClick={() => setDetail(t)}
+                                className="btn btn-sm btn-bugie-outline rounded-pill" style={{ fontSize: '0.75rem' }}>
+                          <i className="fa-solid fa-route me-1" />Ver detalle y recorrido
+                        </button>
                         {incidentCount > 0 && (
                           <button
                             onClick={() => setViewing(t)}
@@ -328,6 +338,8 @@ export default function AdminTrips() {
       {viewing && (
         <IncidentsModal trip={viewing} onClose={() => setViewing(null)} />
       )}
+
+      {detail && <TripDetailModal trip={detail} onClose={() => setDetail(null)} />}
 
       <style>{`
         @keyframes pulse {

@@ -4,6 +4,8 @@ import {
   rewardsAdminApi, Redemption,
   STATUS_LABEL, STATUS_COLOR, USER_TYPE_LABEL, describeReward, fmtPoints, fmtDate,
 } from '../../../state/rewards';
+import { payoutsApi, PAYOUT_METHOD, nowLocalInput, fmtSoles } from '../../../state/payouts';
+import PayoutFields, { PayoutDraft, validatePayout } from '../../../components/PayoutFields';
 
 const PAGE_SIZE = 20;
 
@@ -108,13 +110,41 @@ function RedemptionRow({ r, onChanged }: { r: Redemption; onChanged: () => void 
 
   const color  = STATUS_COLOR[r.status] ?? '#94a3b8';
   const manual = MANUAL_TYPES.has(r.rewardType);
+  // Los bonos en dinero se pagan al conductor: se registra el pago (metodo, operacion, fecha).
+  const isMoney = r.rewardType === 'wallet_bonus' && !!r.userId;
+  const [payout, setPayout] = useState<PayoutDraft>(() => ({
+    method: 'yape', operationNumber: '', amount: r.amountSoles ? String(r.amountSoles) : '',
+    paidAt: nowLocalInput(), note: '',
+  }));
 
   async function confirm() {
     if (!action) return;
-    setBusy(true); setError(null);
+    setError(null);
+    if (action === 'use' && isMoney) {
+      const invalid = validatePayout(payout);
+      if (invalid) { setError(invalid); return; }
+    }
+    setBusy(true);
     try {
-      if (action === 'use') await rewardsAdminApi.markUsed(r.code, note);
-      else                  await rewardsAdminApi.cancel(r.code, note);
+      if (action === 'use' && isMoney) {
+        try {
+          await payoutsApi.register({
+            driverId: r.userId!, driverName: r.userName ?? null,
+            amount: Number(payout.amount), method: payout.method,
+            operationNumber: payout.operationNumber.trim() || null,
+            paidAt: payout.paidAt, note: payout.note.trim() || null,
+            sourceType: 'reward_redemption', sourceRef: r.code,
+          });
+        } catch (err) {
+          // 409 = ese canje ya tenia su pago registrado: solo falta cerrarlo.
+          if (!(err instanceof ApiError && err.status === 409)) throw err;
+        }
+        const op = payout.operationNumber.trim();
+        const resumen = `Pagado por ${PAYOUT_METHOD[payout.method].label}${op ? ` · op ${op}` : ''} · ${fmtSoles(Number(payout.amount))}`;
+        await rewardsAdminApi.markUsed(r.code, payout.note.trim() ? `${resumen} · ${payout.note.trim()}` : resumen);
+      }
+      else if (action === 'use') await rewardsAdminApi.markUsed(r.code, note);
+      else                       await rewardsAdminApi.cancel(r.code, note);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo completar la acción.');
@@ -142,6 +172,12 @@ function RedemptionRow({ r, onChanged }: { r: Redemption; onChanged: () => void 
               )}
             </div>
             <div className="fw-semibold">{r.itemName}</div>
+            {r.userName && (
+              <div className="small">
+                <i className="fa-solid fa-user me-1 bugie-muted" />{r.userName}
+                {r.userRole && <span className="bugie-muted"> · {USER_TYPE_LABEL[r.userRole] ?? r.userRole}</span>}
+              </div>
+            )}
             <div className="small bugie-muted">
               {describeReward(r)} · {fmtPoints(r.pointsSpent)} pts · canjeado {fmtDate(r.createdAt, true)}
             </div>
@@ -156,7 +192,8 @@ function RedemptionRow({ r, onChanged }: { r: Redemption; onChanged: () => void 
           {r.status === 'active' && action === null && (
             <div className="d-flex gap-2">
               <button type="button" onClick={() => setAction('use')} className="btn btn-sm btn-bugie rounded-pill">
-                <i className="fa-solid fa-check me-1" />Marcar entregado
+                <i className={`fa-solid ${isMoney ? 'fa-money-bill-transfer' : 'fa-check'} me-1`} />
+                {isMoney ? 'Registrar pago' : 'Marcar entregado'}
               </button>
               <button type="button" onClick={() => setAction('cancel')} className="btn btn-sm btn-bugie-outline rounded-pill">
                 Anular
@@ -169,19 +206,25 @@ function RedemptionRow({ r, onChanged }: { r: Redemption; onChanged: () => void 
           <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--bugie-border)' }}>
             <div className="small mb-2">
               {action === 'use'
-                ? 'Se marcará como entregado y el usuario ya no podrá usarlo.'
+                ? isMoney
+                  ? `Registra el pago hecho a ${r.userName ?? 'el conductor'}. Queda en el reporte de pagos y el bono se marca como entregado.`
+                  : 'Se marcará como entregado y el usuario ya no podrá usarlo.'
                 : `Se anulará el cupón y se devolverán ${fmtPoints(r.pointsSpent)} puntos al usuario.`}
             </div>
-            <input className="form-control form-control-sm mb-2" value={note}
-                   placeholder={action === 'use' ? 'Nota opcional, ej: pagado por Yape el 12/10' : 'Motivo de la anulación'}
-                   onChange={e => setNote(e.target.value)} />
+            {action === 'use' && isMoney ? (
+              <div className="mb-2"><PayoutFields value={payout} onChange={setPayout} /></div>
+            ) : (
+              <input className="form-control form-control-sm mb-2" value={note}
+                     placeholder={action === 'use' ? 'Nota opcional' : 'Motivo de la anulación'}
+                     onChange={e => setNote(e.target.value)} />
+            )}
             {error && <div className="alert alert-danger small mb-2">{error}</div>}
             <div className="d-flex gap-2">
               <button type="button" onClick={confirm} disabled={busy}
                       className={`btn btn-sm rounded-pill ${action === 'use' ? 'btn-bugie' : 'btn-danger'}`}>
                 {busy
                   ? <span className="spinner-border spinner-border-sm" />
-                  : action === 'use' ? 'Confirmar entrega' : 'Confirmar anulación'}
+                  : action === 'use' ? (isMoney ? 'Registrar pago' : 'Confirmar entrega') : 'Confirmar anulación'}
               </button>
               <button type="button" onClick={() => { setAction(null); setNote(''); setError(null); }}
                       disabled={busy} className="btn btn-sm btn-bugie-outline rounded-pill">

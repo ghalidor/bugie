@@ -13,7 +13,7 @@ import { applyTheme } from './hooks/useTheme'
 // Theme bootstrap (sin depender de React)
 applyTheme(localStorage.getItem('bugie_theme') || 'light')
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <BrowserRouter>
     <App />
   </BrowserRouter>

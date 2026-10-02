@@ -112,7 +112,6 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             status:           _driver!.status,
             isOnline:         _driver!.isOnline,
             rating:           _driver!.rating,
-            totalTrips:       _driver!.totalTrips,
             profilePhotoUrl:  newUrl,
             createdAt:        _driver!.createdAt,
           );

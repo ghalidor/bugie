@@ -36,9 +36,6 @@ public record CouponAppliedDto(
 
 public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppliedDto>
 {
-    /// <summary>Comisión de la plataforma. Igual que en Payments.Create.</summary>
-    private const decimal PlatformFeeRate = 0.10m;
-
     private readonly ITripRepository _trips;
     private readonly IRewardsClient  _rewards;
 
@@ -66,17 +63,16 @@ public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppl
             throw new InvalidOperationException(
                 "Este viaje ya tiene un cupón aplicado. Quítalo primero si quieres cambiarlo.");
 
-        // La tarifa vigente: la que el conductor propuso si hubo negociación.
-        var tarifa = trip.ProposedFare ?? trip.EstimatedFare;
+        // La tarifa acordada. Al aceptarse una oferta, EstimatedFare pasa a ser
+        // ese precio; ProposedFare puede quedar con una oferta vieja.
+        var tarifa = trip.EstimatedFare;
         if (tarifa <= 0)
             throw new InvalidOperationException("Este viaje todavía no tiene precio.");
-
-        var comision = Math.Round(tarifa * PlatformFeeRate, 2);
 
         // Rewards decide: si el interruptor está apagado, si el cupón es suyo,
         // si venció, y cuánto descuenta de verdad.
         var v = await _rewards.ValidateCouponAsync(
-            cmd.Code.Trim().ToUpperInvariant(), cmd.PassengerId, tarifa, comision, ct);
+            cmd.Code.Trim().ToUpperInvariant(), cmd.PassengerId, tarifa, ct);
 
         if (v is null)
             throw new InvalidOperationException(
@@ -85,7 +81,7 @@ public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppl
         if (!v.Valid)
             throw new InvalidOperationException(v.Reason ?? "Ese cupón no se puede usar.");
 
-        trip.ApplyCoupon(v.Code!, v.DiscountAmount, tarifa, v.OwedToDriver);
+        trip.ApplyCoupon(v.Code!, v.DiscountAmount, tarifa);
         await _trips.UpdateAsync(trip, ct);
 
         return new CouponAppliedDto(

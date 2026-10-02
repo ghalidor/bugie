@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { usePlatformConfig } from '../hooks/usePlatformConfig';
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -19,6 +20,12 @@ function CheckItem({ text, done = true }: { text: string; done?: boolean }) {
 }
 
 export default function RightPanel({ path }: { path: string }) {
+  // El tiempo objetivo del SOS sale de la configuracion del admin. Estaba
+  // escrito a mano en dos sitios de este archivo, mientras el campo
+  // "Tiempo objetivo respuesta SOS" existia en el admin sin efecto alguno.
+  const { sosResponseMin } = usePlatformConfig();
+  const sosTexto = `Respuesta en menos de ${sosResponseMin} ${sosResponseMin === 1 ? 'minuto' : 'minutos'}`;
+
   const isDriver = path.startsWith('/app/conductor');
 
   // ── Pasajero ────────────────────────────────────────────────────────────────
@@ -74,7 +81,7 @@ export default function RightPanel({ path }: { path: string }) {
           <div className="d-grid gap-2 small bugie-muted">
             <div className="d-flex gap-2"><i className="fa-solid fa-1 text-bugie-accent mt-1" style={{ width: 16 }} /><span>Pulsa el botón rojo SOS</span></div>
             <div className="d-flex gap-2"><i className="fa-solid fa-2 text-bugie-accent mt-1" style={{ width: 16 }} /><span>El centro de monitoreo recibe tu ubicación</span></div>
-            <div className="d-flex gap-2"><i className="fa-solid fa-3 text-bugie-accent mt-1" style={{ width: 16 }} /><span>Respuesta en menos de 2 minutos</span></div>
+            <div className="d-flex gap-2"><i className="fa-solid fa-3 text-bugie-accent mt-1" style={{ width: 16 }} /><span>{sosTexto}</span></div>
             <div className="d-flex gap-2"><i className="fa-solid fa-4 text-bugie-accent mt-1" style={{ width: 16 }} /><span>Policía Nacional es notificada si es necesario</span></div>
           </div>
         </Card>
@@ -100,7 +107,7 @@ export default function RightPanel({ path }: { path: string }) {
             ['fa-id-card',             'Conductores verificados',  'Documentos y antecedentes revisados'],
             ['fa-fingerprint',         'Face ID diario',           'Identidad confirmada cada jornada'],
             ['fa-location-dot',        'Tracking en tiempo real',  'Tu ruta es monitoreada activamente'],
-            ['fa-triangle-exclamation','Botón SOS',                'Respuesta en menos de 2 minutos'],
+            ['fa-triangle-exclamation','Botón SOS',                sosTexto],
           ].map(([icon, title, desc]) => (
             <div key={title} className="d-flex gap-2 align-items-start">
               <i className={`fa-solid ${icon} text-bugie-accent mt-1`} style={{ width: 16 }} />

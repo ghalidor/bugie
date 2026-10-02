@@ -122,8 +122,9 @@ public class RaffleRepository : IRaffleRepository
         try
         {
             // Bloquea el sorteo para numerar sin carreras.
+            // (FOR UPDATE no admite COUNT; si no hay fila, Dapper devuelve 0)
             var existe = await _db.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM rewards.Raffles WHERE Id = @Id FOR UPDATE",
+                "SELECT 1 FROM rewards.Raffles WHERE Id = @Id FOR UPDATE",
                 new { Id = raffleId }, trx);
 
             if (existe == 0) { trx.Rollback(); return 0; }

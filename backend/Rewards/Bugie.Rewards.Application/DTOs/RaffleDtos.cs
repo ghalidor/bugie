@@ -28,7 +28,10 @@ public record RaffleWinnerDto(
     string?   PrizeDetail,
     string    Status,
     DateTime? DeliveredAt,
-    string?   Note);
+    string?   Note,
+    // Nombre y rol del ganador (para el admin)
+    string?   UserName = null,
+    string?   UserRole = null);
 
 public record RaffleInput(
     string    Name,

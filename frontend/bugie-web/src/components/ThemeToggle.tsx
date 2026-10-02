@@ -1,4 +1,4 @@
-export default function ThemeToggle({ theme, onToggle }) {
+export default function ThemeToggle({ theme, onToggle }: { theme: string; onToggle: () => void }) {
   const isDark = theme === 'dark'
   return (
     <button

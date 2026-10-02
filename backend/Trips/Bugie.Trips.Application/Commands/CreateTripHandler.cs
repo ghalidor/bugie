@@ -167,5 +167,8 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
         passengerName, passengerPhotoUrl,
         driverName, driverPhotoUrl, driverRating,
         vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, vehiclePhotoUrl,
-        passengerStars);
+        passengerStars,
+        t.CouponCode, t.DiscountAmount, t.FareBeforeDiscount,
+        t.AcceptedAt, t.DriverArrivedAt,
+        t.CancelledBy, t.CancelReason, t.CancelledAt);
 }

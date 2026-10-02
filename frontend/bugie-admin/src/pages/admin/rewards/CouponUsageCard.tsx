@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ApiError } from '../../../state/api';
+import { API, ApiError, apiFetch } from '../../../state/api';
 import { rewardsAdminApi, CouponUsageReport, fmtDate } from '../../../state/rewards';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -8,9 +8,10 @@ import { rewardsAdminApi, CouponUsageReport, fmtDate } from '../../../state/rewa
    Mientras el interruptor esté apagado esto no crece, y la tarjeta lo dice:
    una tabla vacía sin explicación parece que algo se rompió.
 
-   El dato que importa es «se le debe al conductor». Solo deja de ser cero si
-   se apagó el límite a la comisión, y entonces es dinero real que alguien
-   tiene que pagar.
+   Lo que el descuento te cuesta de verdad son dos cosas: el monto que el
+   pasajero dejó de pagar, y la comisión que dejaste de cobrar sobre ese
+   monto. La comisión se calcula sobre lo que SE PAGÓ, así que un cupón de
+   S/ 2 en un viaje de S/ 10 te deja S/ 0.80 en vez de S/ 1.
    ────────────────────────────────────────────────────────────────────────── */
 
 const soles = (n: number) => `S/ ${n.toFixed(2)}`;
@@ -24,8 +25,17 @@ const ESTADO: Record<string, { label: string; color: string }> = {
 export default function CouponUsageCard() {
   const [data,    setData]    = useState<CouponUsageReport | null>(null);
   const [loading, setLoading] = useState(true);
+  // % de comision configurado (landing.systemsettings.platform_fee_rate)
+  const [feeRate, setFeeRate] = useState<number | null>(null);
 
   useEffect(() => {
+    apiFetch<{ settingKey: string; value: string }[]>(`${API.landing}/landing/settings`)
+      .then(list => {
+        const v = Number(list.find(s => s.settingKey === 'platform_fee_rate')?.value);
+        if (Number.isFinite(v)) setFeeRate(v);
+      })
+      .catch(() => { /* sin el % no se muestra la estimacion */ });
+
     rewardsAdminApi.couponUsage()
       .then(setData)
       .catch((e: unknown) => {
@@ -82,9 +92,9 @@ export default function CouponUsageCard() {
                 ['Descontado en total', soles(data.totalDiscount),
                  'Lo que dejaron de pagar los pasajeros'],
                 ['Promedio por viaje', soles(data.averageDiscount), ''],
-                ['Se debe a conductores', soles(data.totalOwed),
-                 data.totalOwed > 0 ? 'Dinero real pendiente de pagar'
-                                    : 'El descuento salió de tu comisión'],
+                ['Comisión no cobrada',
+                 feeRate == null ? '—' : soles(data.totalDiscount * feeRate / 100),
+                 feeRate == null ? 'No se pudo leer el % de comisión' : `Aprox., al ${feeRate}% sobre lo descontado`],
               ].map(([label, value, help]) => (
                 <div className="col-6 col-xl-3" key={label}>
                   <div className="bugie-kpi h-100">
@@ -100,14 +110,6 @@ export default function CouponUsageCard() {
               ))}
             </div>
 
-            {data.totalOwed > 0 && (
-              <div className="alert alert-warning small py-2">
-                <i className="fa-solid fa-triangle-exclamation me-1" />
-                Hay <strong>{soles(data.totalOwed)}</strong> que la plataforma le
-                debe a conductores: cobraron menos de lo que les tocaba. Ocurre
-                cuando el descuento supera tu comisión y el límite está apagado.
-              </div>
-            )}
 
             <div className="table-responsive">
               <table className="table table-sm align-middle mb-0">
@@ -151,11 +153,6 @@ export default function CouponUsageCard() {
                         <td className="text-end fw-bold">{soles(r.amountPaid)}</td>
                         <td>
                           <span style={{ color: e.color }}>{e.label}</span>
-                          {r.platformOwesDriver > 0 && (
-                            <div style={{ fontSize: '.7rem', color: 'var(--bugie-warn)' }}>
-                              debes {soles(r.platformOwesDriver)}
-                            </div>
-                          )}
                         </td>
                         <td className="bugie-muted" style={{ fontSize: '.74rem' }}>
                           {fmtDate(r.completedAt ?? r.createdAt)}
@@ -168,8 +165,9 @@ export default function CouponUsageCard() {
             </div>
 
             <div className="small bugie-muted mt-3">
-              Un viaje cancelado con cupón aplicado no lo consume: el cupón vuelve
-              a quedar disponible para su dueño.
+              El conductor cobra el monto que el pasajero le pagó, y su comisión
+              se calcula sobre ese mismo monto. Un viaje cancelado con cupón no
+              lo consume: vuelve a quedar disponible para su dueño.
             </div>
           </>
         )}

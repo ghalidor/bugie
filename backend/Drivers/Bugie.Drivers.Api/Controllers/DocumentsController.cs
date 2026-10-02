@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+﻿using Bugie.Drivers.Domain.Common;
+using System.Security.Claims;
 using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
@@ -75,6 +76,7 @@ public class DocumentsController : ControllerBase
     // Admin ve documentos ACTIVOS de un conductor
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("by-driver/{driverId:guid}")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetByDriver(Guid driverId, CancellationToken ct)
     {
         var docs = await _docs.GetActiveByDriverAsync(driverId, ct);
@@ -86,6 +88,7 @@ public class DocumentsController : ControllerBase
     // Admin ve TODOS los documentos del conductor (incluye superseded)
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("by-driver/{driverId:guid}/history")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetHistory(Guid driverId, CancellationToken ct)
     {
         var docs = await _docs.GetByDriverAsync(driverId, ct);
@@ -125,13 +128,17 @@ public class DocumentsController : ControllerBase
         if(!AllowedMimeTypes.Contains(file.ContentType))
             return BadRequest(new { error = $"Tipo de archivo no permitido: {file.ContentType}" });
 
+        // La fecha llega del formulario: sin zona = hora de Peru. Se guarda en UTC.
+        if(expiresAt is not null)
+            expiresAt = BugieTime.ToUtcFromInput(expiresAt.Value);
+
         // Fecha de caducidad obligatoria para licencia/soat/revision_tecnica
         if(RequiresExpiration.Contains(docType))
         {
             if(expiresAt is null)
                 return BadRequest(new { error = "La fecha de caducidad es obligatoria para este documento." });
 
-            if(expiresAt.Value.Date <= DateTime.UtcNow.Date)
+            if(BugieTime.ToPeru(expiresAt.Value).Date <= BugieTime.Today)
                 return BadRequest(new { error = "La fecha de caducidad debe ser futura." });
         }
 
@@ -226,6 +233,7 @@ public class DocumentsController : ControllerBase
     // GET /api/drivers/documents/{id}/download
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("{id:guid}/download")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Download(Guid id, CancellationToken ct)
     {
         var doc = await _docs.GetByIdAsync(id, ct);
@@ -240,6 +248,7 @@ public class DocumentsController : ControllerBase
     // PUT /api/drivers/documents/{id}/approve
     // ─────────────────────────────────────────────────────────────────────
     [HttpPut("{id:guid}/approve")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Approve(Guid id, CancellationToken ct)
     {
         var adminId = GetUserId();
@@ -259,6 +268,7 @@ public class DocumentsController : ControllerBase
     public record DocumentRejectRequest(string? Reason);
 
     [HttpPut("{id:guid}/reject")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Reject(Guid id, [FromBody] DocumentRejectRequest body, CancellationToken ct)
     {
         var adminId = GetUserId();
@@ -276,6 +286,7 @@ public class DocumentsController : ControllerBase
     // DELETE /api/drivers/documents/{id}
     // ─────────────────────────────────────────────────────────────────────
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var doc = await _docs.GetByIdAsync(id, ct);

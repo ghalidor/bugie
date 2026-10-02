@@ -111,7 +111,7 @@ public class AuthController : ControllerBase
 
     /// <summary>
     /// Solicita reset de contraseña. No revela si el correo existe.
-    /// En producción envía email con token.
+    /// Si existe, envía un correo con un enlace que vale 1 hora y un solo uso.
     /// </summary>
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword(
@@ -127,6 +127,18 @@ public class AuthController : ControllerBase
     {
         var ok = await _mediator.Send(new ResetPasswordCommand(req.Token, req.NewPassword), ct);
         return Ok(new { success = ok });
+    }
+
+    /// <summary>
+    /// ¿El enlace de recuperacion sigue vigente? (1 hora, un solo uso)
+    /// La pagina lo consulta al abrirse para avisar si ya vencio.
+    /// </summary>
+    [HttpGet("reset-password/validate")]
+    public async Task<IActionResult> ValidateResetToken(
+        [FromQuery] string token, CancellationToken ct)
+    {
+        var valid = await _mediator.Send(new ValidateResetTokenQuery(token), ct);
+        return Ok(new { valid });
     }
 
     // ── Firebase Cloud Messaging ────────────────────────────────────────

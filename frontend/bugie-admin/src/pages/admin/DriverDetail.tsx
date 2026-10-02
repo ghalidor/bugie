@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { API, apiFetch, ApiError } from '../../state/api';
+import { authHeaders } from '../../state/session';
+import { DriverPayoutsSection } from './DriverPayouts';
 
 interface DriverDto {
   id: string; userId: string; fullName?: string;
@@ -611,6 +613,9 @@ export default function DriverDetail() {
 
           {/* Historial de calificaciones recibidas (paginado) */}
           <DriverRatingsSection driverUserId={driver.userId} />
+
+          {/* Pagos que se le hicieron (bonos, premios, manuales) */}
+          <DriverPayoutsSection driverUserId={driver.userId} />
         </div>
       </div>
 
@@ -707,6 +712,29 @@ function DocPreviewModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const isImage = doc.mimeType?.startsWith('image/');
   const isPdf   = doc.mimeType === 'application/pdf';
 
+  // Un <a href> no manda el token, y el endpoint exige rol admin.
+  // Por eso se pide el archivo con fetch (con token) y se descarga desde memoria.
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  async function downloadOriginal() {
+    setDownloading(true); setDownloadError(null);
+    try {
+      const res = await fetch(downloadUrl, { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      const blobUrl = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = doc.originalFileName ?? `documento-${doc.id}`;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      setDownloadError('No se pudo descargar el archivo.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div
       onClick={onClose}
@@ -754,9 +782,11 @@ function DocPreviewModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
           <a href={previewUrl} target="_blank" rel="noreferrer" className="btn btn-sm btn-bugie-outline">
             <i className="fa-solid fa-up-right-from-square me-2" />Abrir en pestaña
           </a>
-          <a href={downloadUrl} target="_blank" rel="noreferrer" className="btn btn-sm btn-bugie-outline">
-            <i className="fa-solid fa-download me-2" />Descargar original
-          </a>
+          {downloadError && <span className="small text-danger align-self-center">{downloadError}</span>}
+          <button type="button" onClick={downloadOriginal} disabled={downloading}
+            className="btn btn-sm btn-bugie-outline">
+            <i className={`fa-solid ${downloading ? 'fa-spinner fa-spin' : 'fa-download'} me-2`} />Descargar original
+          </button>
         </div>
       </div>
     </div>

@@ -18,7 +18,7 @@ public interface IRewardsClient
     /// pide al pasajero que reintente.
     /// </summary>
     Task<CouponValidation?> ValidateCouponAsync(
-        string code, Guid userId, decimal fare, decimal platformFee,
+        string code, Guid userId, decimal fare,
         CancellationToken ct = default);
 
     /// <summary>Consume el cupon al completar el viaje.</summary>
@@ -33,6 +33,5 @@ public record CouponValidation(
     string?  RewardType,
     decimal  DiscountAmount,
     decimal  FullDiscount,
-    decimal  OwedToDriver,
     string?  Reason,
     string?  Warning);

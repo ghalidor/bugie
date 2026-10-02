@@ -48,9 +48,9 @@ public class AdminReportsRepository : IAdminReportsRepository
                 u.Phone                                             AS Phone,
                 COALESCE(d.ProfilePhotoUrl, d.FaceIdPhotoUrl)       AS PhotoUrl,
                 ROUND(AVG(CAST(r.Stars AS DECIMAL(5,3))), 2)        AS AvgStars,
-                COUNT(*)                                            AS RatingCount,
+                COUNT(*)::int                                       AS RatingCount,
                 (
-                    SELECT COUNT(*) FROM trips.Trips t
+                    SELECT COUNT(*)::int FROM trips.Trips t
                     WHERE t.DriverId = r.DriverId
                       AND t.Status = 4
                       AND t.CompletedAt >= @From

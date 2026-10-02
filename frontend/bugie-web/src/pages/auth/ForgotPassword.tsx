@@ -19,7 +19,7 @@ export default function ForgotPassword() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      if (!res.ok) throw new Error('Error al procesar la solicitud.');
+      // apiFetch ya lanza ApiError si la respuesta no es 2xx
       setStep('sent');
     } catch {
       setError('No se pudo procesar la solicitud. Intenta más tarde.');
@@ -35,8 +35,12 @@ export default function ForgotPassword() {
           <i className="fa-solid fa-envelope-circle-check fa-3x text-success mb-3 d-block" />
           <h1 className="bugie-h3 mb-2">Revisa tu correo</h1>
           <p className="bugie-muted">
-            Si <strong>{email}</strong> está registrado en Bugie, recibirás instrucciones
-            para restablecer tu contraseña en los próximos minutos.
+            Si <strong>{email}</strong> está registrado en Bugie, recibirás un enlace
+            para crear una nueva contraseña en los próximos minutos.
+          </p>
+          <p className="bugie-muted small mb-0">
+            El enlace vence en <strong>1 hora</strong> y solo se puede usar una vez.
+            Revisa también tu carpeta de spam.
           </p>
         </div>
         <div className="small text-center">

@@ -1,3 +1,4 @@
+using Bugie.Rewards.Infrastructure.Time;
 using System.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -12,7 +13,9 @@ using Bugie.Rewards.Api.BackgroundServices;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(builder.Configuration.GetConnectionString("Default")));
+    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+BugieTimeSetup.ConfigureDapper();
 
 builder.Services.AddScoped<IPointsProfileRepository,     PointsProfileRepository>();
 builder.Services.AddScoped<IPointsTransactionRepository, PointsTransactionRepository>();
@@ -26,6 +29,7 @@ builder.Services.AddScoped<IRaffleEligibilityRepository, RaffleEligibilityReposi
 builder.Services.AddScoped<IReferralRepository,          ReferralRepository>();
 builder.Services.AddScoped<IMilestoneRepository,         MilestoneRepository>();
 builder.Services.AddScoped<IAdminQueryRepository,        AdminQueryRepository>();
+builder.Services.AddScoped<IUserDirectory,               UserDirectory>();
 
 // Correo: mismos campos de configuración que usa Auth.
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
@@ -65,7 +69,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>

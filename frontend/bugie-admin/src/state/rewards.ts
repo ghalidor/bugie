@@ -61,6 +61,10 @@ export interface Redemption {
   usedAt:      string | null;
   usedNote:    string | null;
   createdAt:   string;
+  /** Quien canjeo (solo en el listado del admin). */
+  userId?:     string | null;
+  userName?:   string | null;
+  userRole?:   string | null;
 }
 
 export interface Paged<T> {
@@ -105,6 +109,8 @@ export interface RaffleWinner {
   status:       'pending' | 'delivered' | 'cancelled';
   deliveredAt:  string | null;
   note:         string | null;
+  userName?:    string | null;
+  userRole?:    string | null;
 }
 
 export interface Raffle {
@@ -257,7 +263,6 @@ export interface CouponUsage {
   fareBeforeDiscount: number;
   discountAmount:     number;
   amountPaid:         number;
-  platformOwesDriver: number;
   passengerName:      string | null;
   driverName:         string | null;
   status:             'completed' | 'cancelled' | 'in_progress';
@@ -270,8 +275,6 @@ export interface CouponUsageReport {
   tripsCompleted:  number;
   tripsCancelled:  number;
   totalDiscount:   number;
-  /** Lo que la plataforma le quedó debiendo a los conductores. */
-  totalOwed:       number;
   averageDiscount: number;
   /** false = el interruptor está apagado, por eso no crece. */
   featureEnabled:  boolean;

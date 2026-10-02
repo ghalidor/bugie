@@ -54,6 +54,33 @@ class AdminSettingsService {
     return fallback;
   }
 
+  /// Lee un setting numerico. Si no existe, no es un numero o falla la red,
+  /// usa el fallback.
+  Future<double> getDouble(String key, {required double fallback}) async {
+    final map = await _loadAll();
+    final raw = map[key]?.trim();
+    if (raw == null) return fallback;
+    final v = double.tryParse(raw);
+    return v ?? fallback;
+  }
+
+  /// Tarifa base y tarifa por kilometro, tal como las configura el admin.
+  ///
+  /// Antes estaban escritas a mano en las pantallas de solicitar viaje y
+  /// envio: max(5, km * 1.5). Y al mismo tiempo el admin tenia esos campos
+  /// editables sin que cambiaran nada.
+  ///
+  /// Una tarifa de 0 o negativa no tiene sentido, asi que en ese caso se usa
+  /// el valor de respaldo en vez de dejar los viajes en cero.
+  Future<({double baseFare, double perKm})> getFareConfig() async {
+    final base = await getDouble('base_fare',   fallback: 5.0);
+    final km   = await getDouble('fare_per_km', fallback: 1.5);
+    return (
+      baseFare: base > 0 ? base : 5.0,
+      perKm:    km   > 0 ? km   : 1.5,
+    );
+  }
+
   /// Invalida el cache. Útil tras un cambio manual del admin si fuera el
   /// caso, o si necesitas forzar refresco.
   void invalidate() {

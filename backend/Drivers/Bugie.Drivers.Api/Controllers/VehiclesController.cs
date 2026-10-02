@@ -91,12 +91,15 @@ public class VehiclesController : ControllerBase
         return Ok(new
         {
             id = vehicle.Id,
+            driverId = vehicle.DriverId,
             plate = vehicle.Plate,
             brand = vehicle.Brand,
             model = vehicle.Model,
             year = vehicle.Year,
             color = vehicle.Color,
             photoUrl = vehicle.PhotoUrl,
+            // es el vehiculo activo (la app muestra la insignia "Activo")
+            isActive = vehicle.IsActive,
         });
     }
 }

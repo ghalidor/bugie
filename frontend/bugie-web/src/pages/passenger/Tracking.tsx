@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ApplyCouponModal, { CouponApplied } from './ApplyCouponModal';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -49,6 +49,8 @@ interface Trip {
   discountAmount?: number | null;
   fareBeforeDiscount?: number | null;
   waypoints?: Waypoint[];
+  // Cuando el conductor aviso que ya esta en el punto de recojo
+  driverArrivedAt?: string | null;
 }
 
 const STATUS_MSG: Record<number, string> = {
@@ -82,6 +84,9 @@ function timeAgo(iso: string): string {
 export default function PassengerTracking() {
   const navigate   = useNavigate();
   const [trip,      setTrip]      = useState<Trip | null>(null);
+  // Aviso "tu conductor llego": se muestra una vez por viaje al detectarlo
+  const [arrivedOpen, setArrivedOpen] = useState(false);
+  const arrivedShownFor = useRef<string | null>(null);
   const [cuponAbierto, setCuponAbierto] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -115,6 +120,10 @@ export default function PassengerTracking() {
       apiFetch<Trip | null>(`${API.trips}/trips/active`)
         .then(async d => {
           setTrip(d);
+          if (d && d.status === 2 && d.driverArrivedAt && arrivedShownFor.current !== d.id) {
+            arrivedShownFor.current = d.id;
+            setArrivedOpen(true);
+          }
           if (d && (d.status === 1 || d.status === 7)) {
             try {
               const props = await apiFetch<Proposal[]>(`${API.trips}/trips/${d.id}/proposals`);
@@ -283,6 +292,14 @@ export default function PassengerTracking() {
     <>
       <PageHeader title="Seguimiento" subtitle={msg} icon="fa-solid fa-location-dot" />
       {error && <div className="alert alert-danger small mb-3">{error}</div>}
+
+      {trip.status === 2 && trip.driverArrivedAt && (
+        <div className="alert alert-success small d-flex align-items-center gap-2 mb-3">
+          <i className="fa-solid fa-location-dot" />
+          Tu conductor ya está en el punto de recojo (avisó a las{' '}
+          {new Date(trip.driverArrivedAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}).
+        </div>
+      )}
 
       {/* Info del viaje */}
       <div className="bugie-card mb-3">
@@ -652,6 +669,31 @@ export default function PassengerTracking() {
           <a className="btn btn-danger rounded-pill fw-bold w-100" href="/app/pasajero/sos">
             <i className="fa-solid fa-triangle-exclamation me-2" />SOS — Emergencia
           </a>
+        </div>
+      )}
+
+      {/* Aviso: el conductor llego al punto de recojo */}
+      {arrivedOpen && (
+        <div
+          className="modal-backdrop-bugie"
+          onClick={() => setArrivedOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1060, padding: 16,
+          }}>
+          <div className="bugie-card text-center" onClick={e => e.stopPropagation()}
+               role="alertdialog" aria-labelledby="arrived-title"
+               style={{ maxWidth: 380, width: '100%' }}>
+            <div className="bugie-card-body p-4">
+              <i className="fa-solid fa-location-dot fa-3x text-success mb-3 d-block" />
+              <h2 id="arrived-title" className="h5 fw-bold mb-2">Tu conductor llegó</h2>
+              <p className="bugie-muted mb-3">Tu conductor ya está en el punto de recojo. Sal a su encuentro.</p>
+              <button className="btn btn-bugie text-white rounded-pill w-100" onClick={() => setArrivedOpen(false)}>
+                Entendido
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -26,6 +26,7 @@ import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
 import RegisterDriver from './pages/auth/RegisterDriver';
 import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
 import RoleSelect from './pages/auth/RoleSelect';
 
 // Passenger
@@ -79,6 +80,7 @@ export default function App() {
         <Route path="/auth/registro" element={<Register />} />
         <Route path="/auth/registro-conductor" element={<RegisterDriver />} />
         <Route path="/auth/recuperar" element={<ForgotPassword />} />
+        <Route path="/auth/restablecer" element={<ResetPassword />} />
         <Route path="/auth/rol" element={<RoleSelect />} />
       </Route>
 

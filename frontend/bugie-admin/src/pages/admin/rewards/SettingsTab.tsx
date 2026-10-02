@@ -48,9 +48,6 @@ const GROUPS: { title: string; icon: string; color: string; fields: FieldDef[] }
       { key: 'coupons_apply_to_fare', kind: 'bool',
         label: '¿Los cupones descuentan del precio del viaje?',
         help: 'Apagado (lo normal por ahora): los cupones se canjean y se guardan, pero al pedir un viaje no descuentan nada. Encendido: el pasajero puede aplicar uno de sus cupones a un viaje aceptado y paga menos.' },
-      { key: 'coupon_max_is_commission', kind: 'bool',
-        label: 'Limitar el descuento a tu comisión',
-        help: 'El pasajero le paga al conductor EN PERSONA, así que un descuento le quita dinero a él. Con esto encendido el descuento nunca pasa de tu comisión: el conductor cobra siempre lo mismo y la rebaja sale de lo que tú ganas. Apagarlo aplica el descuento completo, pero el conductor cobra de menos y queda registrado cuánto le debes, sin forma de pagárselo todavía.' },
     ],
   },
   {
@@ -147,9 +144,16 @@ export default function SettingsTab() {
   }, []);
 
   async function save(key: string) {
+    const value = (values[key] ?? '').trim();
+    if (!value) {
+      // El backend no acepta vacio: avisamos antes de enviar.
+      setSaved(null);
+      setError('Ingresa un valor antes de guardar.');
+      return;
+    }
     setSaving(key); setError(null); setSaved(null);
     try {
-      await rewardsAdminApi.saveSetting(key, values[key] ?? '');
+      await rewardsAdminApi.saveSetting(key, value);
       setSaved(key);
       setTimeout(() => setSaved(null), 2000);
     } catch (err) {

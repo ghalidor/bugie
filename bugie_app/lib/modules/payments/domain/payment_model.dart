@@ -76,3 +76,63 @@ class DriverEarnings {
         earningsThisMonth: (j['earningsThisMonth'] as num? ?? 0).toDouble(),
       );
 }
+
+/// Pago que Bugie le hizo al conductor: bono canjeado con puntos,
+/// premio de sorteo o pago manual (endpoint /payments/payouts/me).
+class DriverPayout {
+  final String id;
+  final double amount;
+  final String method;          // yape | plin | transferencia | efectivo
+  final String? operationNumber;
+  final DateTime? paidAt;
+  final String? note;
+  final String sourceType;      // reward_redemption | raffle_prize | manual
+
+  DriverPayout({
+    required this.id,
+    required this.amount,
+    required this.method,
+    this.operationNumber,
+    this.paidAt,
+    this.note,
+    required this.sourceType,
+  });
+
+  String get methodLabel => switch (method) {
+        'yape' => 'Yape',
+        'plin' => 'Plin',
+        'transferencia' => 'Transferencia',
+        'efectivo' => 'Efectivo',
+        _ => method,
+      };
+
+  String get sourceLabel => switch (sourceType) {
+        'reward_redemption' => 'Bono canjeado con puntos',
+        'raffle_prize' => 'Premio de sorteo',
+        _ => 'Pago de Bugie',
+      };
+
+  factory DriverPayout.fromJson(Map<String, dynamic> j) => DriverPayout(
+        id:              j['id'] as String,
+        amount:          (j['amount'] as num? ?? 0).toDouble(),
+        method:          (j['method'] ?? '') as String,
+        operationNumber: j['operationNumber'] as String?,
+        paidAt:          DateTime.tryParse(j['paidAt'] ?? ''),
+        note:            j['note'] as String?,
+        sourceType:      (j['sourceType'] ?? 'manual') as String,
+      );
+}
+
+/// Pagos recibidos + total.
+class DriverPayouts {
+  final List<DriverPayout> items;
+  final double totalAmount;
+  DriverPayouts({required this.items, required this.totalAmount});
+
+  factory DriverPayouts.fromJson(Map<String, dynamic> j) => DriverPayouts(
+        items: ((j['items'] as List?) ?? [])
+            .map((p) => DriverPayout.fromJson(p as Map<String, dynamic>))
+            .toList(),
+        totalAmount: (j['totalAmount'] as num? ?? 0).toDouble(),
+      );
+}

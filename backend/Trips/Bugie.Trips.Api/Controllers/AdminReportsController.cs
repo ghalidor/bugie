@@ -11,7 +11,7 @@ namespace Bugie.Trips.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/trips/admin/reports")]
-[Authorize]
+[Authorize(Roles = "admin")]
 public class AdminReportsController : ControllerBase
 {
     private readonly IMediator _mediator;

@@ -14,6 +14,7 @@ import Passengers from './pages/admin/Passengers'
 import PassengerDetail from './pages/admin/PassengerDetail'
 import Trips from './pages/admin/Trips'
 import Payments from './pages/admin/Payments'
+import DriverPayouts from './pages/admin/DriverPayouts'
 import SOSCenter from './pages/admin/SOSCenter'
 import Settings from './pages/admin/Settings'
 import LandingManager from './pages/admin/landing/LandingManager'
@@ -50,6 +51,7 @@ export default function App() {
 
         <Route path="/admin/viajes" element={<Trips />} />
         <Route path="/admin/pagos" element={<Payments />} />
+        <Route path="/admin/pagos-conductores" element={<DriverPayouts />} />
         <Route path="/admin/puntos" element={<RewardsAdmin />} />
         <Route path="/admin/sos" element={<SOSCenter />} />
         <Route path="/admin/configuracion" element={<Settings />} />

@@ -63,7 +63,18 @@ public record TripDto(
     string? VehicleColor = null,
     string? VehiclePhotoUrl = null,
     // Estrellas que el pasajero dio a ESTE viaje (historial del conductor)
-    int? PassengerStars = null);
+    int? PassengerStars = null,
+    // Cupon aplicado al viaje (null si no hay)
+    string? CouponCode = null,
+    decimal? DiscountAmount = null,
+    decimal? FareBeforeDiscount = null,
+    // Cuando el conductor acepto y cuando aviso que llego al punto de recojo
+    DateTime? AcceptedAt = null,
+    DateTime? DriverArrivedAt = null,
+    // Si se cancelo: quien (passenger | driver | admin) y el motivo
+    string? CancelledBy = null,
+    string? CancelReason = null,
+    DateTime? CancelledAt = null);
 
 public record SosRequest(Guid TripId, double Lat, double Lng);
 
@@ -103,6 +114,7 @@ public record LivePassengerDto(
     string? DriverPhone);
 public record ProposeFareRequest(decimal ProposedFare);
 public record CompleteTripRequest(decimal FinalFare);
+public record CancelTripRequest(string? Reason);
 
 public record ProposalDto(
     Guid Id,
@@ -120,7 +132,7 @@ public record ProposalDto(
     decimal? PreviousFare,
     string ProposedByRole = "driver",
     string? RejectedBy = null,
-    string? DriverPhotoUrl = null);   // "passenger" | "driver" | null — NUEVO
+    string? DriverPhotoUrl = null);   // "passenger" | "driver" | null ï¿½ NUEVO
 
 public record ProposalHistoryDto(
     Guid Id,

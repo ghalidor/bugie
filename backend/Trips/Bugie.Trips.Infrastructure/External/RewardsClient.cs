@@ -21,7 +21,7 @@ public class RewardsClient : IRewardsClient
     }
 
     public async Task<CouponValidation?> ValidateCouponAsync(
-        string code, Guid userId, decimal fare, decimal platformFee,
+        string code, Guid userId, decimal fare,
         CancellationToken ct = default)
     {
         try
@@ -29,7 +29,7 @@ public class RewardsClient : IRewardsClient
             using var req = new HttpRequestMessage(
                 HttpMethod.Post, "api/rewards/internal/coupon/validate")
             {
-                Content = JsonContent.Create(new { code, userId, fare, platformFee })
+                Content = JsonContent.Create(new { code, userId, fare })
             };
             req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? string.Empty);
 

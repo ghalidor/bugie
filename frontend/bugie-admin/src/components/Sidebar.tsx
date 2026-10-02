@@ -59,6 +59,7 @@ const SECTIONS: NavSection[] = [
       { to: '/admin/verificacion', iconClass: 'fa-solid fa-id-card',       label: 'Verificación', permission: PERMS.ViewDrivers     },
       { to: '/admin/viajes',       iconClass: 'fa-solid fa-route',         label: 'Viajes',       permission: PERMS.ViewTrips       },
       { to: '/admin/pagos',        iconClass: 'fa-solid fa-credit-card',   label: 'Pagos',        permission: PERMS.ViewPayments    },
+      { to: '/admin/pagos-conductores', iconClass: 'fa-solid fa-money-bill-transfer', label: 'Pagos a conductores', permission: PERMS.ViewPayments },
     ],
   },
   {

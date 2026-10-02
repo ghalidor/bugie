@@ -71,7 +71,8 @@ function groupByDay(trips: EnrichedTrip[]): { day: string; date: Date; trips: En
   const map = new Map<string, { date: Date; trips: EnrichedTrip[] }>();
   trips.forEach(t => {
     const d = new Date(t.createdAt);
-    const key = d.toISOString().slice(0, 10);
+    // Dia de la fecha tal como la manda el backend (hora de Peru), no en UTC.
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (!map.has(key)) map.set(key, { date: d, trips: [] });
     map.get(key)!.trips.push(t);
   });

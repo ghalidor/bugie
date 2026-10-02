@@ -10,7 +10,7 @@ public record PassengerRejectRequest(string? Reason);
 
 [ApiController]
 [Route("api/auth/admin/passengers")]
-[Authorize]
+[Authorize(Roles = "admin")]
 public class PassengersAdminController : ControllerBase
 {
     private readonly IUserRepository _users;

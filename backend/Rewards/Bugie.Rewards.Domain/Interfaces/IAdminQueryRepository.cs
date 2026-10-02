@@ -66,8 +66,6 @@ public class CouponUsageRow
     public decimal   FareBeforeDiscount { get; set; }
     public decimal   DiscountAmount     { get; set; }
     public decimal   AmountPaid         { get; set; }
-    /// <summary>Lo que la plataforma le quedó debiendo al conductor.</summary>
-    public decimal   PlatformOwesDriver { get; set; }
     public string?   PassengerName      { get; set; }
     public string?   DriverName         { get; set; }
     public short     Status             { get; set; }
@@ -80,7 +78,6 @@ public class CouponUsageTotals
 {
     public int     Trips          { get; set; }
     public decimal TotalDiscount  { get; set; }
-    public decimal TotalOwed      { get; set; }
     public int     TripsCompleted { get; set; }
     public int     TripsCancelled { get; set; }
 }

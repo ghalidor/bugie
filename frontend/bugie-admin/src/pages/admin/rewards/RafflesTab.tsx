@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../../state/api';
 import {
-  rewardsAdminApi, Raffle, RaffleInput, RaffleVerification, RewardLevel,
+  rewardsAdminApi, Raffle, RaffleInput, RaffleVerification, RaffleWinner, RewardLevel,
   RAFFLE_TYPES, RAFFLE_STATUS, TARGETS, USER_TYPE_LABEL,
   raffleTypeLabel, describeParticipants, fmtDate, fmtPoints,
 } from '../../../state/rewards';
+import { payoutsApi, PAYOUT_METHOD, nowLocalInput, fmtSoles } from '../../../state/payouts';
+import PayoutFields, { PayoutDraft, validatePayout } from '../../../components/PayoutFields';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Sorteos.
@@ -133,10 +135,7 @@ export default function RafflesTab() {
               onVerify={() => run(r.id, () => rewardsAdminApi.verifyRaffle(r.id),
                                  d => setCheck({ id: r.id, data: d }))}
               onCloseVerify={() => setCheck(null)}
-              onDeliver={(w) => {
-                const nota = prompt('Nota de la entrega (opcional)') ?? undefined;
-                run(r.id, () => rewardsAdminApi.deliverPrize(w, nota), load);
-              }}
+              onDelivered={load}
               onDelete={() => {
                 if (!confirm(`¿Borrar «${r.name}»? Se pierden sus ${r.ticketsNow} tickets.`)) return;
                 run(r.id, () => rewardsAdminApi.deleteRaffle(r.id), load);
@@ -161,11 +160,11 @@ function toInput(r: Raffle): RaffleInput {
 
 /* ── Tarjeta de sorteo ─────────────────────────────────────────────────── */
 function RaffleCard({ r, levelNames, busy, disabled, verification,
-                      onEdit, onDraw, onVerify, onCloseVerify, onDeliver, onDelete }: {
+                      onEdit, onDraw, onVerify, onCloseVerify, onDelivered, onDelete }: {
   r: Raffle; levelNames: Record<string, string>;
   busy: boolean; disabled: boolean; verification: RaffleVerification | null;
   onEdit: () => void; onDraw: () => void; onVerify: () => void;
-  onCloseVerify: () => void; onDeliver: (winnerId: string) => void; onDelete: () => void;
+  onCloseVerify: () => void; onDelivered: () => void; onDelete: () => void;
 }) {
   const estado = RAFFLE_STATUS[r.status] ?? { label: r.status, color: 'var(--bugie-neutral)' };
   const sorteado = r.status === 'drawn';
@@ -241,29 +240,8 @@ function RaffleCard({ r, levelNames, busy, disabled, verification,
             <div className="small fw-semibold mb-2">Ganadores</div>
             <div className="d-flex flex-column gap-2">
               {r.winners.map(w => (
-                <div key={w.id} className="d-flex flex-wrap align-items-center gap-2 small">
-                  <span className="badge rounded-pill"
-                        style={{ background: w.prizeRank === 1 ? 'var(--bugie-warn)22' : 'var(--bugie-border)',
-                                 color: w.prizeRank === 1 ? 'var(--bugie-warn)' : 'var(--bugie-muted)' }}>
-                    {w.prizeRank === 1 ? 'Premio principal' : `Puesto ${w.prizeRank}`}
-                  </span>
-                  <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>
-                    {w.ticketNumber}
-                  </span>
-                  <span className="bugie-muted">{w.prizeDetail}</span>
-                  {w.status === 'delivered' ? (
-                    <span style={{ color: 'var(--bugie-ok)' }}>
-                      <i className="fa-solid fa-circle-check me-1" />
-                      Entregado {w.deliveredAt ? fmtDate(w.deliveredAt) : ''}
-                    </span>
-                  ) : (
-                    <button type="button" onClick={() => onDeliver(w.id)} disabled={busy || disabled}
-                            className="btn btn-sm btn-bugie-outline rounded-pill py-0 px-2 ms-auto"
-                            style={{ fontSize: '.72rem' }}>
-                      Marcar entregado
-                    </button>
-                  )}
-                </div>
+                <WinnerRow key={w.id} w={w} prizeValue={r.prizeValue}
+                           disabled={busy || disabled} onDone={onDelivered} />
               ))}
             </div>
           </div>
@@ -456,6 +434,120 @@ function RaffleForm({ initial, id, levels, onCancel, onSaved }: {
                   className="btn btn-bugie-outline rounded-pill">Cancelar</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Ganador: entrega del premio (y pago si es en dinero a un conductor) ── */
+function WinnerRow({ w, prizeValue, disabled, onDone }: {
+  w: RaffleWinner; prizeValue: number | null; disabled: boolean; onDone: () => void;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [pay,    setPay]    = useState(w.userRole === 'driver' && !!prizeValue);
+  const [note,   setNote]   = useState('');
+  const [busy,   setBusy]   = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
+  const [payout, setPayout] = useState<PayoutDraft>(() => ({
+    method: 'yape', operationNumber: '', amount: prizeValue ? String(prizeValue) : '',
+    paidAt: nowLocalInput(), note: '',
+  }));
+  const canPay = w.userRole === 'driver';
+
+  async function confirm() {
+    setError(null);
+    if (pay) {
+      const invalid = validatePayout(payout);
+      if (invalid) { setError(invalid); return; }
+    }
+    setBusy(true);
+    try {
+      let nota = note.trim();
+      if (pay) {
+        try {
+          await payoutsApi.register({
+            driverId: w.userId, driverName: w.userName ?? null,
+            amount: Number(payout.amount), method: payout.method,
+            operationNumber: payout.operationNumber.trim() || null,
+            paidAt: payout.paidAt, note: payout.note.trim() || null,
+            sourceType: 'raffle_prize', sourceRef: w.id,
+          });
+        } catch (err) {
+          // 409 = el premio ya tenia su pago registrado.
+          if (!(err instanceof ApiError && err.status === 409)) throw err;
+        }
+        const op = payout.operationNumber.trim();
+        nota = `Pagado por ${PAYOUT_METHOD[payout.method].label}${op ? ` · op ${op}` : ''} · ${fmtSoles(Number(payout.amount))}`
+             + (payout.note.trim() ? ` · ${payout.note.trim()}` : '');
+      }
+      await rewardsAdminApi.deliverPrize(w.id, nota || undefined);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo registrar la entrega.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="small">
+      <div className="d-flex flex-wrap align-items-center gap-2">
+        <span className="badge rounded-pill"
+              style={{ background: w.prizeRank === 1 ? 'var(--bugie-warn)22' : 'var(--bugie-border)',
+                       color: w.prizeRank === 1 ? 'var(--bugie-warn)' : 'var(--bugie-muted)' }}>
+          {w.prizeRank === 1 ? 'Premio principal' : `Puesto ${w.prizeRank}`}
+        </span>
+        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>
+          {w.ticketNumber}
+        </span>
+        {w.userName && (
+          <span><i className="fa-solid fa-user me-1 bugie-muted" />{w.userName}
+            {w.userRole && <span className="bugie-muted"> · {w.userRole === 'driver' ? 'Conductor' : w.userRole === 'passenger' ? 'Pasajero' : w.userRole}</span>}
+          </span>
+        )}
+        <span className="bugie-muted">{w.prizeDetail}</span>
+        {w.status === 'delivered' ? (
+          <span style={{ color: 'var(--bugie-ok)' }} className="ms-auto">
+            <i className="fa-solid fa-circle-check me-1" />
+            Entregado {w.deliveredAt ? fmtDate(w.deliveredAt) : ''}
+          </span>
+        ) : !open && (
+          <button type="button" onClick={() => setOpen(true)} disabled={disabled}
+                  className="btn btn-sm btn-bugie-outline rounded-pill py-0 px-2 ms-auto"
+                  style={{ fontSize: '.72rem' }}>
+            Marcar entregado
+          </button>
+        )}
+      </div>
+      {w.status === 'delivered' && w.note && <div className="bugie-muted mt-1">Nota: {w.note}</div>}
+
+      {open && w.status !== 'delivered' && (
+        <div className="mt-2 p-2" style={{ border: '1px solid var(--bugie-border)', borderRadius: 10 }}>
+          {canPay && (
+            <div className="form-check mb-2">
+              <input className="form-check-input" type="checkbox" id={`pay-${w.id}`}
+                     checked={pay} onChange={e => setPay(e.target.checked)} />
+              <label className="form-check-label" htmlFor={`pay-${w.id}`}>
+                El premio se pagó en dinero al conductor (queda en el reporte de pagos)
+              </label>
+            </div>
+          )}
+          {pay ? (
+            <div className="mb-2"><PayoutFields value={payout} onChange={setPayout} /></div>
+          ) : (
+            <input className="form-control form-control-sm mb-2" value={note}
+                   placeholder="Nota de la entrega (opcional)" onChange={e => setNote(e.target.value)} />
+          )}
+          {error && <div className="alert alert-danger small mb-2">{error}</div>}
+          <div className="d-flex gap-2">
+            <button type="button" onClick={confirm} disabled={busy} className="btn btn-sm btn-bugie rounded-pill">
+              {busy ? <span className="spinner-border spinner-border-sm" /> : pay ? 'Registrar pago y entregar' : 'Confirmar entrega'}
+            </button>
+            <button type="button" onClick={() => { setOpen(false); setError(null); }} disabled={busy}
+                    className="btn btn-sm btn-bugie-outline rounded-pill">
+              Volver
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

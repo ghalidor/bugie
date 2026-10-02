@@ -33,20 +33,14 @@ export default function Vehicles() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const res = await apiFetch<{ driver: any; vehicles: Vehicle[] }>(
-        `${API.drivers}/drivers/me/detail`
+      // Mi perfil de conductor -> su detalle con los vehiculos
+      const me = await apiFetch<{ id: string }>(`${API.drivers}/drivers/me`);
+      const detail = await apiFetch<{ vehicles: Vehicle[] }>(
+        `${API.drivers}/drivers/${me.id}/detail`
       );
-      setVehicles(res?.vehicles ?? []);
-    } catch {
-      try {
-        const me = await apiFetch<{ id: string }>(`${API.drivers}/drivers/me`);
-        const detail = await apiFetch<{ vehicles: Vehicle[] }>(
-          `${API.drivers}/drivers/${me.id}/detail`
-        );
-        setVehicles(detail?.vehicles ?? []);
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los vehículos.');
-      }
+      setVehicles(detail?.vehicles ?? []);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los vehículos.');
     } finally { setLoading(false); }
   }
 

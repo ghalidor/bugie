@@ -40,7 +40,11 @@ public record RedemptionDto(
     DateTime  ExpiresAt,
     DateTime? UsedAt,
     string?   UsedNote,
-    DateTime  CreatedAt);
+    DateTime  CreatedAt,
+    // Quien canjeo (lo llena el listado del admin)
+    Guid?     UserId   = null,
+    string?   UserName = null,
+    string?   UserRole = null);
 
 /// <summary>Resultado del canje: el cupon y el saldo que quedo.</summary>
 public record RedeemResultDto(
@@ -56,10 +60,8 @@ public record CouponValidationDto(
     string?  RewardType,
     /// <summary>Lo que de verdad se descuenta, ya recortado si hizo falta.</summary>
     decimal  DiscountAmount,
-    /// <summary>Lo que el cupón valía antes del recorte.</summary>
+    /// <summary>Lo mismo que DiscountAmount. Se conserva por compatibilidad.</summary>
     decimal  FullDiscount,
-    /// <summary>Lo que la plataforma le queda debiendo al conductor.</summary>
-    decimal  OwedToDriver,
     /// <summary>Por qué no se puede usar. Null si sí se puede.</summary>
     string?  Reason,
     /// <summary>Aviso cuando se aplicó menos de lo que valía.</summary>

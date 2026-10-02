@@ -1,5 +1,6 @@
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_config.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/session/session.dart';
 import '../domain/passenger_document_model.dart';
 import '../domain/user_model.dart';
@@ -99,8 +100,12 @@ class AuthRepository {
     return (json as Map<String, dynamic>)['profilePhotoUrl'] as String? ?? '';
   }
 
-  /// Cierra sesión local (no hay logout en el backend).
-  Future<void> logout() => _session.clear();
+  /// Cierra sesión: primero quita el token push de este celular en el
+  /// backend (necesita la sesión), luego borra la sesión local.
+  Future<void> logout() async {
+    await FcmService().unregister();
+    await _session.clear();
+  }
 
   // ── Documentos del pasajero (DNI front/back) ─────────────────────────────
 
@@ -144,5 +149,8 @@ class AuthRepository {
         role: auth.role,
       ),
     );
+    // Con la sesión ya guardada, asociar este celular al usuario para
+    // que le lleguen los avisos push (no bloquea el login si falla).
+    FcmService().registerToken();
   }
 }

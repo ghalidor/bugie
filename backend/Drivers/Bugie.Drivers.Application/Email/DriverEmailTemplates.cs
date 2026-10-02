@@ -8,7 +8,10 @@ public static class DriverEmailTemplates
 {
     private const string Brand = "Bugie";
     private const string Color = "#4F7DF5";
-    private const string AppUrl = "http://localhost:5173";
+    /// <summary>URL de la web (App:WebBaseUrl en appsettings). La fija Program.cs al arrancar.</summary>
+    public static string AppUrl { get; set; } = "http://localhost:5173";
+    /// <summary>URL del panel admin (App:AdminBaseUrl en appsettings).</summary>
+    public static string AdminUrl { get; set; } = "http://localhost:5174";
 
     private static readonly Dictionary<string, string> DocLabels = new()
     {
@@ -127,7 +130,7 @@ public static class DriverEmailTemplates
                 Cuando suba el documento renovado, aparecerá en la lista de pendientes para que lo apruebes.</p>"
             : "<p>Te avisamos con anticipación para que estés pendiente.</p>")}
         <p style=""text-align:center;margin:30px 0;"">
-          <a href=""http://localhost:5174/admin/conductores""
+          <a href=""{AdminUrl}/admin/conductores""
              style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
                     text-decoration:none;display:inline-block;font-weight:bold;"">
             Ver panel de conductores
