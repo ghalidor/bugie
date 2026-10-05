@@ -17,15 +17,18 @@ public class VehiclesController : ControllerBase
     private readonly IVehicleRepository _vehicles;
     private readonly IDriverRepository _drivers;
     private readonly IDriveStorageService _storage;
+    private readonly IVehiclePhotoRepository _photos;
 
     public VehiclesController(
         IVehicleRepository vehicles,
         IDriverRepository drivers,
-        IDriveStorageService storage)
+        IDriveStorageService storage,
+        IVehiclePhotoRepository photos)
     {
         _vehicles = vehicles;
         _drivers = drivers;
         _storage = storage;
+        _photos = photos;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -46,6 +49,9 @@ public class VehiclesController : ControllerBase
 
         if(file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "La imagen no puede pesar más de 5 MB." });
+
+        if(Bugie.Drivers.Api.Security.UploadCheck.Error(file) is { } fileError)
+            return BadRequest(new { error = fileError });
 
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
@@ -71,6 +77,8 @@ public class VehiclesController : ControllerBase
 
         vehicle.SetPhoto(stored.PreviewUrl);
         await _vehicles.UpdateAsync(vehicle, ct);
+        // Esta foto es la de FRENTE (ver VehiclePhotosController).
+        await _photos.UpsertAsync(vehicle.Id, "front", stored.PreviewUrl, ct);
 
         return Ok(new { photoUrl = stored.PreviewUrl });
     }

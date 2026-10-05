@@ -7,7 +7,6 @@ public interface IUserRepository
     Task<User?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<User?> GetByEmailAsync(string email, CancellationToken ct = default);
     Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
-    Task<List<User>> GetAllAsync(string? role = null, CancellationToken ct = default);
     Task<List<User>> GetByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
 
     /// <summary>
@@ -25,7 +24,7 @@ public interface IUserRepository
     /// </summary>
     Task<(List<User> Items, int Total)> GetPagedAsync(
         int page, int pageSize, string? search, string? role, bool? verified,
-        CancellationToken ct = default);
+        CancellationToken ct = default, bool? deleted = false);
 
     /// <summary>
     /// Estadísticas agregadas con 4 COUNT(*): total, activos, pasajeros, conductores.
@@ -34,7 +33,7 @@ public interface IUserRepository
     /// </summary>
     Task<(int Total, int Activos, int Pasajeros, int Conductores, int Verificados, int NoVerificados)>
         GetStatsAsync(string? search, string? role, bool? verified,
-            CancellationToken ct = default);
+            CancellationToken ct = default, bool? deleted = false);
     Task AddAsync(User user, CancellationToken ct = default);
     Task UpdateAsync(User user, CancellationToken ct = default);
     /// <summary>
@@ -51,4 +50,33 @@ public interface IUserRepository
     Task UpdateAdminRoleAsync(Guid userId, Guid? adminRoleId, CancellationToken ct = default);
 
     Task DeleteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Cuenta NO eliminada que ya usa ese documento (excepto excludeUserId).
+    /// Null si el documento está libre.
+    /// </summary>
+    Task<User?> GetActiveByDocumentAsync(string docType, string docNumber, Guid? excludeUserId = null,
+        CancellationToken ct = default);
+
+    Task UpdateDocumentAsync(Guid userId, string docType, string docNumber, CancellationToken ct = default);
+
+    /// <summary>Guarda nombres separados y FullName (ya armado por la entidad).</summary>
+    Task UpdateNamesAsync(User user, CancellationToken ct = default);
+
+    Task UpdatePasswordHashAsync(Guid userId, string passwordHash, CancellationToken ct = default);
+
+    /// <summary>Guarda DeletedAt, DeletedReason e IsActive (eliminar / restaurar).</summary>
+    Task UpdateDeletionAsync(User user, CancellationToken ct = default);
+
+    /// <summary>True si la cuenta existe y está eliminada (chequeo ligero del JWT).</summary>
+    Task<bool> IsDeletedAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>Estado de sesion (sello, eliminada, desactivada). Null si la cuenta no existe.</summary>
+    Task<UserSessionState?> GetSessionStateAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>Nuevo sello de seguridad (cierra todas las sesiones). Devuelve el sello nuevo.</summary>
+    Task<Guid> RotateSecurityStampAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>Guarda IsActive, DeactivatedAt y DeactivatedReason (desactivar / reactivar).</summary>
+    Task UpdateDeactivationAsync(User user, CancellationToken ct = default);
 }

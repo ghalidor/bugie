@@ -23,6 +23,16 @@ public class VehicleRepository : IVehicleRepository
             "SELECT * FROM drivers.Vehicles WHERE DriverId = @Id AND IsActive = TRUE LIMIT 1",
             new { Id = driverId });
 
+    public async Task<Dictionary<Guid, string>> GetActivePlatesAsync(IEnumerable<Guid> driverIds, CancellationToken ct = default)
+    {
+        var ids = driverIds.Distinct().ToArray();
+        if (ids.Length == 0) return new Dictionary<Guid, string>();
+        var rows = await _db.QueryAsync<(Guid DriverId, string Plate)>(
+            "SELECT DriverId, Plate FROM drivers.Vehicles WHERE DriverId = ANY(@Ids) AND IsActive = TRUE",
+            new { Ids = ids });
+        return rows.GroupBy(r => r.DriverId).ToDictionary(g => g.Key, g => g.First().Plate);
+    }
+
     public Task<Vehicle?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _db.QuerySingleOrDefaultAsync<Vehicle>(
             "SELECT * FROM drivers.Vehicles WHERE Id = @Id", new { Id = id });

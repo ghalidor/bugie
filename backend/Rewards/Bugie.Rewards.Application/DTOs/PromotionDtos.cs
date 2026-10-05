@@ -7,6 +7,10 @@ namespace Bugie.Rewards.Application.DTOs;
 /// pantalla trabaja con casillas y selectores, y nadie escribe llaves a mano.
 /// El handler se encarga de armar y desarmar el JSON.
 /// </summary>
+/// <param name="Warning">
+/// Advertencia cuando la promoción no va a hacer nada, por ejemplo si su
+/// tipo todavía no lo aplica el motor o si ya venció.
+/// </param>
 public record PromotionDto(
     Guid      Id,
     string    Name,
@@ -31,10 +35,6 @@ public record PromotionDto(
     int       TimesApplied,
     int       PointsGiven,
 
-    /// <summary>
-    /// Advertencia cuando la promoción no va a hacer nada, por ejemplo si su
-    /// tipo todavía no lo aplica el motor o si ya venció.
-    /// </summary>
     string?   Warning);
 
 /// <summary>Lo que manda la pantalla al crear o editar.</summary>

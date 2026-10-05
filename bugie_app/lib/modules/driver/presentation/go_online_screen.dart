@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
@@ -12,6 +13,8 @@ import '../../presence/domain/presence_check_in_model.dart';
 import '../../presence/presentation/face_capture_screen.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver_model.dart';
+import 'driver_idle_tracking.dart';
+import 'widgets/account_blocked_card.dart';
 
 /// Pantalla de "Disponibilidad" del conductor.
 ///
@@ -52,6 +55,18 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
   void initState() {
     super.initState();
     _load();
+    // Push de cuenta (ej. aprobado): recargar para habilitar "Conectarme".
+    FcmService.driverAccount.addListener(_onAccountPush);
+  }
+
+  @override
+  void dispose() {
+    FcmService.driverAccount.removeListener(_onAccountPush);
+    super.dispose();
+  }
+
+  void _onAccountPush() {
+    if (mounted && !_busy) _load();
   }
 
   Future<void> _load() async {
@@ -94,6 +109,8 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
   }
 
   Future<void> _goOnline() async {
+    // Solo un conductor aprobado puede conectarse (suspendido/no aceptado no).
+    if (_driver?.status != DriverStatus.approved) return;
     setState(() { _busy = true; _error = null; });
     try {
       // PASO 1: cara
@@ -127,8 +144,8 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
       final repo = context.read<DriverRepository>();
       final updated = await repo.goOnline(lat, lng);
 
-      final tracking = context.read<LocationTrackingService>();
-      if (tracking.isRunning) tracking.stop();
+      // Ya en línea: empezar a enviar su posición mientras espera solicitudes.
+      if (mounted) startDriverIdleTracking(context);
 
       if (mounted) {
         setState(() {
@@ -187,6 +204,7 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
     }
 
     final approved = _driver?.status == DriverStatus.approved;
+    final blocked = _driver?.isBlocked == true;
     final isOnline = _driver?.isOnline == true;
 
     return Scaffold(
@@ -217,7 +235,9 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
                 child: Text(
                   isOnline
                       ? 'Recibes solicitudes de viaje. Manten el GPS activo.'
-                      : 'No recibes solicitudes. Toma tu selfie de verificacion para conectarte.',
+                      : blocked
+                          ? 'No recibes solicitudes.'
+                          : 'No recibes solicitudes. Toma tu selfie de verificacion para conectarte.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: BugieColors.textMuted),
                 ),
@@ -227,7 +247,12 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
               if (isOnline && (_activeCheckIn != null || _localPhotoPath != null))
                 _buildPhotoPreview(),
 
-              if (!approved) ...[
+              // Suspendida / no aceptada: tarjeta con motivo y revisión,
+              // en lugar del botón para conectarse.
+              if (blocked) ...[
+                const SizedBox(height: 8),
+                DriverAccountBlockedCard(driver: _driver!, onChanged: _load),
+              ] else if (!approved) ...[
                 const SizedBox(height: 8),
                 Card(
                   color: Colors.amber.shade50,
@@ -265,6 +290,8 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
 
               const SizedBox(height: 32),
 
+              // Bloqueado: solo se deja desconectar (si quedó en línea).
+              if (!blocked || isOnline)
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isOnline ? BugieColors.danger : BugieColors.success,
@@ -284,7 +311,7 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
                   style: const TextStyle(
                       fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
                 ),
-                onPressed: (!approved || _busy) ? null : _toggle,
+                onPressed: _busy || (!approved && !isOnline) ? null : _toggle,
               ),
               const SizedBox(height: 12),
 

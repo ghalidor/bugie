@@ -17,6 +17,14 @@ public interface IPermissionService
     /// </summary>
     Task<List<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Igual que GetUserPermissionsAsync pero indica tambien si es super_admin
+    /// (rol IsSystem). Admin inactivo, eliminado o sin rol: (false, vacio).
+    /// Lo usan el filtro RequirePermission y el endpoint interno
+    /// GET /api/internal/admins/{userId}/permissions.
+    /// </summary>
+    Task<(bool IsSuperAdmin, List<string> Permissions)> GetAdminAccessAsync(Guid userId, CancellationToken ct = default);
+
     /// <summary>True si el user tiene el permiso especificado.</summary>
     Task<bool> HasPermissionAsync(Guid userId, string permission, CancellationToken ct = default);
 }

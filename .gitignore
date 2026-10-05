@@ -130,3 +130,6 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Credenciales de Firebase (cuenta de servicio): nunca al repositorio
+firebase-service-account*.json

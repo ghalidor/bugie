@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='landing-list']",
+      "title": "Las partes de tu web",
+      "text": "Aquí están todas las secciones del sitio, agrupadas por página. La etiqueta de color te dice si ya está traducida a los tres idiomas."
+    },
+    {
+      "selector": "[data-tour='landing-search']",
+      "title": "Encuentra rápido",
+      "text": "Escribe parte del nombre (por ejemplo «portada» o «testimonios») para filtrar la lista."
+    },
+    {
+      "selector": "[data-tour='landing-editor']",
+      "title": "Edita y traduce",
+      "text": "Al elegir una sección, aquí aparece su formulario. Cambia de idioma con las pestañas Español, Inglés y Portugués."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "Nada se publica sin querer",
+      "text": "Tus cambios se publican solo al pulsar «Guardar» en la barra inferior. Si cambias de sección con cambios pendientes, te avisaremos."
+    }
+  ]
+}

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flujo de viaje Bugie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: tres carriles (Pasajero | Bugie | Conductor); cada fila es un paso, el carril central lleva el estado del viaje. */
+:root{
+  --bg:#f6f6fb; --surface:#ffffff; --ink:#1d1b38; --muted:#5f5d7a; --line:#dcdbec;
+  --brand:#5B5BD6; --brand-soft:#ebebfb; --magenta:#b04fb0; --magenta-soft:#f7e9f7;
+  --ok:#17804f; --ok-soft:#e3f4ec; --warn:#a8650a; --warn-soft:#fbf0de; --bad:#c4313f; --bad-soft:#fbe6e8;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Figtree", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#13122a; --surface:#1c1b38; --ink:#ecebfa; --muted:#a9a7c6; --line:#34325a;
+  --brand:#8f8ff0; --brand-soft:#26254f; --magenta:#d98bd9; --magenta-soft:#36213f;
+  --ok:#4fc58e; --ok-soft:#163528; --warn:#e7aa52; --warn-soft:#3a2b14; --bad:#f07a86; --bad-soft:#3d1d24;
+  color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#13122a; --surface:#1c1b38; --ink:#ecebfa; --muted:#a9a7c6; --line:#34325a;
+  --brand:#8f8ff0; --brand-soft:#26254f; --magenta:#d98bd9; --magenta-soft:#36213f;
+  --ok:#4fc58e; --ok-soft:#163528; --warn:#e7aa52; --warn-soft:#3a2b14; --bad:#f07a86; --bad-soft:#3d1d24;
+  color-scheme:dark; }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:28px 56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4.4vw,42px);font-weight:800;letter-spacing:-.02em}
+.lead{color:var(--muted);max-width:62ch;margin:.5rem 0 0}
+header.top{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:end;justify-content:space-between;margin-bottom:22px}
+
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px;gap:2px}
+.seg button{font:600 14px var(--f-body);color:var(--muted);background:none;border:0;border-radius:999px;padding:7px 16px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* Carriles */
+.lanes{display:grid;grid-template-columns:1fr 230px 1fr;gap:0 18px}
+.lane-head{position:sticky;top:env(safe-area-inset-top,0px);z-index:2;background:var(--bg);padding:10px 0 12px;display:flex;align-items:center;gap:8px;
+  font:700 12px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+.lane-head .dot{width:10px;height:10px;border-radius:50%}
+.lane-head.p .dot{background:var(--magenta)} .lane-head.b{justify-content:center} .lane-head.b .dot{background:var(--brand)} .lane-head.c .dot{background:var(--ok)}
+
+.row{display:contents}
+.cell{padding:14px 0;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.cell.mid{align-items:center;position:relative}
+.cell.mid::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--line);transform:translateX(-1px);z-index:0}
+.row.first .cell.mid::before{top:50%}
+.row.last .cell.mid::before{bottom:50%}
+
+.act{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:relative}
+.act h3{font:700 15px var(--f-body);margin:0 0 2px}
+.act p{margin:0;color:var(--muted);font-size:13.5px}
+.act.p{border-left:4px solid var(--magenta)} .act.c{border-left:4px solid var(--ok)}
+.act .arrow{font:700 13px var(--f-mono);color:var(--brand);margin-top:6px;display:block}
+.cell.p .act .arrow{text-align:right}
+
+.state{position:relative;z-index:1;text-align:center;background:var(--surface);border:2px solid var(--brand);border-radius:14px;padding:8px 12px;min-width:150px}
+.state b{display:block;font:800 14px var(--f-mono);letter-spacing:.04em;color:var(--brand)}
+.state span{display:block;font-size:12.5px;color:var(--muted)}
+.state.neg{border-color:var(--warn)} .state.neg b{color:var(--warn)}
+.state.run{border-color:var(--magenta)} .state.run b{color:var(--magenta)}
+.state.done{border-color:var(--ok);background:var(--ok-soft)} .state.done b{color:var(--ok)}
+.pin{position:relative;z-index:1;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--line)}
+.empty{min-height:1px}
+
+.tag{display:inline-block;font:700 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:2px 6px;margin-bottom:6px}
+.tag.env{background:var(--magenta-soft);color:var(--magenta)}
+.tag.opt{background:var(--warn-soft);color:var(--warn)}
+
+/* Bifurcación A/B */
+.fork{grid-column:1 / -1;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:8px 0;position:relative}
+.path{background:var(--surface);border:1px dashed var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.path > header{display:flex;align-items:center;gap:10px}
+.path .letter{font:800 18px var(--f-display);width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand)}
+.path h3{font-size:17px}
+.step{display:grid;grid-template-columns:86px 1fr;gap:10px;align-items:start}
+.who{font:700 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding-top:3px}
+.who.p{color:var(--magenta)} .who.c{color:var(--ok)} .who.b{color:var(--brand)}
+.step p{margin:0;font-size:14px} .step small{color:var(--muted);display:block;font-size:12.5px}
+.fork-note{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px}
+
+/* SOS */
+.sos{grid-column:1 / -1;margin:6px 0;background:var(--bad-soft);border:1px solid color-mix(in srgb,var(--bad) 35%,transparent);border-radius:14px;padding:12px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.sos .badge{font:800 13px var(--f-mono);background:var(--bad);color:#fff;border-radius:8px;padding:4px 10px;letter-spacing:.06em}
+.sos p{margin:0;flex:1 1 320px;min-width:0}
+
+/* Modo Viaje / Envío */
+body.m-viaje .only-env{display:none}
+.t{display:none}
+body.m-ambos .t-ambos, body.m-viaje .t-viaje, body.m-envio .t-envio{display:inline}
+
+/* Reglas */
+.rules{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:34px}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.rule h2{font-size:18px;margin-bottom:8px}
+.rule ul{margin:0;padding-left:18px;display:grid;gap:6px}
+.rule li{font-size:14px}
+.rule .k{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:22px;color:var(--muted);font-size:13px}
+.legend code{font:700 12px var(--f-mono);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+
+@media (max-width:820px){
+  .lanes{grid-template-columns:1fr}
+  .lane-head{display:none}
+  .row{display:flex;flex-direction:column;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .cell{padding:0} .cell.mid::before{display:none}
+  .cell.mid{align-items:flex-start}
+  .empty,.pin{display:none}
+  .cell.p .act .arrow{text-align:left}
+  .act::before{content:attr(data-who);display:block;font:700 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .fork{grid-template-columns:1fr}
+  .rules{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:no-preference){
+  .act,.state,.path{transition:transform .15s ease}
+  .act:hover{transform:translateY(-1px)}
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Cómo se pide un viaje en Bugie</h1>
+      <p class="lead">Qué hace el pasajero, qué hace el conductor y en qué estado queda el viaje en cada paso. Los envíos siguen el mismo camino, con dos fotos obligatorias.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Qué mostrar">
+      <button type="button" id="m-ambos" aria-pressed="true">Viaje y envío</button>
+      <button type="button" id="m-viaje" aria-pressed="false">Solo viaje</button>
+      <button type="button" id="m-envio" aria-pressed="false">Solo envío</button>
+    </div>
+  </header>
+
+  <div class="lanes">
+    <div class="lane-head p"><span class="dot"></span>Pasajero</div>
+    <div class="lane-head b"><span class="dot"></span>Estado del viaje</div>
+    <div class="lane-head c"><span class="dot"></span>Conductor</div>
+
+    <!-- 1. Pedido -->
+    <div class="row first">
+      <div class="cell p"><div class="act p" data-who="Pasajero">
+        <h3>Pide el <span class="t t-ambos">viaje o envío</span><span class="t t-viaje">viaje</span><span class="t t-envio">envío</span></h3>
+        <p>Origen, destino, tarifa sugerida y forma de pago: efectivo, Yape o Plin.</p>
+        <p class="only-env"><span class="tag env">Envío</span> Además sube fotos del paquete.</p>
+        <span class="arrow">enviar →</span>
+      </div></div>
+      <div class="cell mid"><div class="state"><b>PENDIENTE · 1</b><span>Push a los conductores conectados dentro del radio</span></div></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <h3>Le llega a «Solicitudes»</h3>
+        <p>Ve el recorrido, la tarifa y, si es envío, las fotos del paquete antes de decidir.</p>
+      </div></div>
+    </div>
+
+    <!-- 2. Bifurcación -->
+    <div class="fork">
+      <section class="path" aria-label="Camino A">
+        <header><span class="letter">A</span><h3>Acepta la tarifa del pasajero</h3></header>
+        <div class="step"><span class="who c">Conductor</span><p>Toca «Aceptar».<small>Varios conductores pueden aceptar el mismo pedido.</small></p></div>
+        <div class="step"><span class="who p">Pasajero</span><p>Ve quiénes aceptaron y elige a uno.</p></div>
+        <div class="step"><span class="who b">Bugie</span><p>Asigna a ese conductor.<small>Las demás aceptaciones se rechazan.</small></p></div>
+      </section>
+      <section class="path" aria-label="Camino B">
+        <header><span class="letter">B</span><h3>Propone otra tarifa</h3></header>
+        <div class="step"><span class="who c">Conductor</span><p>Envía su precio. Estado <b>NEGOCIANDO · 7</b>.<small>Si vuelve a proponer, la oferta anterior queda reemplazada.</small></p></div>
+        <div class="step"><span class="who p">Pasajero</span><p>Acepta una de las propuestas.<small>Puede deshacerlo mientras el conductor no confirme.</small></p></div>
+        <div class="step"><span class="who c">Conductor</span><p>Toca «Confirmar viaje».<small>Sus propuestas en otros viajes se rechazan solas. Si no confirma, la aceptación vence.</small></p></div>
+      </section>
+      <p class="fork-note">Los dos caminos terminan igual: el viaje queda aceptado con un solo conductor.</p>
+    </div>
+
+    <!-- 3. Aceptado -->
+    <div class="row">
+      <div class="cell p"><div class="act p" data-who="Pasajero">
+        <h3>Ve al conductor en el mapa</h3>
+        <p>Ve quién es el conductor asignado y su ubicación en vivo mientras se acerca.</p>
+        <span class="arrow">← ubicación en vivo</span>
+      </div></div>
+      <div class="cell mid"><div class="state"><b>ACEPTADO · 2</b><span>Conductor asignado; las demás ofertas se cierran</span></div></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <h3>Va al punto de recojo</h3>
+        <p>Se dirige al origen; su ubicación se comparte en vivo.</p>
+      </div></div>
+    </div>
+
+    <!-- 4. Llegó -->
+    <div class="row">
+      <div class="cell p"><div class="act p" data-who="Pasajero">
+        <h3>Recibe «Tu conductor llegó»</h3>
+        <p>Notificación push en su teléfono.</p>
+        <span class="arrow">← push</span>
+      </div></div>
+      <div class="cell mid"><span class="pin" aria-hidden="true"></span></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <h3>Toca «Ya llegué»</h3>
+        <p>Puede volver a avisar si el pasajero no sale.</p>
+      </div></div>
+    </div>
+
+    <!-- 4b. Verificación de recojo (envío) -->
+    <div class="row only-env">
+      <div class="cell p empty"></div>
+      <div class="cell mid"><span class="pin" aria-hidden="true"></span></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <span class="tag env">Envío · obligatorio</span>
+        <h3>Verifica el recojo</h3>
+        <p>Foto principal con el cliente, fotos del paquete y una nota. Sin esto no puede iniciar.</p>
+      </div></div>
+    </div>
+
+    <!-- 5. En curso -->
+    <div class="row">
+      <div class="cell p"><div class="act p" data-who="Pasajero">
+        <h3>Recibe «Tu viaje empezó»</h3>
+        <p>Sigue el recorrido en tiempo real hasta el destino.</p>
+        <span class="arrow">← push</span>
+      </div></div>
+      <div class="cell mid"><div class="state run"><b>EN CURSO · 3</b><span>Seguimiento en vivo y SOS disponible</span></div></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <h3><span class="t t-ambos">«Iniciar viaje» o «Paquete a bordo»</span><span class="t t-viaje">«Iniciar viaje»</span><span class="t t-envio">«Paquete a bordo»</span></h3>
+        <p>Desde aquí el conductor ya no puede cancelar.</p>
+      </div></div>
+    </div>
+
+    <div class="sos" role="note">
+      <span class="badge">SOS</span>
+      <p><b>Pasajero o conductor, durante el viaje.</b> La alerta con su ubicación llega al centro de monitoreo y a los administradores (mapa en vivo, Centro SOS y campanita del panel), y se envía un correo a su contacto de emergencia.</p>
+    </div>
+
+    <!-- 6. Entrega (envío) -->
+    <div class="row only-env">
+      <div class="cell p"><div class="act p" data-who="Remitente">
+        <span class="tag env">Envío</span>
+        <h3>Recibe «Tu envío fue entregado»</h3>
+        <p>Por notificación push y por correo.</p>
+        <span class="arrow">← push + correo</span>
+      </div></div>
+      <div class="cell mid"><span class="pin" aria-hidden="true"></span></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <span class="tag env">Envío · obligatorio</span>
+        <h3>Confirma la entrega</h3>
+        <p>Foto de la entrega y nombre de quien recibió. Sin esto no puede completar.</p>
+      </div></div>
+    </div>
+
+    <!-- 7. Completado -->
+    <div class="row last">
+      <div class="cell p"><div class="act p" data-who="Pasajero">
+        <h3>Paga y califica</h3>
+        <p>Paga la tarifa acordada con el método que eligió y califica al conductor.</p>
+      </div></div>
+      <div class="cell mid"><div class="state done"><b>COMPLETADO · 4</b><span>Se crea el pago y se registra la comisión de Bugie</span></div></div>
+      <div class="cell c"><div class="act c" data-who="Conductor">
+        <h3>Toca «Completar»</h3>
+        <p>Solo el conductor asignado. Cobra la tarifa acordada; si había cupón, ya viene descontado.</p>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="rules">
+    <section class="rule">
+      <h2>Cancelaciones</h2>
+      <ul>
+        <li><b>Pasajero:</b> en cualquier momento mientras el viaje no termine.</li>
+        <li><b>Conductor:</b> solo con el viaje aceptado y antes de iniciarlo. Ya en curso, usa el SOS o completa.</li>
+        <li>Se cierran las ofertas abiertas, se avisa a esos conductores y queda guardado quién canceló. <span class="k">CANCELADO · 5</span></li>
+      </ul>
+    </section>
+    <section class="rule">
+      <h2>Viajes programados</h2>
+      <ul>
+        <li>El conductor queda asignado para la hora indicada.</li>
+        <li>Si no marca «Ya llegué» hasta 15 minutos después de la hora, el viaje vuelve a <b>PENDIENTE</b> para otros conductores y se le avisa.</li>
+      </ul>
+    </section>
+    <section class="rule">
+      <h2>Después de completar</h2>
+      <ul>
+        <li>El pago queda registrado con la tarifa acordada.</li>
+        <li>La comisión de Bugie queda como deuda del conductor hasta que la pague; el admin registra ese pago en Comisiones.</li>
+        <li><span class="tag opt">Fase 2</span> El viaje queda anotado para el sistema de puntos; si eso falla, no afecta al viaje ni al cobro.</li>
+      </ul>
+    </section>
+  </div>
+
+  <p class="legend">
+    <span>Estados del viaje en el sistema:</span>
+    <span><code>1</code> Pendiente</span><span><code>7</code> Negociando</span><span><code>2</code> Aceptado</span>
+    <span><code>3</code> En curso</span><span><code>4</code> Completado</span><span><code>5</code> Cancelado</span>
+  </p>
+</div>
+
+<script>
+(function(){
+  var modes=['ambos','viaje','envio'];
+  function set(m){
+    modes.forEach(function(x){ document.body.classList.toggle('m-'+x, x===m); document.getElementById('m-'+x).setAttribute('aria-pressed', String(x===m)); });
+    try{ localStorage.setItem('bugie-flujo-modo', m); }catch(e){}
+  }
+  modes.forEach(function(m){ document.getElementById('m-'+m).addEventListener('click', function(){ set(m); }); });
+  var saved='ambos'; try{ saved=localStorage.getItem('bugie-flujo-modo')||'ambos'; }catch(e){}
+  set(modes.indexOf(saved)>=0?saved:'ambos');
+})();
+</script>
+
+</html>

@@ -156,7 +156,7 @@ class _PassengerSosScreenState extends State<PassengerSosScreen> {
           icon: Icons.warning,
           title: 'Solo para emergencias reales',
           subtitle:
-              'Al activar, el centro de monitoreo y la Policía Nacional son notificados con tu ubicación GPS.',
+              'Al activar, se alerta al centro de monitoreo de Bugie con tu ubicación GPS. El equipo intentará comunicarse con la Policía si es necesario.',
         ),
         const SizedBox(height: 16),
 
@@ -206,7 +206,7 @@ class _PassengerSosScreenState extends State<PassengerSosScreen> {
                 leading: Icon(Icons.shield, color: BugieColors.primary),
                 title: Text('Policía Nacional',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: Text('Coordinación directa para respuesta inmediata',
+                subtitle: Text('El equipo de Bugie intentará comunicarse con la Policía si es necesario',
                     style: TextStyle(fontSize: 12)),
               ),
               Divider(height: 1, indent: 70),
@@ -214,7 +214,7 @@ class _PassengerSosScreenState extends State<PassengerSosScreen> {
                 leading: Icon(Icons.location_on, color: BugieColors.primary),
                 title: Text('Tu posición GPS',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: Text('Se comparte automáticamente con los servicios',
+                subtitle: Text('Se comparte automáticamente con el centro de monitoreo',
                     style: TextStyle(fontSize: 12)),
               ),
             ],
@@ -247,7 +247,7 @@ class _Sent extends StatelessWidget {
                   color: c.text)),
           const SizedBox(height: 8),
           Text(
-            'El centro de monitoreo de Bugie recibió tu ubicación y está coordinando respuesta. Mantén la calma — ayuda está en camino.',
+            'Se alertó al centro de monitoreo de Bugie con tu ubicación. El equipo intentará comunicarse con la Policía si es necesario. Mantén la calma.',
             textAlign: TextAlign.center,
             style: TextStyle(color: c.textMuted),
           ),

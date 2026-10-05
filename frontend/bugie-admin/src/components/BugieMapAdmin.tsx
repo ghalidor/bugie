@@ -45,7 +45,30 @@ interface BugieMapAdminProps {
   /// azul que sigue las calles reales (en lugar de línea recta).
   /// Útil en el modal de detalle del viaje para mostrar la ruta planificada.
   routeCoordinates?: number[][];
+  /// Varias líneas con estilo propio (color, punteado, grosor), en orden de
+  /// dibujo: la última queda encima. Puntos en formato Leaflet [lat, lng].
+  /// Se suman a routeCoordinates (no lo reemplazan) y entran en el encuadre.
+  lines?: MapLine[];
 }
+
+/// Línea con estilo para el mapa (ruta del sistema, recorrido real, etc.).
+export interface MapLine {
+  id?: string;
+  /// [[lat, lng], ...]
+  points: [number, number][];
+  color: string;
+  weight?: number;
+  opacity?: number;
+  /// Patrón de punteado de Leaflet/SVG, p. ej. '8 8'. Sin valor = continua.
+  dashArray?: string;
+}
+
+/// Colores de las líneas de un viaje (mapa y leyenda usan los mismos).
+export const ROUTE_COLORS = {
+  planned: '#3b82f6',  // ruta del sistema (azul)
+  real:    '#10b981',  // recorrido real (verde)
+  pickup:  '#94a3b8',  // tramo de recogida (gris tenue)
+} as const;
 
 // ── Iconos ─────────────────────────────────────────────────────────────
 
@@ -131,6 +154,7 @@ export default function BugieMapAdmin({
   onFitBoundsRef,
   onMarkerClick,
   routeCoordinates,
+  lines,
 }: BugieMapAdminProps) {
   const config = useMapConfig();
   const finalCenter: LatLng = center ?? { lat: config.lat, lng: config.lng };
@@ -142,6 +166,14 @@ export default function BugieMapAdmin({
   const themeObserverRef = useRef<MutationObserver | null>(null);
   const layersRef    = useRef<any[]>([]);
   const didFitOnce   = useRef<boolean>(false);
+  // Polylines de la prop `lines` (entran en el encuadre).
+  const lineLayersRef = useRef<any[]>([]);
+  // Si las líneas llegan después del primer encuadre, se reencuadra una vez.
+  const didFitLines  = useRef<boolean>(false);
+  const fitLayers = () => [
+    ...layersRef.current.filter(l => typeof l.getLatLng === 'function'),
+    ...lineLayersRef.current,
+  ];
 
   // ResizeObserver para invalidateSize cuando cambia tamaño del contenedor.
   useEffect(() => {
@@ -189,10 +221,10 @@ export default function BugieMapAdmin({
       try {
         // Forzar recálculo de tamaño antes (modal/columna pudo cambiar tamaño)
         m.invalidateSize();
-        // Solo capas con getLatLng (markers, NO polylines/circles)
-        const ll = layersRef.current.filter(l => typeof l.getLatLng === 'function');
+        // Markers (getLatLng) y las líneas de `lines` (no círculos).
+        const ll = fitLayers();
         if (ll.length === 0) return;
-        if (ll.length === 1) {
+        if (ll.length === 1 && typeof ll[0].getLatLng === 'function') {
           // Un solo marker: setView sin animar
           const p = ll[0].getLatLng();
           m.setView([p.lat, p.lng], 15, { animate: false });
@@ -264,6 +296,7 @@ export default function BugieMapAdmin({
       // Limpiar capas previas
       layersRef.current.forEach(l => { try { map.removeLayer(l); } catch {} });
       layersRef.current = [];
+      lineLayersRef.current = [];
 
       markers.forEach(m => {
         const isDriver    = m.type === 'driver';
@@ -409,16 +442,33 @@ export default function BugieMapAdmin({
         layersRef.current.push(line);
       }
 
-      // Fit inicial (solo primera vez con markers)
-      if (!didFitOnce.current && markers.length >= 1) {
+      // Líneas con estilo, en orden (la última encima).
+      (lines ?? []).forEach(ln => {
+        if (!ln.points || ln.points.length < 2) return;
+        const pl = L.polyline(ln.points, {
+          color: ln.color,
+          weight: ln.weight ?? 4,
+          opacity: ln.opacity ?? 0.9,
+          dashArray: ln.dashArray,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map);
+        layersRef.current.push(pl);
+        lineLayersRef.current.push(pl);
+      });
+
+      // Fit inicial (solo primera vez con markers o líneas)
+      const hasLines = lineLayersRef.current.length > 0;
+      if ((!didFitOnce.current && (markers.length >= 1 || hasLines)) || (hasLines && !didFitLines.current)) {
+        if (hasLines) didFitLines.current = true;
         const doFit = () => {
           if (cancelled || !mapRef.current) return;
           try {
             map.invalidateSize();
-            if (markers.length === 1) {
+            if (markers.length === 1 && lineLayersRef.current.length === 0) {
               map.setView([markers[0].lat, markers[0].lng], 15);
             } else {
-              const ll = layersRef.current.filter(l => typeof l.getLatLng === 'function');
+              const ll = fitLayers();
               if (ll.length >= 1) {
                 const g = L.featureGroup(ll);
                 map.fitBounds(g.getBounds(), { padding: [40, 40] });
@@ -436,14 +486,16 @@ export default function BugieMapAdmin({
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, routeCoordinates]);
+  }, [markers, routeCoordinates, lines]);
 
   // Cleanup al desmontar
   useEffect(() => () => {
     try { mapRef.current?.remove(); } catch {}
     mapRef.current = null;
     layersRef.current = [];
+    lineLayersRef.current = [];
     didFitOnce.current = false;
+    didFitLines.current = false;
   }, []);
 
   // Re-centrar si cambia configuración global Y no hay center explícito

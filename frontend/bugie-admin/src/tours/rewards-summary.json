@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-sum-tabs']",
+      "title": "Tres vistas del programa",
+      "text": "Balance muestra la deuda en puntos, Referidos si invitar funciona y Cupones cuánto se descuenta en los viajes."
+    },
+    {
+      "selector": "[data-tour='rw-sum-stats']",
+      "title": "La deuda, primero",
+      "text": "«Puntos por canjear» es lo que tus usuarios pueden cobrar hoy. Cuando lo canjeen, el premio lo pagas tú."
+    },
+    {
+      "selector": "[data-tour='rw-sum-sources']",
+      "title": "De dónde salen los puntos",
+      "text": "Si una sola mecánica reparte casi todo, revisa en Ajustes si da más de lo que aporta."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

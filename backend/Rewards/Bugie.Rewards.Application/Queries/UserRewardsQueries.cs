@@ -130,17 +130,20 @@ public class GetUserRafflesHandler
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IRedemptionRepository     _redemptions;
 
     public GetUserRafflesHandler(
         IRaffleRepository raffles,
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IRedemptionRepository redemptions)
     {
-        _raffles  = raffles;
-        _profiles = profiles;
-        _levels   = levels;
-        _settings = settings;
+        _raffles     = raffles;
+        _profiles    = profiles;
+        _levels      = levels;
+        _settings    = settings;
+        _redemptions = redemptions;
     }
 
     public async Task<List<UserRaffleDto>> Handle(GetUserRafflesQuery q, CancellationToken ct)
@@ -155,6 +158,11 @@ public class GetUserRafflesHandler
         var profile = await _profiles.GetByUserIdAsync(q.UserId, ct);
         var niveles = await _levels.GetByUserTypeAsync(q.UserType, ct);
         var miNivel = niveles.FirstOrDefault(l => l.Name == (profile?.CurrentLevel ?? "bronze"));
+
+        // Cupones de ticket canjeados en el catálogo, listos para usar.
+        var cuponesTicket = await _redemptions.GetActiveByTypeAsync(
+            q.UserId, Bugie.Rewards.Domain.Constants.RewardTypes.RaffleTicket, ct);
+        var proximoCupon  = cuponesTicket.FirstOrDefault()?.Id;
 
         // Los abiertos, más los sorteados donde el usuario tuvo tickets.
         var todos = abiertos
@@ -173,7 +181,12 @@ public class GetUserRafflesHandler
             salida.Add(new UserRaffleDto(
                 r.Id, r.Name, r.RaffleType, r.PrizeDescription, r.PrizeValue,
                 r.DrawDate, r.Status, tickets, puede, motivo,
-                premio is not null, premio?.PrizeRank, premio?.TicketNumber));
+                premio is not null, premio?.PrizeRank, premio?.TicketNumber, premio?.PrizeCode,
+                MyPrizeDelivered: premio?.DeliveredAt is not null,
+                TicketCouponsAvailable: cuponesTicket.Count,
+                CanUseTicketCoupon: cuponesTicket.Count > 0 && puede
+                                    && r.IsOpen && r.DrawDate > DateTime.UtcNow,
+                NextTicketCouponId: proximoCupon));
         }
 
         return salida.OrderBy(r => r.Status == "drawn" ? 1 : 0)
@@ -182,7 +195,7 @@ public class GetUserRafflesHandler
     }
 
     /// <summary>Si no puede participar, el motivo en palabras del usuario.</summary>
-    private static (bool, string?) Eligibility(
+    internal static (bool, string?) Eligibility(
         Raffle r, string userType, PointsProfile? profile,
         RewardLevel? miNivel, List<RewardLevel> niveles)
     {

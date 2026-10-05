@@ -18,7 +18,9 @@ public record CreateTripRequest(
     string? PackageDetails = null,
     // Envio: a quien se entrega (obligatorio si es envio)
     string? RecipientName = null,
-    string? RecipientPhone = null);
+    string? RecipientPhone = null,
+    // Programado: hora del recojo (sin zona = hora de Peru). null = ahora.
+    DateTime? ScheduledAt = null);
 
 public record TripDto(
     Guid Id,
@@ -82,7 +84,65 @@ public record TripDto(
     string? RecipientName = null,
     string? RecipientPhone = null,
     string? DeliveryReceivedBy = null,
-    DateTime? DeliveryConfirmedAt = null);
+    DateTime? DeliveryConfirmedAt = null,
+    // Programado: hora del recojo (null = viaje "ahora").
+    DateTime? ScheduledAt = null,
+    // Programado que ya cuenta como viaje activo (faltan 30 min o menos,
+    // el conductor marco llegada o ya inicio). El conductor puede ir.
+    bool ScheduledActive = false,
+    // El conductor del programado no llego (15 min despues de la hora sin
+    // "Ya llegue"): el pasajero puede cancelar sin penalidad o republicar.
+    bool DriverLate = false)
+{
+    // Campos agregados (no cambian los existentes)
+
+    // Calificacion RECIBIDA por el pasajero. Hoy NO existe calificacion
+    // conductor -> pasajero en el sistema (solo pasajero -> conductor en
+    // trips.TripRatings), asi que siempre sale null.
+    public decimal? PassengerRating { get; init; }
+    public int? PassengerRatingCount { get; init; }
+
+    // Solo en GET /api/trips/pending: nombre corto del pasajero para el
+    // conductor, "Nombre A." (primer nombre + inicial del apellido paterno).
+    // null si el pasajero no tiene los nombres separados (cuenta antigua).
+    public string? PassengerShortName { get; init; }
+
+    /// <summary>
+    /// Arma "Nombre A.": primera palabra de firstNames + inicial del apellido
+    /// paterno con punto (si lo hay). Sin firstNames devuelve null.
+    /// </summary>
+    public static string? BuildPassengerShortName(string? firstNames, string? lastNamePaternal)
+    {
+        var first = firstNames?.Trim()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
+        if(string.IsNullOrEmpty(first)) return null;
+
+        var paternal = lastNamePaternal?.Trim();
+        return string.IsNullOrEmpty(paternal)
+            ? first
+            : $"{first} {char.ToUpperInvariant(paternal[0])}.";
+    }
+
+    // Solo en GET /api/trips/pending: cuando vence la solicitud para ESTE
+    // conductor (UTC en memoria; el JSON sale en hora de Peru). null = no hay
+    // regla de vencimiento. ExpiresReason dice que regla aplica:
+    //   "proposal_confirm"  su propuesta fue aceptada por el pasajero y debe
+    //                       confirmarla antes de CreatedAt + ProposalExpiration:ExpireAfterMinutes
+    //   "scheduled_time"    programado sin conductor: se cancela al llegar ScheduledAt
+    public DateTime? ExpiresAt { get; init; }
+    public string? ExpiresReason { get; init; }
+
+    // Oferta vigente del pasajero. Por defecto = EstimatedFare (lo que el
+    // pasajero ofrecio al crear el viaje). En GET /api/trips/pending es la
+    // ultima contraoferta del pasajero hacia ESE conductor, si existe.
+    private readonly decimal? _passengerOfferFare;
+    public decimal PassengerOfferFare
+    {
+        get => _passengerOfferFare ?? EstimatedFare;
+        init => _passengerOfferFare = value;
+    }
+}
 
 public record SosRequest(Guid TripId, double Lat, double Lng);
 
@@ -140,7 +200,11 @@ public record ProposalDto(
     decimal? PreviousFare,
     string ProposedByRole = "driver",
     string? RejectedBy = null,
-    string? DriverPhotoUrl = null);   // "passenger" | "driver" | null � NUEVO
+    string? DriverPhotoUrl = null,
+    // Calificacion recibida por el conductor (trips.TripRatings).
+    // null / 0 si todavia no tiene calificaciones.
+    decimal? DriverRating = null,
+    int DriverRatingCount = 0);   // "passenger" | "driver" | null � NUEVO
 
 public record ProposalHistoryDto(
     Guid Id,

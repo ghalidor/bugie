@@ -103,6 +103,32 @@ class RewardsRepository {
         .toList();
   }
 
+  /// POST /api/rewards/raffles/{raffleId}/use-ticket-coupon
+  /// Usa un cupón de ticket en el sorteo. Sin [redemptionId] el backend usa
+  /// el que vence primero. Si no se puede, responde 400/404 con el motivo.
+  Future<TicketCouponResult> useTicketCoupon(String raffleId,
+      {String? redemptionId}) async {
+    final json = await _api.post('$_base/raffles/$raffleId/use-ticket-coupon',
+        body: {if (redemptionId != null) 'redemptionId': redemptionId});
+    return TicketCouponResult.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/rewards/me/level-benefits
+  /// Cupones de descuento y viajes gratis de mi nivel en el mes (pasajero).
+  Future<LevelBenefits> getLevelBenefits() async {
+    final json = await _api.get('$_base/me/level-benefits');
+    return LevelBenefits.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// POST /api/rewards/me/level-benefits/claim
+  /// [type]: "discount" | "free_trip". No cuesta puntos; el cupón vence a fin
+  /// de mes. Si no se puede, el backend responde 400 con el motivo.
+  Future<LevelClaimResult> claimLevelBenefit(String type) async {
+    final json = await _api.post('$_base/me/level-benefits/claim',
+        body: {'type': type});
+    return LevelClaimResult.fromJson(json as Map<String, dynamic>);
+  }
+
   /// GET /api/rewards/me/redemptions
   /// [status]: active | used | expired | cancelled. null = todos.
   Future<RewardsPage<RewardRedemption>> getMyRedemptions({

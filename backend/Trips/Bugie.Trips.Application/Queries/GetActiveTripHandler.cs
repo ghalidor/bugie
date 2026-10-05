@@ -23,8 +23,11 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
 
     public async Task<TripDto?> Handle(GetActiveTripQuery q, CancellationToken ct)
     {
-        var trip = await _trips.GetActiveTripAsync(q.UserId, ct);
+        var trip = q.TripId.HasValue
+            ? await _trips.GetByIdAsync(q.TripId.Value, ct)
+            : await _trips.GetActiveTripAsync(q.UserId, ct);
         if(trip is null) return null;
+        if(trip.PassengerId != q.UserId && trip.DriverId != q.UserId) return null;
 
         // Cargar waypoints del viaje
         var waypoints = await _trips.GetWaypointsAsync(trip.Id, ct);
@@ -67,7 +70,13 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
             vehiclePhotoUrl = info?.VehiclePhotoUrl;
         }
 
+        // Nombre y foto del pasajero (lo muestra el conductor en su viaje activo).
+        var pax = (await _auth.GetUsersByIdsAsync(new[] { trip.PassengerId }, ct))
+            .GetValueOrDefault(trip.PassengerId);
+
         return CreateTripHandler.ToDto(trip, waypointDtos, driverLoc,
+            passengerName: pax?.FullName,
+            passengerPhotoUrl: pax?.ProfilePhotoUrl,
             driverName: driverName,
             driverPhotoUrl: driverPhotoUrl,
             driverRating: driverRating,

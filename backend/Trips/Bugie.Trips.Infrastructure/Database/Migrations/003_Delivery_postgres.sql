@@ -18,9 +18,14 @@ ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS PackageIsFragile   BOOLEAN     
 ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS PackageDetails     TEXT          NULL;
 ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS PickupVerified     BOOLEAN       NOT NULL DEFAULT FALSE;
 ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS PickupObservation  TEXT          NULL;
+-- Destinatario y confirmacion de entrega (foto + quien recibio)
+ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS RecipientName       VARCHAR(120) NULL;
+ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS RecipientPhone      VARCHAR(20)  NULL;
+ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS DeliveryReceivedBy  VARCHAR(120) NULL;
+ALTER TABLE trips.Trips ADD COLUMN IF NOT EXISTS DeliveryConfirmedAt TIMESTAMP    NULL;
 
 -- 2) Fotos del envio (paquete del cliente + verificacion del conductor)
---    Kind: 0=RequestPackage (cliente)  1=PickupMain (conductor)  2=PickupSecondary (conductor)
+--    Kind: 0=RequestPackage (cliente)  1=PickupMain (conductor)  2=PickupSecondary (conductor)  3=DeliveryProof (conductor)
 CREATE TABLE IF NOT EXISTS trips.TripPhotos (
     Id          UUID          NOT NULL DEFAULT gen_random_uuid(),
     TripId      UUID          NOT NULL,
@@ -31,7 +36,7 @@ CREATE TABLE IF NOT EXISTS trips.TripPhotos (
     CONSTRAINT PK_TripPhotos PRIMARY KEY (Id),
     CONSTRAINT FK_TripPhotos_Trip
         FOREIGN KEY (TripId) REFERENCES trips.Trips(Id) ON DELETE CASCADE,
-    CONSTRAINT CK_TripPhotos_Kind CHECK (Kind BETWEEN 0 AND 2)
+    CONSTRAINT CK_TripPhotos_Kind CHECK (Kind BETWEEN 0 AND 3)
 );
 
 CREATE INDEX IF NOT EXISTS IX_TripPhotos_TripId ON trips.TripPhotos (TripId);

@@ -1,25 +1,29 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { parse } from '../hooks/useLanding';
+import { fillCity, useCity } from '../hooks/useCity';
 
 const LANDING_API = `${import.meta.env.VITE_API_LANDING}/landing`;
 
 const FALLBACK = {
   eyebrow: 'Acceso por rol',
-  title: 'Ingresa a la plataforma de transporte seguro de Trujillo.',
+  title: 'Ingresa a la plataforma de transporte seguro de {city}.',
   subtitle: 'Desde aquí se separan los flujos de pasajero y conductor. El panel admin queda fuera para aislar responsabilidades.',
   chipLabel: 'Transporte seguro',
   features: [
-    { icon: 'fa-shield-halved',         title: 'Conductores verificados',  text: 'Documentos, Face ID y antecedentes revisados antes de operar.' },
+    { icon: 'fa-shield-halved',         title: 'Conductores verificados',  text: 'Documentos y antecedentes revisados en persona, y selfie registrada al conectarse.' },
     { icon: 'fa-location-dot',          title: 'Seguimiento en tiempo real', text: 'Trazabilidad activa del viaje para pasajero y conductor.' },
-    { icon: 'fa-triangle-exclamation',  title: 'Botón SOS',                 text: 'Alerta directa al monitoreo y Policía Nacional.' },
+    { icon: 'fa-triangle-exclamation',  title: 'Botón SOS',                 text: 'Alerta directa al centro de monitoreo y a los administradores.' },
     { icon: 'fa-mobile-screen-button',  title: 'App para todos',            text: 'Pasajero, conductor y admin con flujos propios.' },
   ],
   chips: ['Pasajero', 'Conductor', 'Admin separado'],
 };
 
 export default function AuthLayout() {
-  const [d, setD] = useState(FALLBACK);
+  const [raw, setD] = useState(FALLBACK);
+  // {city} se rellena con la ciudad configurada (ver hooks/useCity.ts).
+  const city = useCity();
+  const d = fillCity(raw, city);
 
   useEffect(() => {
     fetch(`${LANDING_API}?lang=es`)

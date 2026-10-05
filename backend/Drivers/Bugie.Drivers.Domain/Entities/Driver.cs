@@ -23,6 +23,20 @@ public class Driver
     public int TotalRatings { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? ApprovedAt { get; private set; }
+    /// <summary>
+    /// Fecha límite (UTC) para completar documentos cuando el admin aprobó
+    /// por excepción. NULL = sin plazo pendiente.
+    /// </summary>
+    public DateTime? DocumentsDeadline { get; private set; }
+    /// <summary>Faltas acumuladas por no completar documentos a tiempo.</summary>
+    public int Strikes { get; private set; }
+    /// <summary>
+    /// Fin de la suspensión en UTC (23:59:59 hora de Perú del día elegido).
+    /// NULL = suspensión indefinida o no suspendido.
+    /// </summary>
+    public DateTime? SuspendedUntil { get; private set; }
+    /// <summary>Motivo del último rechazo/suspensión (lo ve el conductor).</summary>
+    public string? StatusReason { get; private set; }
 
     private Driver() { }
 
@@ -38,6 +52,69 @@ public class Driver
     };
 
     public void Approve() { Status = DriverStatus.Approved; ApprovedAt = DateTime.UtcNow; }
+
+    /// <summary>
+    /// Aprobación por excepción: el conductor queda aprobado pero con un plazo
+    /// para completar los documentos que le faltan.
+    /// </summary>
+    public void ApproveWithDeadline(DateTime deadlineUtc)
+    {
+        Approve();
+        DocumentsDeadline = deadlineUtc;
+    }
+
+    /// <summary>Completó sus documentos: se borra el plazo.</summary>
+    public void ClearDocumentsDeadline() => DocumentsDeadline = null;
+
+    /// <summary>
+    /// No completó los documentos en el plazo: queda suspendido (offline),
+    /// se le suma una falta y se borra el plazo.
+    /// </summary>
+    public void DeactivateForMissingDocuments()
+    {
+        Suspend();
+        Strikes++;
+        DocumentsDeadline = null;
+        SuspendedUntil = null;
+        StatusReason = "No completaste tus documentos dentro del plazo.";
+    }
+
+    /// <summary>
+    /// El admin no aceptó el registro: queda rechazado y desconectado.
+    /// </summary>
+    public void RejectRegistration(string reason)
+    {
+        Status = DriverStatus.Rejected;
+        IsOnline = false;
+        StatusReason = reason;
+        SuspendedUntil = null;
+    }
+
+    /// <summary>
+    /// El admin suspende a un conductor aprobado (untilUtc NULL = indefinida).
+    /// Conserva viajes, calificaciones, billetera y puntos.
+    /// </summary>
+    public void SuspendAccount(string reason, DateTime? untilUtc)
+    {
+        Status = DriverStatus.Suspended;
+        IsOnline = false;
+        StatusReason = reason;
+        SuspendedUntil = untilUtc;
+    }
+
+    /// <summary>
+    /// Sale del rechazo/suspensión al estado indicado (lo calcula
+    /// DriverAccountService según sus documentos). Limpia motivo, fin de
+    /// suspensión y plazo de documentos.
+    /// </summary>
+    public void Reactivate(DriverStatus newStatus)
+    {
+        Status = newStatus;
+        StatusReason = null;
+        SuspendedUntil = null;
+        DocumentsDeadline = null;
+        if(newStatus == DriverStatus.Approved) ApprovedAt ??= DateTime.UtcNow;
+    }
     public void Reject() => Status = DriverStatus.Rejected;
     public void Suspend() { Status = DriverStatus.Suspended; IsOnline = false; }
     public void SubmitForReview() => Status = DriverStatus.UnderReview;

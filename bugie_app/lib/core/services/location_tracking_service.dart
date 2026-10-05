@@ -73,6 +73,9 @@ class LocationTrackingService {
     required TrackingMode mode,
     required Future<void> Function(Position pos) sender,
   }) {
+    // Si ya estaba corriendo, cancelamos el ciclo anterior para no tener
+    // dos timers enviando a la vez.
+    _timer?.cancel();
     _mode = mode;
     _sender = sender;
     _isRunning = true;

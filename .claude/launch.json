@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bugie-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend/bugie-web",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "bugie-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend/bugie-admin",
+        "run",
+        "dev"
+      ],
+      "port": 5174
+    }
+  ]
+}

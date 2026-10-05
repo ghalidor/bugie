@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
-import { ApiError } from '../../../state/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   rewardsAdminApi, CatalogItem, CatalogItemInput, RewardLevel,
   REWARD_TYPES, USER_TYPE_LABEL, rewardTypeLabel, describeReward,
   needsAmount, needsPercentage, needsQuantity, fmtPoints,
 } from '../../../state/rewards';
+import {
+  Column, DataTable, Drawer, Field, FilterBar, SectionCard, Select, StatusBadge, Switch,
+  useConfirm, useToast,
+} from '../../../components/ui';
+import { errMsg, FormSection, LoadError, optNum, USER_TYPE_CHIPS } from './common';
 
-/** Formulario vacio para crear una recompensa nueva. */
+/** Formulario vacío para crear una recompensa nueva. */
 const emptyItem = (userType: 'passenger' | 'driver'): CatalogItemInput => ({
   code: '', userType, name: '', description: '',
   pointsCost: 500, rewardType: 'discount_amount',
@@ -16,132 +20,135 @@ const emptyItem = (userType: 'passenger' | 'driver'): CatalogItemInput => ({
 
 export default function CatalogTab() {
   const [userType, setUserType] = useState<'passenger' | 'driver'>('passenger');
+  const [search,   setSearch]   = useState('');
   const [items,    setItems]    = useState<CatalogItem[]>([]);
   const [levels,   setLevels]   = useState<RewardLevel[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
+  // null = cerrado. 'new' = creando. CatalogItem = editando.
+  const [editing,  setEditing]  = useState<CatalogItem | 'new' | null>(null);
 
-  // null = sin formulario abierto. 'new' = creando. id = editando ese item.
-  const [editing, setEditing] = useState<string | null>(null);
-
-  function load() {
+  const load = useCallback(() => {
     setLoading(true); setError(null);
     Promise.all([rewardsAdminApi.catalog(userType), rewardsAdminApi.levels(userType)])
       .then(([c, l]) => { setItems(c); setLevels(l); })
-      .catch(err => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el catálogo.'))
+      .catch(err => setError(errMsg(err, 'No se pudo cargar el catálogo.')))
       .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    setEditing(null);
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userType]);
 
-  function onSaved() {
-    setEditing(null);
-    load();
+  useEffect(load, [load]);
+
+  const levelName = (n: string | null) => levels.find(l => l.name === n)?.displayName ?? n;
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? items.filter(i => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)) : items;
+  }, [items, search]);
+
+  const columns: Column<CatalogItem>[] = [
+    { key: 'name', header: 'Recompensa', priority: 1, width: '32%', render: i => (
+      <div style={{ minWidth: 0 }}>
+        <div className="rw-cell-main text-truncate">{i.name}</div>
+        <div className="rw-cell-sub text-truncate">{describeReward(i)} · <span className="rw-mono">{i.code}</span></div>
+      </div>
+    ) },
+    { key: 'cost', header: 'Costo', align: 'right', priority: 1, render: i => <strong>{fmtPoints(i.pointsCost)} pts</strong> },
+    { key: 'type', header: 'Tipo', priority: 3, render: i => rewardTypeLabel(i.rewardType) },
+    { key: 'stock', header: 'Stock', align: 'right', priority: 2, render: i => i.stock === null
+      ? <span className="bugie-muted">Ilimitado</span>
+      : i.stock <= 0 ? <StatusBadge tone="bad" size="sm">Agotado</StatusBadge> : fmtPoints(i.stock) },
+    { key: 'validity', header: 'Vigencia', priority: 3, render: i => `${i.validityDays} días` },
+    { key: 'level', header: 'Nivel mín.', priority: 3, render: i => i.minLevel ? levelName(i.minLevel) : 'Todos' },
+    { key: 'active', header: 'Estado', priority: 1, render: i => i.isActive
+      ? <StatusBadge tone="ok" size="sm" dot>Visible</StatusBadge>
+      : <StatusBadge tone="neutral" size="sm">Oculta</StatusBadge> },
+  ];
+
+  return (
+    <SectionCard
+      flush
+      title={`Catálogo de ${USER_TYPE_LABEL[userType].toLowerCase()}`}
+      description="Lo que los usuarios pueden canjear con sus puntos."
+      actions={
+        <button type="button" className="btn btn-sm btn-bugie" onClick={() => setEditing('new')} data-tour="rw-cat-new">
+          <i className="fa-solid fa-plus me-1" aria-hidden="true" />Nueva recompensa
+        </button>
+      }
+      tourId="rw-cat-list"
+    >
+      <div className="p-3 pb-0">
+        <FilterBar
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Buscar por nombre o código"
+          chips={USER_TYPE_CHIPS}
+          chip={userType}
+          onChipChange={v => setUserType(v as 'passenger' | 'driver')}
+        />
+      </div>
+      {error ? <LoadError text={error} onRetry={load} /> : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={i => i.id}
+          loading={loading}
+          onRowClick={i => setEditing(i)}
+          actions={i => [{ label: 'Editar', icon: 'fa-pen', onClick: () => setEditing(i) }]}
+          maxHeight="none"
+          empty={search
+            ? { title: 'Nada coincide con la búsqueda' }
+            : { title: `No hay recompensas para ${USER_TYPE_LABEL[userType].toLowerCase()}`, text: 'Crea la primera con «Nueva recompensa».' }}
+        />
+      )}
+
+      <ItemDrawer
+        editing={editing}
+        userType={userType}
+        levels={levels}
+        onClose={() => setEditing(null)}
+        onSaved={() => { setEditing(null); load(); }}
+      />
+    </SectionCard>
+  );
+}
+
+function ItemDrawer({ editing, userType, levels, onClose, onSaved }: {
+  editing: CatalogItem | 'new' | null; userType: 'passenger' | 'driver'; levels: RewardLevel[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const itemId = editing && editing !== 'new' ? editing.id : null;
+  const [initial, setInitial] = useState<CatalogItemInput>(() => emptyItem(userType));
+  const [form,    setForm]    = useState<CatalogItemInput>(initial);
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    let init: CatalogItemInput;
+    if (editing === 'new') init = emptyItem(userType);
+    else {
+      const { id: _id, ...rest } = editing;
+      init = { ...rest, description: rest.description ?? '' };
+    }
+    setInitial(init); setForm(init); setError(null); setSaving(false);
+  }, [editing, userType]);
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const set = <K extends keyof CatalogItemInput>(k: K, v: CatalogItemInput[K]) => setForm(f => ({ ...f, [k]: v }));
+
+  async function close() {
+    if (saving) return;
+    if (dirty) {
+      const ok = await confirm({ title: '¿Descartar los cambios?', message: 'Lo que escribiste en esta recompensa se perderá.', tone: 'warning', confirmText: 'Descartar', cancelText: 'Seguir editando' });
+      if (!ok) return;
+    }
+    onClose();
   }
-
-  return (
-    <>
-      <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-        {(['passenger', 'driver'] as const).map(t => (
-          <button key={t} type="button" onClick={() => setUserType(t)}
-                  className={`btn btn-sm rounded-pill ${userType === t ? 'btn-bugie' : 'btn-bugie-outline'}`}>
-            {USER_TYPE_LABEL[t]}
-          </button>
-        ))}
-        <button type="button" onClick={() => setEditing('new')} disabled={editing !== null}
-                className="btn btn-sm btn-bugie rounded-pill ms-auto">
-          <i className="fa-solid fa-plus me-1" />Nueva recompensa
-        </button>
-      </div>
-
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {editing === 'new' && (
-        <ItemForm initial={emptyItem(userType)} itemId={null} levels={levels}
-                  onCancel={() => setEditing(null)} onSaved={onSaved} />
-      )}
-
-      {loading ? (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      ) : error ? null : items.length === 0 ? (
-        <div className="bugie-card"><div className="bugie-card-body text-center py-4 bugie-muted">
-          No hay recompensas para {USER_TYPE_LABEL[userType].toLowerCase()}. Crea la primera con el botón de arriba.
-        </div></div>
-      ) : (
-        <div className="d-flex flex-column gap-2 mt-2">
-          {items.map(item => editing === item.id ? (
-            <ItemForm key={item.id} itemId={item.id} levels={levels}
-                      initial={{ ...item, description: item.description ?? '' }}
-                      onCancel={() => setEditing(null)} onSaved={onSaved} />
-          ) : (
-            <ItemRow key={item.id} item={item} levels={levels}
-                     onEdit={() => setEditing(item.id)} disabled={editing !== null} />
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-function ItemRow({ item, levels, onEdit, disabled }: {
-  item: CatalogItem; levels: RewardLevel[]; onEdit: () => void; disabled: boolean;
-}) {
-  const minLevel = levels.find(l => l.name === item.minLevel)?.displayName;
-  const soldOut  = item.stock !== null && item.stock <= 0;
-
-  return (
-    <div className="bugie-card" style={{ overflow: 'hidden', opacity: item.isActive ? 1 : 0.55 }}>
-      <div style={{ height: 3, background: item.isActive ? '#818cf8' : '#94a3b8' }} />
-      <div className="p-3 d-flex flex-wrap align-items-center gap-3">
-        <div className="flex-grow-1" style={{ minWidth: 220 }}>
-          <div className="fw-bold">
-            {item.name}
-            {!item.isActive && <span className="small fw-normal bugie-muted ms-2">(inactiva)</span>}
-          </div>
-          <div className="small bugie-muted">
-            {describeReward(item)} · código <strong>{item.code}</strong>
-          </div>
-        </div>
-        <div className="d-flex flex-wrap gap-3 small">
-          <span><span className="bugie-muted">Tipo </span>{rewardTypeLabel(item.rewardType)}</span>
-          <span><span className="bugie-muted">Vigencia </span>{item.validityDays} d</span>
-          <span>
-            <span className="bugie-muted">Stock </span>
-            {item.stock === null ? 'ilimitado' : <strong style={{ color: soldOut ? '#ef4444' : undefined }}>{item.stock}</strong>}
-          </span>
-          {minLevel && <span><span className="bugie-muted">Nivel mín. </span>{minLevel}</span>}
-        </div>
-        <div className="fw-bold text-end" style={{ minWidth: 90 }}>{fmtPoints(item.pointsCost)} pts</div>
-        <button type="button" onClick={onEdit} disabled={disabled}
-                className="btn btn-sm btn-bugie-outline rounded-pill">
-          <i className="fa-solid fa-pen me-1" />Editar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ItemForm({ initial, itemId, levels, onCancel, onSaved }: {
-  initial: CatalogItemInput; itemId: string | null; levels: RewardLevel[];
-  onCancel: () => void; onSaved: () => void;
-}) {
-  const [form,   setForm]   = useState<CatalogItemInput>(initial);
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState<string | null>(null);
-
-  const set = <K extends keyof CatalogItemInput>(k: K, v: CatalogItemInput[K]) =>
-    setForm(f => ({ ...f, [k]: v }));
-
-  /** Campo numerico que puede quedar vacio (null). */
-  const optNum = (v: string) => (v.trim() === '' ? null : Number(v));
 
   async function save() {
     setSaving(true); setError(null);
-
     // Solo se mandan los campos que usa el tipo elegido; el resto va en null.
     const t = form.rewardType;
     const payload: CatalogItemInput = {
@@ -151,131 +158,109 @@ function ItemForm({ initial, itemId, levels, onCancel, onSaved }: {
       percentage:  needsPercentage(t) ? form.percentage  : null,
       quantity:    needsQuantity(t)   ? form.quantity    : null,
     };
-
     try {
       if (itemId) await rewardsAdminApi.updateItem(itemId, payload);
       else        await rewardsAdminApi.createItem(payload);
+      toast.success(itemId ? 'Recompensa actualizada.' : 'Recompensa creada.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo guardar la recompensa.');
+      setError(errMsg(err, 'No se pudo guardar la recompensa.'));
     } finally {
       setSaving(false);
     }
   }
 
   const t = form.rewardType;
+  const extraFields = [needsAmount(t), needsPercentage(t), needsQuantity(t)].filter(Boolean).length;
+  const preview = describeReward(form);
 
   return (
-    <div className="bugie-card mb-2" style={{ border: '1px solid var(--bugie-primary)' }}>
-      <div className="bugie-card-header">{itemId ? `Editar ${initial.name}` : 'Nueva recompensa'}</div>
-      <div className="bugie-card-body">
-        <div className="row g-3">
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Código interno</label>
-            <input className="form-control form-control-sm" value={form.code} disabled={itemId !== null}
-                   placeholder="pass_discount_5" onChange={e => set('code', e.target.value)} />
-            <div className="small bugie-muted mt-1">
-              {itemId ? 'No se puede cambiar una vez creado.' : 'Único, sin espacios. Solo para uso interno.'}
-            </div>
-          </div>
-          <div className="col-md-8">
-            <label className="form-label small fw-semibold">Nombre que ve el usuario</label>
-            <input className="form-control form-control-sm" value={form.name}
-                   onChange={e => set('name', e.target.value)} />
-          </div>
+    <Drawer
+      open={!!editing}
+      onClose={close}
+      title={itemId ? `Editar ${initial.name}` : 'Nueva recompensa'}
+      description={`Catálogo de ${USER_TYPE_LABEL[form.userType].toLowerCase()}`}
+      footer={
+        <>
+          <button type="button" className="btn btn-outline-secondary" onClick={close} disabled={saving}>Cancelar</button>
+          <button type="button" className="btn btn-bugie" onClick={save} disabled={saving || (!!itemId && !dirty)}>
+            {saving && <span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />}
+            {itemId ? 'Guardar cambios' : 'Crear recompensa'}
+          </button>
+        </>
+      }
+    >
+      <div className="rw-form">
+        <div className="rw-summary">
+          <i className="fa-solid fa-gift" aria-hidden="true" />
+          <span><strong>{form.name || 'Sin nombre'}</strong>: {preview} por <strong>{fmtPoints(form.pointsCost)} pts</strong>, vale {form.validityDays} días.</span>
+        </div>
 
-          <div className="col-12">
-            <label className="form-label small fw-semibold">Descripción</label>
-            <input className="form-control form-control-sm" value={form.description ?? ''}
-                   onChange={e => set('description', e.target.value)} />
-          </div>
+        <FormSection step={1} title="Qué es">
+          <Field label="Nombre que ve el usuario" required>
+            <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} />
+          </Field>
+          <Field label="Código interno" help={itemId ? 'No se puede cambiar una vez creado.' : 'Único y sin espacios.'} required>
+            <input className="form-control" value={form.code} disabled={itemId !== null} placeholder="pass_discount_5" onChange={e => set('code', e.target.value)} />
+          </Field>
+          <Field label="Descripción" optional span="full">
+            <textarea className="form-control" rows={2} value={form.description ?? ''} onChange={e => set('description', e.target.value)} />
+          </Field>
+        </FormSection>
 
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Tipo de recompensa</label>
-            <select className="form-select form-select-sm" value={t}
-                    onChange={e => set('rewardType', e.target.value)}>
-              {REWARD_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
-            </select>
-          </div>
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Costo en puntos</label>
-            <input type="number" min={1} className="form-control form-control-sm" value={form.pointsCost}
-                   onChange={e => set('pointsCost', Number(e.target.value))} />
-          </div>
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Días de vigencia del cupón</label>
-            <input type="number" min={1} className="form-control form-control-sm" value={form.validityDays}
-                   onChange={e => set('validityDays', Number(e.target.value))} />
-          </div>
-
-          {/* Campos que dependen del tipo */}
+        <FormSection step={2} title="Qué recibe y cuánto cuesta">
+          <Field label="Tipo de recompensa" span="full">
+            <Select value={t} onChange={v => set('rewardType', v)} options={REWARD_TYPES} />
+          </Field>
           {needsAmount(t) && (
-            <div className="col-md-4">
-              <label className="form-label small fw-semibold">Monto (S/)</label>
-              <input type="number" min={0} step="0.5" className="form-control form-control-sm"
-                     value={form.amountSoles ?? ''} onChange={e => set('amountSoles', optNum(e.target.value))} />
-            </div>
+            <Field label="Monto (S/)" required>
+              <input type="number" min={0} step="0.5" className="form-control" value={form.amountSoles ?? ''} onChange={e => set('amountSoles', optNum(e.target.value))} />
+            </Field>
           )}
           {needsPercentage(t) && (
-            <div className="col-md-4">
-              <label className="form-label small fw-semibold">Porcentaje de descuento</label>
-              <input type="number" min={1} max={100} className="form-control form-control-sm"
-                     value={form.percentage ?? ''} onChange={e => set('percentage', optNum(e.target.value))} />
-            </div>
+            <Field label="Porcentaje de descuento" required>
+              <input type="number" min={1} max={100} className="form-control" value={form.percentage ?? ''} onChange={e => set('percentage', optNum(e.target.value))} />
+            </Field>
           )}
           {needsQuantity(t) && (
-            <div className="col-md-4">
-              <label className="form-label small fw-semibold">
-                {t === 'raffle_ticket' ? 'Cantidad de tickets' : 'Días que dura el descuento'}
-              </label>
-              <input type="number" min={1} className="form-control form-control-sm"
-                     value={form.quantity ?? ''} onChange={e => set('quantity', optNum(e.target.value))} />
-            </div>
+            <Field label={t === 'raffle_ticket' ? 'Cantidad de tickets' : 'Días que dura el descuento'} required>
+              <input type="number" min={1} className="form-control" value={form.quantity ?? ''} onChange={e => set('quantity', optNum(e.target.value))} />
+            </Field>
           )}
+          {/* Si queda sola en su fila, ocupa todo el ancho (sin huecos). */}
+          <Field label="Costo en puntos" required span={extraFields % 2 === 0 ? 'full' : undefined}>
+            <input type="number" min={1} className="form-control" value={form.pointsCost} onChange={e => set('pointsCost', Number(e.target.value))} />
+          </Field>
+        </FormSection>
 
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Nivel mínimo</label>
-            <select className="form-select form-select-sm" value={form.minLevel ?? ''}
-                    onChange={e => set('minLevel', e.target.value || null)}>
-              <option value="">Todos los niveles</option>
-              {levels.map(l => <option key={l.id} value={l.name}>{l.displayName}</option>)}
-            </select>
-          </div>
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Stock</label>
-            <input type="number" min={0} className="form-control form-control-sm" placeholder="Vacío = ilimitado"
-                   value={form.stock ?? ''} onChange={e => set('stock', optNum(e.target.value))} />
-          </div>
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Orden en el catálogo</label>
-            <input type="number" className="form-control form-control-sm" value={form.sortOrder}
-                   onChange={e => set('sortOrder', Number(e.target.value))} />
-          </div>
+        <FormSection step={3} title="Condiciones">
+          <Field label="Vigencia del cupón (días)" help="Desde que se canjea.">
+            <input type="number" min={1} className="form-control" value={form.validityDays} onChange={e => set('validityDays', Number(e.target.value))} />
+          </Field>
+          <Field label="Nivel mínimo">
+            <Select
+              value={form.minLevel ?? ''}
+              onChange={v => set('minLevel', v || null)}
+              options={[
+                { value: '', label: 'Todos los niveles' },
+                ...levels.map(l => ({ value: l.name, label: l.displayName })),
+              ]}
+            />
 
-          <div className="col-12">
-            <div className="form-check">
-              <input id="item-active" type="checkbox" className="form-check-input" checked={form.isActive}
-                     onChange={e => set('isActive', e.target.checked)} />
-              <label htmlFor="item-active" className="form-check-label small">
-                Visible en el catálogo
-              </label>
-            </div>
+          </Field>
+          <Field label="Stock" help="Vacío = ilimitado.">
+            <input type="number" min={0} className="form-control" placeholder="Ilimitado" value={form.stock ?? ''} onChange={e => set('stock', optNum(e.target.value))} />
+          </Field>
+          <Field label="Orden en el catálogo" help="Posición de la recompensa en la lista.">
+            <input type="number" className="form-control" value={form.sortOrder} onChange={e => set('sortOrder', Number(e.target.value))} />
+          </Field>
+          <div className="bx-col-full">
+            <Switch checked={form.isActive} onChange={v => set('isActive', v)} label="Visible en el catálogo" description="Si la apagas, deja de mostrarse en el catálogo." />
           </div>
-        </div>
+        </FormSection>
 
-        {error && <div className="alert alert-danger small mt-3 mb-0">{error}</div>}
-
-        <div className="d-flex gap-2 mt-3">
-          <button type="button" onClick={save} disabled={saving} className="btn btn-bugie rounded-pill">
-            {saving
-              ? <><span className="spinner-border spinner-border-sm me-2" />Guardando...</>
-              : itemId ? 'Guardar cambios' : 'Crear recompensa'}
-          </button>
-          <button type="button" onClick={onCancel} disabled={saving} className="btn btn-bugie-outline rounded-pill">
-            Cancelar
-          </button>
-        </div>
+        {error && <div className="alert alert-danger small mb-0" role="alert">{error}</div>}
       </div>
-    </div>
+    </Drawer>
   );
 }

@@ -2,9 +2,11 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Application.Queries;
+using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Api.Controllers;
 
@@ -19,7 +21,15 @@ namespace Bugie.Trips.Api.Controllers;
 public class RatingsController : ControllerBase
 {
     private readonly IMediator _mediator;
-    public RatingsController(IMediator mediator) => _mediator = mediator;
+    private readonly ITripRatingRepository _ratings;
+    private readonly ITripRepository _trips;
+
+    public RatingsController(IMediator mediator, ITripRatingRepository ratings, ITripRepository trips)
+    {
+        _mediator = mediator;
+        _ratings = ratings;
+        _trips = trips;
+    }
 
     private Guid CurrentUserId =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -45,12 +55,13 @@ public class RatingsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/trips/ratings/me/by-trips?ids=...&ids=...
+    /// GET /api/trips/ratings/me/by-trips?ids=...&amp;ids=...
     /// Versión batch: devuelve Map {tripId → rating} para todos los viajes dados.
     /// Los viajes sin calificación NO aparecen en el resultado.
     /// Usado por el historial del pasajero para evitar N llamadas paralelas.
     /// </summary>
     [HttpGet("me/by-trips")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewDrivers, Perm.ViewComplaints, Perm.ViewLiveMap, SkipForNonAdmins = true)]
     public async Task<IActionResult> GetByTrips(
         [FromQuery(Name = "ids")] List<Guid> ids,
         CancellationToken ct)
@@ -62,7 +73,14 @@ public class RatingsController : ControllerBase
         if(ids.Count > 200)
             return BadRequest(new { error = "Demasiados ids (máx 200)." });
 
-        var dto = await _mediator.Send(new GetTripRatingsBatchQuery(ids), ct);
+        // Solo calificaciones de viajes del usuario (como pasajero o conductor);
+        // el admin ve todas. El conductor ve al pasajero con nombre corto.
+        var isAdmin = User.IsInRole("admin");
+        var dto = await _mediator.Send(new GetTripRatingsBatchQuery(
+            ids, ShortPassengerNames: !isAdmin && User.IsInRole("driver")), ct);
+        if(!isAdmin)
+            dto = dto.Where(kv => kv.Value.PassengerId == CurrentUserId || kv.Value.DriverId == CurrentUserId)
+                     .ToDictionary(kv => kv.Key, kv => kv.Value);
         return Ok(dto);
     }
 
@@ -72,35 +90,69 @@ public class RatingsController : ControllerBase
     /// El frontend del pasajero lo usa para saber si mostrar "Calificar" o "Ya calificaste".
     /// </summary>
     [HttpGet("trip/{tripId:guid}")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewDrivers, Perm.ViewComplaints, Perm.ViewLiveMap, SkipForNonAdmins = true)]
     public async Task<IActionResult> GetByTrip(Guid tripId, CancellationToken ct)
     {
-        var dto = await _mediator.Send(new GetTripRatingQuery(tripId), ct);
+        // Solo el pasajero o el conductor del viaje, o un admin.
+        var isAdmin = User.IsInRole("admin");
+        var trip = await _trips.GetByIdAsync(tripId, ct);
+        if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+        if(!isAdmin && trip.PassengerId != CurrentUserId && trip.DriverId != CurrentUserId)
+            return Forbid();
+
+        // El conductor ve al pasajero con nombre corto.
+        var shortNames = !isAdmin && trip.PassengerId != CurrentUserId;
+        var dto = await _mediator.Send(new GetTripRatingQuery(tripId, shortNames), ct);
         if(dto is null) return NoContent();
         return Ok(dto);
     }
 
     /// <summary>
-    /// GET /api/trips/ratings/driver/{driverUserId}?page=1&pageSize=10
+    /// GET /api/trips/ratings/driver/{driverUserId}?page=1&amp;pageSize=10
     /// Lista paginada de calificaciones recibidas por un conductor.
     /// - El conductor mismo lo usa para su historial.
     /// - El admin lo usa en DriverDetail.
-    /// No exigimos que sea el dueño porque el admin también lo consume; si
-    /// querés restringir, agregar un check de rol o de "soy el conductor".
+    /// Solo el admin o el propio conductor (403 para cualquier otro usuario).
+    /// El conductor ve a los pasajeros con nombre corto; el admin, completo.
     /// </summary>
     [HttpGet("driver/{driverUserId:guid}")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification, SkipForNonAdmins = true)]
     public async Task<IActionResult> GetByDriver(
         Guid driverUserId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken ct = default)
     {
+        var isAdmin = User.IsInRole("admin");
+        if(!isAdmin && driverUserId != CurrentUserId) return Forbid();
+
         var dto = await _mediator.Send(
-            new GetDriverRatingsQuery(driverUserId, page, pageSize), ct);
+            new GetDriverRatingsQuery(driverUserId, page, pageSize, ShortPassengerNames: !isAdmin), ct);
         return Ok(dto);
     }
 
     /// <summary>
-    /// Atajo: GET /api/trips/ratings/me?page=1&pageSize=10
+    /// GET /api/trips/ratings/me/summary
+    /// Resumen de la calificacion RECIBIDA por el usuario logueado ("Mi cuenta").
+    /// - Conductor: promedio y cantidad desde trips.TripRatings
+    ///   (myRating = null y myRatingCount = 0 si aun no lo calificaron).
+    /// - Pasajero (u otro rol): hoy NO existe calificacion conductor -> pasajero,
+    ///   asi que myRating y myRatingCount salen null y ratingsAvailable = false.
+    /// </summary>
+    [HttpGet("me/summary")]
+    public async Task<IActionResult> GetMySummary(CancellationToken ct)
+    {
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "passenger";
+        if(role != "driver")
+            return Ok(new MyRatingSummaryDto(role, false, null, null));
+
+        var stats = (await _ratings.GetDriverStatsAsync(new[] { CurrentUserId }, ct))
+            .GetValueOrDefault(CurrentUserId);
+        return Ok(new MyRatingSummaryDto(role, true, stats?.Average, stats?.Count ?? 0));
+    }
+
+    /// <summary>
+    /// Atajo: GET /api/trips/ratings/me?page=1&amp;pageSize=10
     /// El conductor logueado ve sus propias calificaciones recibidas.
     /// </summary>
     [HttpGet("me")]
@@ -109,8 +161,16 @@ public class RatingsController : ControllerBase
         [FromQuery] int pageSize = 10,
         CancellationToken ct = default)
     {
+        // Nombre corto del pasajero ("Nombre A."), no el completo.
         var dto = await _mediator.Send(
-            new GetDriverRatingsQuery(CurrentUserId, page, pageSize), ct);
+            new GetDriverRatingsQuery(CurrentUserId, page, pageSize, ShortPassengerNames: true), ct);
         return Ok(dto);
     }
 }
+
+/// <summary>Respuesta de GET /api/trips/ratings/me/summary.</summary>
+public record MyRatingSummaryDto(
+    string Role,
+    bool RatingsAvailable,
+    decimal? MyRating,
+    int? MyRatingCount);

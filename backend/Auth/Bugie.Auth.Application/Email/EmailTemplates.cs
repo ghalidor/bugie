@@ -148,6 +148,73 @@ public static class EmailTemplates
         <p>Si tú no hiciste este cambio, escríbenos de inmediato a soporte.</p>");
 
     // ─────────────────────────────────────────────────────────────────────
+    // Cuenta eliminada por el propio usuario
+    // ─────────────────────────────────────────────────────────────────────
+    public static string AccountDeleted(string fullName, string city) => Wrap(city,
+        "Tu cuenta fue eliminada",
+        $@"
+        <p>Hola <strong>{System.Net.WebUtility.HtmlEncode(fullName)}</strong>,</p>
+        <p>Te confirmamos que eliminaste tu cuenta de <strong>{Brand}</strong>. Ya no podrás iniciar sesión
+        ni recibirás notificaciones.</p>
+        <p>Si cambias de opinión, contacta a soporte y podremos recuperarla.</p>
+        <p>Si tú no hiciste esta acción, escríbenos de inmediato a soporte.</p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Cuenta restaurada por el admin
+    // ─────────────────────────────────────────────────────────────────────
+    public static string AccountRestored(string fullName, string city) => Wrap(city,
+        "Tu cuenta fue restaurada",
+        $@"
+        <p>Hola <strong>{System.Net.WebUtility.HtmlEncode(fullName)}</strong>,</p>
+        <p>Recuperamos tu cuenta de <strong>{Brand}</strong>. Ya puedes volver a iniciar sesión con tu correo
+        y tu contraseña de siempre.</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/auth/login""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Ingresar a Bugie
+          </a>
+        </p>
+        <p>Si no recuerdas tu contraseña, usa «Olvidé mi contraseña».</p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Aviso general (lo usan otros servicios vía /api/internal/notify/email,
+    // ej. Trips: "recogimos tu paquete", "tu envío fue entregado").
+    // ─────────────────────────────────────────────────────────────────────
+    public static string Notification(string fullName, string title, string message, string city) => Wrap(city,
+        System.Net.WebUtility.HtmlEncode(title),
+        $@"
+        <p>Hola <strong>{System.Net.WebUtility.HtmlEncode(fullName)}</strong>,</p>
+        <p>{System.Net.WebUtility.HtmlEncode(message)}</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/auth/login""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Abrir Bugie
+          </a>
+        </p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Aviso a un correo que no es usuario de Bugie (ej. contacto de
+    // emergencia cuando su familiar activa un SOS). El botón es opcional:
+    // si viene linkUrl (ej. Google Maps), se muestra con linkText.
+    // ─────────────────────────────────────────────────────────────────────
+    public static string NotificationWithLink(string toName, string title, string message,
+        string? linkUrl, string? linkText, string city) => Wrap(city,
+        System.Net.WebUtility.HtmlEncode(title),
+        $@"
+        <p>Hola <strong>{System.Net.WebUtility.HtmlEncode(toName)}</strong>,</p>
+        <p style=""white-space:pre-line;"">{System.Net.WebUtility.HtmlEncode(message)}</p>
+        {(string.IsNullOrWhiteSpace(linkUrl) ? "" : $@"
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{System.Net.WebUtility.HtmlEncode(linkUrl)}""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            {System.Net.WebUtility.HtmlEncode(linkText ?? "Abrir enlace")}
+          </a>
+        </p>")}");
+
+    // ─────────────────────────────────────────────────────────────────────
     private static string Wrap(string city, string title, string innerHtml) => $@"
 <!doctype html>
 <html><head><meta charset=""utf-8""></head>

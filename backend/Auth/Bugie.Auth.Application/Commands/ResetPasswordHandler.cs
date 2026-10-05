@@ -34,6 +34,8 @@ public class ResetPasswordHandler : IRequestHandler<ResetPasswordCommand, bool>
             ?? throw new InvalidOperationException(InvalidLinkMessage);
 
         await _resets.UpdatePasswordHashAsync(userId, _hasher.Hash(cmd.NewPassword), ct);
+        // Sello nuevo: se cierran todas las sesiones abiertas de la cuenta.
+        await _users.RotateSecurityStampAsync(userId, ct);
 
         // Constancia por correo.
         var user = await _users.GetByIdAsync(userId, ct);

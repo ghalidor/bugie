@@ -20,15 +20,6 @@ public class ContactRepository : IContactRepository
                 (@Id, @Name, @Email, @Subject, @Message, @IsRead, @CreatedAt)",
             msg);
 
-    public async Task<List<ContactMessage>> GetUnreadAsync(CancellationToken ct = default)
-    {
-        var rows = await _db.QueryAsync<ContactMessage>(@"
-            SELECT * FROM landing.ContactMessages
-            WHERE IsRead = FALSE
-            ORDER BY CreatedAt DESC");
-        return rows.ToList();
-    }
-
     public Task<ContactMessage?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _db.QuerySingleOrDefaultAsync<ContactMessage>(
             "SELECT * FROM landing.ContactMessages WHERE Id = @Id",
@@ -58,6 +49,10 @@ public class ContactRepository : IContactRepository
 
         return (rows.ToList(), total);
     }
+
+    public Task<int> CountUnattendedAsync(CancellationToken ct = default) =>
+        _db.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*)::int FROM landing.ContactMessages WHERE LastReplyAt IS NULL");
 
     public Task MarkAsReadAsync(Guid id, Guid? adminUserId, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"

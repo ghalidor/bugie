@@ -1,4 +1,6 @@
-﻿using Bugie.Drivers.Application.DTOs;
+﻿using Bugie.Drivers.Application.Commands;
+using Bugie.Drivers.Application.DTOs;
+using Bugie.Drivers.Application.Services;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
 using MediatR;
@@ -12,13 +14,16 @@ namespace Bugie.Drivers.Application.Queries;
 /// - Status: 1-6 (DriverStatus). null = todos.
 /// - Online: true/false (IsOnline). null = sin filtro.
 /// - Search: nombre o email (LIKE '%X%' contra auth.Users JOIN).
+/// - Deleted: false (defecto) = sin cuentas eliminadas; true = solo eliminadas; null = todas.
 /// </summary>
 public record GetDriversPagedQuery(
     int Page,
     int PageSize,
     int? Status,
     bool? Online,
-    string? Search) : IRequest<DriversPagedDto>;
+    string? Search,
+    bool? OpenReview = null,
+    bool? Deleted = false) : IRequest<DriversPagedDto>;
 
 public record DriversPagedDto(
     List<DriverDto> Items,
@@ -30,13 +35,16 @@ public class GetDriversPagedHandler
     : IRequestHandler<GetDriversPagedQuery, DriversPagedDto> {
     private readonly IDriverRepository _drivers;
     private readonly IAuthClient _auth;
+    private readonly IDriverReviewRequestRepository _reviews;
+    private readonly IVehicleRepository _vehicles;
 
-    public GetDriversPagedHandler(IDriverRepository drivers, IAuthClient auth)
-        => (_drivers, _auth) = (drivers, auth);
+    public GetDriversPagedHandler(IDriverRepository drivers, IAuthClient auth,
+        IDriverReviewRequestRepository reviews, IVehicleRepository vehicles)
+        => (_drivers, _auth, _reviews, _vehicles) = (drivers, auth, reviews, vehicles);
 
     public async Task<DriversPagedDto> Handle(GetDriversPagedQuery q, CancellationToken ct) {
         var (list, total) = await _drivers.GetPagedAsync(
-            q.Page, q.PageSize, q.Status, q.Online, q.Search, ct);
+            q.Page, q.PageSize, q.Status, q.Online, q.Search, q.OpenReview, ct, q.Deleted);
 
         // Si la página está vacía, evitamos un round-trip a Auth.
         if(list.Count == 0)
@@ -47,21 +55,21 @@ public class GetDriversPagedHandler
         // a buscar, no 5000.
         var users = await _auth.GetUsersByIdsAsync(list.Select(d => d.UserId), ct);
 
-        var items = list.Select(d => new DriverDto(
-            d.Id,
-            d.UserId,
-            users.GetValueOrDefault(d.UserId)?.FullName ?? "Conductor",
-            d.Status,
-            d.IsOnline,
-            d.CurrentLat,
-            d.CurrentLng,
-            d.Rating,
-            d.TotalRatings,
-            HasActiveTrip: false,
-            d.CreatedAt,
-            d.ApprovedAt,
-            d.ProfilePhotoUrl
-        )).ToList();
+        // Solicitudes de revisión abiertas de esta página
+        var open = (await _reviews.GetOpenByDriversAsync(list.Select(d => d.Id), ct))
+            .ToDictionary(r => r.DriverId);
+
+        // Placa del vehiculo activo de cada conductor de la pagina
+        var plates = await _vehicles.GetActivePlatesAsync(list.Select(d => d.Id), ct);
+
+        var items = list.Select(d => RegisterDriverHandler.ToDto(d) with
+        {
+            FullName = users.GetValueOrDefault(d.UserId)?.FullName ?? "Conductor",
+            OpenReviewRequest = DriverAccountService.ToDto(open.GetValueOrDefault(d.Id)),
+            DeletedAt = users.GetValueOrDefault(d.UserId)?.DeletedAt,
+            DeletedReason = users.GetValueOrDefault(d.UserId)?.DeletedReason,
+            ActivePlate = plates.GetValueOrDefault(d.Id),
+        }).ToList();
 
         return new DriversPagedDto(items, q.Page, q.PageSize, total);
     }

@@ -3,6 +3,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- XML para mostrar los /// <summary> en Swagger. 1591/1573 = avisos de miembros o parámetros sin comentario XML -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591;1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Bugie.Auth.Domain/Bugie.Auth.Domain.csproj" />

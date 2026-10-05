@@ -1,14 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import PageHeader from '../../components/PageHeader';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { apiFetch, API, ApiError } from '../../state/api';
-import { usePermissions } from '../../state/permissions';
+import { PERMS, usePermissions } from '../../state/permissions';
+import { driverByUserPath } from '../../components/EntityLinks';
+import {
+  ActionItem, Column, DataTable, Drawer, Field, FilterBar, FormGrid, Page, Pagination, SectionCard, Select, Skeleton, StatusBadge, Tone,
+  useConfirm, useDebouncedValue, useTabParam, useToast,
+} from '../../components/ui';
+import { Avatar, InfoRow, PersonCell, fileUrl, fmtDate } from './people/PeopleShared';
+import {
+  AccountAccessCard, AccountAuditList, AccountIdentity, DeactivatedBadge, DeletedAccountBanner, DeletedBadge, DocFields, DocValue, IdentityCard,
+  IncompleteBadge, NameFields, NamesValue, docNumberError, fmtDocument, namesErrors,
+} from './people/AccountShared';
 
-interface User {
+interface User extends AccountIdentity {
   id: string; fullName: string; email: string;
   phone: string; role: string; isActive: boolean; createdAt: string;
-  /// Solo presente para users con role='admin'. Null si todavía no se le asignó rol.
+  /// Solo para role='admin'. Null si todavía no se le asignó rol.
   adminRoleId: string | null;
+  profilePhotoUrl?: string | null;
 }
 
 /// Rol administrativo (de /auth/admin/security/roles).
@@ -19,8 +28,6 @@ interface AdminRole {
   isSystem: boolean;
 }
 
-/// Respuesta del endpoint /auth/users/paged.
-/// items = página actual, total = cuántos matchean en TOTAL en BD.
 interface UsersPagedResponse {
   items: User[];
   page: number;
@@ -28,9 +35,7 @@ interface UsersPagedResponse {
   total: number;
 }
 
-/// Respuesta del endpoint /auth/users/stats.
-/// Cuentas calculadas en BD (no en cliente) para que funcionen con
-/// cualquier cantidad de usuarios.
+/// Conteos calculados en BD (respetan los filtros enviados).
 interface UsersStatsResponse {
   total: number;
   activos: number;
@@ -38,457 +43,324 @@ interface UsersStatsResponse {
   conductores: number;
 }
 
-const ROLE_CFG: Record<string, { label: string; color: string; icon: string }> = {
-  passenger: { label: 'Pasajero',  color: '#818cf8', icon: 'fa-user'        },
-  driver:    { label: 'Conductor', color: '#34d399', icon: 'fa-car-side'     },
-  admin:     { label: 'Admin',     color: '#f87171', icon: 'fa-shield-halved' },
+const EMPTY_STATS: UsersStatsResponse = { total: 0, activos: 0, pasajeros: 0, conductores: 0 };
+
+const ROLE_CFG: Record<string, { label: string; tone: Tone; icon: string }> = {
+  passenger: { label: 'Pasajero',  tone: 'primary', icon: 'fa-user' },
+  driver:    { label: 'Conductor', tone: 'info',    icon: 'fa-car-side' },
+  admin:     { label: 'Admin',     tone: 'bad',     icon: 'fa-shield-halved' },
 };
 
-const PAGE_SIZE = 25;
-
-function initials(name: string) {
-  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-}
+// 'deleted' = solo cuentas eliminadas (por defecto el backend no las devuelve).
+const ROLE_FILTERS = ['all', 'passenger', 'driver', 'admin', 'deleted'];
 
 export default function Users() {
-  const [users,      setUsers]      = useState<User[]>([]);
-  const [total,      setTotal]      = useState(0);    // total que matchea los filtros
-  const [page,       setPage]       = useState(1);    // 1-based
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState('');
-  // searchDebounced es lo que realmente viaja al backend (tras 300ms sin escribir).
-  // Así no disparamos un request por cada tecla.
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
-  // KPIs agregados (calculados en BD). Reflejan los filtros actuales.
-  const [stats, setStats] = useState<UsersStatsResponse>({
-    total: 0, activos: 0, pasajeros: 0, conductores: 0,
-  });
-  const [acting,     setActing]     = useState<string | null>(null);
-  const [error,      setError]      = useState<string | null>(null);
+  const toast   = useToast();
+  const confirm = useConfirm();
+  const [roleFilter, setRoleFilter] = useTabParam(ROLE_FILTERS, 'rol');
+  const [users,    setUsers]    = useState<User[]>([]);
+  const [total,    setTotal]    = useState(0);
+  const [page,     setPage]     = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [loading,  setLoading]  = useState(true);
+  const [search,   setSearch]   = useState('');
+  const searchDebounced = useDebouncedValue(search, 300);
+  const [stats, setStats] = useState<UsersStatsResponse>(EMPTY_STATS);
+  // Conteos por rol (se toman cuando el filtro es "Todos") para mostrarlos en los chips.
+  const [roleCounts, setRoleCounts] = useState<UsersStatsResponse | null>(null);
+  const [deletedCount, setDeletedCount] = useState<number | undefined>(undefined);
+  const [acting, setActing] = useState<string | null>(null);
+  // Ficha de la cuenta (identidad, eliminada/restaurar, historial).
+  const [viewing, setViewing] = useState<User | null>(null);
+  const [error,  setError]  = useState<string | null>(null);
 
-  // ── Asignación de roles (solo si el usuario actual es super_admin) ──
-  // Lista de roles administrativos disponibles para asignar a otros admins.
-  const { isSuperAdmin } = usePermissions();
-  const [roles, setRoles]   = useState<AdminRole[]>([]);
+  // ── Roles administrativos (solo super_admin) ──
+  const { isSuperAdmin, has } = usePermissions();
+  const [roles, setRoles] = useState<AdminRole[]>([]);
   const [assigning, setAssigning] = useState<User | null>(null);
-  // Modal de creación de nuevo admin
   const [creatingAdmin, setCreatingAdmin] = useState(false);
 
-  // ID del usuario actualmente logueado (super_admin). Lo usamos para impedir
-  // que se edite/cambie de rol a sí mismo y se auto-bloquee fuera del sistema.
+  // Usuario logueado: no puede cambiarse su propio rol (se bloquearía fuera del sistema).
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   useEffect(() => {
     try {
       const raw = localStorage.getItem('bugie_admin_user');
-      if (raw) {
-        const obj = JSON.parse(raw);
-        setCurrentUserId(obj.userId ?? null);
-      }
-    } catch {}
+      if (raw) setCurrentUserId(JSON.parse(raw).userId ?? null);
+    } catch { /* sin sesión guardada */ }
   }, []);
 
-  // Roles disponibles para ASIGNAR: nunca el super_admin (lo manejamos por SQL).
-  // Sólo se asignan roles "normales" desde la UI.
+  // Roles asignables desde la UI: nunca el super_admin (se maneja por SQL).
   const assignableRoles = roles.filter(r => !r.isSystem);
 
-  // Cargar la lista de roles una vez (solo si el usuario es super_admin).
-  // Si no lo es, no se le muestra el botón "Asignar rol" igual.
   useEffect(() => {
     if (!isSuperAdmin) return;
-    apiFetch<AdminRole[]>(`${API.auth}/auth/admin/security/roles`)
-      .then(setRoles)
-      .catch(() => {});
+    apiFetch<AdminRole[]>(`${API.auth}/auth/admin/security/roles`).then(setRoles).catch(() => {});
   }, [isSuperAdmin]);
 
-  // Debounce del search: cada vez que el usuario escribe, esperamos 300ms.
-  // Si en 300ms no volvió a escribir, recién entonces actualizamos el valor
-  // que dispara el fetch.
-  const debounceRef = useRef<number | null>(null);
+  // Cambiar un filtro vuelve a la página 1 (sin pedir dos veces); reqId descarta
+  // respuestas viejas para que una petición lenta no pise a la más nueva.
+  const filterKey = `${roleFilter}|${searchDebounced.trim()}|${pageSize}`;
+  const lastKey = useRef(filterKey);
+  const reqId = useRef(0);
   useEffect(() => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      setSearchDebounced(search);
-      setPage(1); // al buscar, volvemos a la primera página
-    }, 300);
-    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current); };
-  }, [search]);
-
-  // Cada vez que cambia algún filtro o la página → fetch paginado.
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, roleFilter, searchDebounced]);
-
-  // Al cambiar el rol, volver a página 1 (no quedarse en página 12 si ahora hay solo 3).
-  useEffect(() => { setPage(1); }, [roleFilter]);
+    if (lastKey.current !== filterKey) {
+      lastKey.current = filterKey;
+      if (page !== 1) { setPage(1); return; }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, page]);
 
   async function load() {
+    const id = ++reqId.current;
     setLoading(true); setError(null);
     try {
-      // Parámetros base (paginación)
-      const pagedParams = new URLSearchParams({
-        page: String(page),
-        pageSize: String(PAGE_SIZE),
-      });
-      // Parámetros para stats (sin paginación, solo filtros)
+      const pagedParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       const statsParams = new URLSearchParams();
-
-      if (roleFilter !== 'all') {
+      const deletedParams = new URLSearchParams({ deleted: 'true' });
+      if (roleFilter === 'deleted') {
+        pagedParams.append('deleted', 'true');
+        statsParams.append('deleted', 'true');
+      } else if (roleFilter !== 'all') {
         pagedParams.append('role', roleFilter);
         statsParams.append('role', roleFilter);
       }
       if (searchDebounced.trim()) {
         pagedParams.append('search', searchDebounced.trim());
         statsParams.append('search', searchDebounced.trim());
+        deletedParams.append('search', searchDebounced.trim());
       }
 
-      // Pedimos lista y KPIs EN PARALELO (2 requests, mismo tiempo que 1).
-      const [pagedRes, statsRes] = await Promise.all([
-        apiFetch<UsersPagedResponse>(
-          `${API.auth}/auth/users/paged?${pagedParams.toString()}`),
-        apiFetch<UsersStatsResponse>(
-          `${API.auth}/auth/users/stats?${statsParams.toString()}`),
+      const [pagedRes, statsRes, deletedRes] = await Promise.all([
+        apiFetch<UsersPagedResponse>(`${API.auth}/auth/users/paged?${pagedParams.toString()}`),
+        apiFetch<UsersStatsResponse>(`${API.auth}/auth/users/stats?${statsParams.toString()}`),
+        apiFetch<UsersStatsResponse>(`${API.auth}/auth/users/stats?${deletedParams.toString()}`).catch(() => null),
       ]);
 
+      if (id !== reqId.current) return;
       setUsers(pagedRes.items ?? []);
       setTotal(pagedRes.total ?? 0);
-      setStats(statsRes ?? { total: 0, activos: 0, pasajeros: 0, conductores: 0 });
+      const st = statsRes ?? EMPTY_STATS;
+      setStats(st);
+      if (roleFilter === 'all') setRoleCounts(st);
+      setDeletedCount(deletedRes?.total);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar los usuarios.');
-    } finally { setLoading(false); }
+      if (id === reqId.current) setError(err instanceof ApiError ? err.message : 'No se pudo cargar los usuarios.');
+    } finally { if (id === reqId.current) setLoading(false); }
   }
 
-  async function deactivate(id: string) {
-    setActing(id);
+  async function deactivate(u: User) {
+    const res = await confirm({
+      title: `¿Desactivar a ${u.fullName}?`,
+      message: 'Ya no podrá iniciar sesión en Bugie y se cerrarán todas sus sesiones abiertas. Podrás reactivarla después.',
+      tone: 'danger', confirmText: 'Desactivar cuenta',
+      reason: 'optional', reasonMaxLength: 500,
+      reasonPlaceholder: 'Ej.: Reportes de mal comportamiento.',
+    });
+    if (!res) return;
+    setActing(u.id);
     try {
-      await apiFetch(`${API.auth}/auth/users/${id}/deactivate`, { method: 'PUT' });
-      // Optimización: actualizamos solo la fila en pantalla, no recargamos
-      // toda la página. También bajamos el KPI "Activos" en 1 sin pedir stats
-      // de nuevo (ahorra un round-trip).
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, isActive: false } : u));
-      setStats(s => ({ ...s, activos: Math.max(0, s.activos - 1) }));
+      await apiFetch(`${API.auth}/auth/users/${u.id}/deactivate`, { method: 'PUT', body: JSON.stringify({ reason: res.reason || null }) });
+      // Solo actualizamos la fila y el conteo de activos (sin recargar todo).
+      setUsers(prev => prev.map(x => x.id === u.id
+        ? { ...x, isActive: false, deactivatedAt: new Date().toISOString(), deactivatedReason: res.reason || null } : x));
+      if (u.isActive) setStats(s => ({ ...s, activos: Math.max(0, s.activos - 1) }));
+      toast.success('Cuenta desactivada.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al desactivar.');
+      toast.error(err instanceof ApiError ? err.message : 'Error al desactivar.');
     } finally { setActing(null); }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const fromIdx = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const toIdx   = Math.min(page * PAGE_SIZE, total);
+  async function reactivate(u: User) {
+    const res = await confirm({
+      title: `¿Reactivar a ${u.fullName}?`,
+      message: 'Podrá volver a iniciar sesión con su correo y contraseña.',
+      confirmText: 'Reactivar cuenta',
+      reason: 'optional', reasonMaxLength: 500,
+    });
+    if (!res) return;
+    setActing(u.id);
+    try {
+      await apiFetch(`${API.auth}/auth/users/${u.id}/reactivate`, { method: 'PUT', body: JSON.stringify({ reason: res.reason || null }) });
+      toast.success('Cuenta reactivada.');
+      load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al reactivar.');
+    } finally { setActing(null); }
+  }
 
+  /// Por qué no se puede asignar rol a este admin (o null si sí se puede).
+  function roleLock(u: User): 'self' | 'protected' | null {
+    if (u.id === currentUserId) return 'self';
+    if (roles.some(r => r.id === u.adminRoleId && r.isSystem)) return 'protected';
+    return null;
+  }
+
+  function rowActions(u: User): ActionItem[] {
+    const deleted = !!u.deletedAt;
+    const canAssign = isSuperAdmin && u.role === 'admin' && !roleLock(u) && !deleted;
+    return [
+      { label: 'Ver cuenta', icon: 'fa-id-card', onClick: () => setViewing(u) },
+      { label: 'Ver ficha del pasajero', icon: 'fa-eye', to: `/admin/pasajeros/${u.id}`, hidden: u.role !== 'passenger' || !has(PERMS.ViewPassengers) },
+      { label: 'Ver ficha del conductor', icon: 'fa-eye', to: driverByUserPath(u.id), hidden: u.role !== 'driver' || !has(PERMS.ViewDrivers) },
+      { label: 'Asignar rol', icon: 'fa-user-shield', onClick: () => setAssigning(u), hidden: !canAssign },
+      // Una cuenta eliminada ya no puede iniciar sesión: desactivar no aplica.
+      { label: 'Reactivar cuenta', icon: 'fa-user-check', separator: true,
+        onClick: () => reactivate(u), disabled: acting === u.id, hidden: !u.deactivatedAt || u.role === 'admin' || deleted },
+      { label: 'Desactivar cuenta', icon: 'fa-user-slash', danger: true, separator: true,
+        onClick: () => deactivate(u), disabled: acting === u.id, hidden: !!u.deactivatedAt || u.role === 'admin' || deleted },
+    ];
+  }
+
+  const columns: Column<User>[] = [
+    { key: 'name', header: 'Usuario', priority: 1, width: '32%',
+      render: u => <PersonCell name={u.fullName} sub={u.email} tone={ROLE_CFG[u.role]?.tone} muted={!!u.deletedAt} /> },
+    { key: 'role', header: 'Tipo', priority: 1,
+      render: u => {
+        const role = ROLE_CFG[u.role] ?? { label: u.role, tone: 'neutral' as Tone, icon: 'fa-user' };
+        const adminRole = roles.find(r => r.id === u.adminRoleId);
+        const lock = u.role === 'admin' && isSuperAdmin ? roleLock(u) : null;
+        return (
+          <span className="d-inline-flex flex-wrap gap-1">
+            <StatusBadge tone={role.tone} icon={role.icon} size="sm">{role.label}</StatusBadge>
+            {/* Admin: rol administrativo asignado (amarillo si no tiene). */}
+            {u.role === 'admin' && (
+              <StatusBadge tone={!adminRole || adminRole.isSystem ? 'warn' : 'primary'} icon={adminRole?.isSystem ? 'fa-crown' : 'fa-user-shield'} size="sm">
+                {adminRole?.name ?? 'Sin rol'}
+              </StatusBadge>
+            )}
+            {lock === 'self' && <StatusBadge tone="neutral" icon="fa-user" size="sm" title="No puedes cambiar tu propio rol">Tú</StatusBadge>}
+            {lock === 'protected' && <StatusBadge tone="warn" icon="fa-lock" size="sm" title="El rol super_admin solo se cambia por SQL">Protegido</StatusBadge>}
+          </span>
+        );
+      } },
+    { key: 'status', header: 'Estado', priority: 1,
+      render: u => u.deletedAt
+        ? <DeletedBadge deletedAt={u.deletedAt} deletedReason={u.deletedReason} />
+        : (
+          <span className="d-inline-flex flex-wrap gap-1">
+            {u.deactivatedAt
+              ? <DeactivatedBadge deactivatedAt={u.deactivatedAt} deactivatedReason={u.deactivatedReason} />
+              : <StatusBadge tone={u.isActive ? 'ok' : 'neutral'} dot>{u.isActive ? 'Activo' : 'Inactivo'}</StatusBadge>}
+            {u.needsProfileCompletion && <IncompleteBadge />}
+          </span>
+        ) },
+    { key: 'doc', header: 'Documento', priority: 3, render: u => fmtDocument(u) ?? '—' },
+    { key: 'phone', header: 'Teléfono', priority: 3, render: u => u.phone || '—' },
+    { key: 'createdAt', header: 'Registro', priority: 2, render: u => fmtDate(u.createdAt) },
+  ];
+
+  const rc = roleCounts;
   return (
-    <>
-      <PageHeader
-        title="Usuarios"
-        subtitle="Gestión de todos los usuarios registrados en la plataforma."
-        icon="fa-solid fa-users"
-        actions={
-          isSuperAdmin ? (
-            <button className="btn btn-bugie text-white"
-                    onClick={() => setCreatingAdmin(true)}>
-              <i className="fa-solid fa-user-plus me-2" />Nuevo admin
-            </button>
-          ) : undefined
-        }
-      />
-
-      {/* KPIs (calculados en BD, respetan los filtros actuales).
-          Cuando filtras "Conductores" o buscas "jose", los conteos
-          se ajustan a lo que estás viendo. Funcionan con cualquier
-          cantidad de usuarios porque son COUNT(*) con índices. */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Total',       value: stats.total,       color: '#818cf8', icon: 'fa-users'      },
-          { label: 'Activos',     value: stats.activos,     color: '#34d399', icon: 'fa-circle-dot' },
-          { label: 'Pasajeros',   value: stats.pasajeros,   color: '#38bdf8', icon: 'fa-user'       },
-          { label: 'Conductores', value: stats.conductores, color: '#f59e0b', icon: 'fa-car-side'   },
-        ].map(k => (
-          <div className="col-6 col-xl-3" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value.toLocaleString('es-PE')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filtros */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        <div className="position-relative flex-grow-1" style={{ maxWidth: 320 }}>
-          <i className="fa-solid fa-magnifying-glass position-absolute" style={{ left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--bugie-muted)', fontSize: '0.8rem' }} />
-          <input
-            className="form-control ps-4"
-            placeholder="Buscar por nombre o correo…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+    <Page
+      title="Usuarios"
+      subtitle="Todas las cuentas de Bugie: pasajeros, conductores y administradores."
+      icon="fa-users"
+      helpKey="users"
+      actions={[
+        { label: 'Nuevo admin', icon: 'fa-user-plus', variant: 'primary', onClick: () => setCreatingAdmin(true), hidden: !isSuperAdmin },
+        { label: 'Actualizar', icon: 'fa-rotate-right', onClick: load, loading },
+      ]}
+    >
+      <SectionCard flush tourId="users-list">
+        <div className="p-3" data-tour="users-filters">
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Nombre, correo, teléfono o documento"
+            chips={[
+              { value: 'all',       label: 'Todos',       count: rc?.total },
+              { value: 'passenger', label: 'Pasajeros',   count: rc?.pasajeros },
+              { value: 'driver',    label: 'Conductores', count: rc?.conductores },
+              { value: 'admin',     label: 'Admins' },
+              { value: 'deleted',   label: 'Eliminadas',  count: deletedCount },
+            ]}
+            chip={roleFilter}
+            onChipChange={setRoleFilter}
+            actions={!loading && roleFilter !== 'deleted' && (
+              <StatusBadge tone="ok" icon="fa-circle-dot">{stats.activos.toLocaleString('es-PE')} activos de {stats.total.toLocaleString('es-PE')}</StatusBadge>
+            )}
           />
         </div>
-        <div className="d-flex gap-2 flex-wrap">
-          {[
-            { key: 'all',       label: 'Todos'       },
-            { key: 'passenger', label: 'Pasajeros'   },
-            { key: 'driver',    label: 'Conductores' },
-            { key: 'admin',     label: 'Admins'      },
-          ].map(f => (
-            <button key={f.key}
-              className={`btn btn-sm rounded-pill ${roleFilter === f.key ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-              onClick={() => setRoleFilter(f.key)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto" onClick={load}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
 
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+        {error && <div className="alert alert-danger small mx-3">{error}</div>}
 
-      {loading ? (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      ) : users.length === 0 ? (
-        <div className="bugie-card p-5 text-center">
-          <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-            <i className="fa-solid fa-user-slash" />
-          </div>
-          <div className="fw-semibold mb-1">Sin resultados</div>
-          <div className="small bugie-muted">No hay usuarios que coincidan con la búsqueda.</div>
-        </div>
-      ) : (
-        <>
-          <div className="d-flex flex-column gap-2">
-            {users.map(u => {
-              const role = ROLE_CFG[u.role] ?? { label: u.role, color: '#94a3b8', icon: 'fa-user' };
-              return (
-                <div key={u.id} className="bugie-card px-3 py-3">
-                  <div className="d-flex align-items-center gap-3">
-
-                    {/* Avatar */}
-                    <div style={{
-                      width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-                      background: role.color + '22',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, fontSize: '0.85rem', color: role.color,
-                    }}>
-                      {initials(u.fullName)}
-                    </div>
-
-                    {/* Info principal */}
-                    <div className="flex-grow-1 min-w-0">
-                      <div className="d-flex align-items-center gap-2 flex-wrap">
-                        <span className="fw-semibold">{u.fullName}</span>
-                        <span className="badge rounded-pill" style={{ background: role.color + '22', color: role.color, fontSize: '0.72rem' }}>
-                          <i className={`fa-solid ${role.icon} me-1`} style={{ fontSize: '0.65rem' }} />
-                          {role.label}
-                        </span>
-                        <span className="badge rounded-pill" style={{
-                          background: u.isActive ? '#34d39922' : '#94a3b822',
-                          color: u.isActive ? '#34d399' : '#94a3b8',
-                          fontSize: '0.72rem',
-                        }}>
-                          {u.isActive ? '● Activo' : '● Inactivo'}
-                        </span>
-
-                        {/* Si es admin, mostramos el rol administrativo asignado.
-                            Si no tiene rol, lo marcamos en amarillo (necesita asignación). */}
-                        {u.role === 'admin' && (() => {
-                          const adminRole = roles.find(r => r.id === u.adminRoleId);
-                          const hasRole = !!adminRole;
-                          const isSystem = adminRole?.isSystem;
-                          return (
-                            <span className="badge rounded-pill" style={{
-                              background: !hasRole ? '#f59e0b22'
-                                        : isSystem  ? '#f59e0b22'
-                                        : '#818cf822',
-                              color: !hasRole ? '#f59e0b'
-                                   : isSystem ? '#f59e0b'
-                                   : '#818cf8',
-                              fontSize: '0.72rem',
-                            }}>
-                              <i className={`fa-solid ${isSystem ? 'fa-crown' : 'fa-user-shield'} me-1`}
-                                 style={{ fontSize: '0.65rem' }} />
-                              {adminRole?.name ?? 'Sin rol'}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <div className="small bugie-muted text-truncate">{u.email}</div>
-                      {u.phone && <div className="small bugie-muted">{u.phone}</div>}
-                    </div>
-
-                    {/* Fecha y acciones */}
-                    <div className="text-end flex-shrink-0">
-                      <div className="small bugie-muted mb-2">
-                        {new Date(u.createdAt).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </div>
-
-                      <div className="d-flex gap-2 justify-content-end">
-                        {/* Botón "Asignar rol" — visible si:
-                            (1) el usuario actual es super_admin
-                            (2) el user de la fila tiene role='admin'
-                            (3) NO es uno mismo (evita auto-bloquearse)
-                            (4) el rol actual del user NO es super_admin
-                                (super_admin solo se cambia por SQL para evitar perder el último) */}
-                        {(() => {
-                          if (!isSuperAdmin || u.role !== 'admin') return null;
-
-                          // ¿Es el usuario actualmente logueado? No puede editarse a sí mismo.
-                          const isSelf = u.id === currentUserId;
-
-                          // ¿El user de la fila tiene rol super_admin?
-                          const targetIsSuperAdmin = !!roles.find(r =>
-                            r.id === u.adminRoleId && r.isSystem);
-
-                          if (isSelf) {
-                            return (
-                              <span className="badge rounded-pill" style={{
-                                background: 'rgba(148,163,184,0.15)', color: '#94a3b8',
-                                fontSize: '0.7rem', padding: '0.4rem 0.7rem',
-                              }} title="No puedes cambiar tu propio rol">
-                                <i className="fa-solid fa-user me-1" />Tú mismo
-                              </span>
-                            );
-                          }
-
-                          if (targetIsSuperAdmin) {
-                            return (
-                              <span className="badge rounded-pill" style={{
-                                background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
-                                fontSize: '0.7rem', padding: '0.4rem 0.7rem',
-                              }} title="El rol super_admin solo se cambia por SQL">
-                                <i className="fa-solid fa-lock me-1" />Protegido
-                              </span>
-                            );
-                          }
-
-                          return (
-                            <button
-                              className="btn btn-sm btn-bugie-outline rounded-pill"
-                              style={{ fontSize: '0.75rem' }}
-                              onClick={() => setAssigning(u)}>
-                              <i className="fa-solid fa-user-shield me-1" />Asignar rol
-                            </button>
-                          );
-                        })()}
-
-                        {u.isActive && u.role !== 'admin' && (
-                          <button
-                            className="btn btn-sm btn-outline-danger rounded-pill"
-                            style={{ fontSize: '0.75rem' }}
-                            onClick={() => deactivate(u.id)}
-                            disabled={acting === u.id}>
-                            {acting === u.id
-                              ? <span className="spinner-border spinner-border-sm" />
-                              : <><i className="fa-solid fa-user-slash me-1" />Desactivar</>
-                            }
-                          </button>
-                        )}
-                      </div>
-                      {!u.isActive && (
-                        <span className="small" style={{ color: '#94a3b8' }}>
-                          <i className="fa-solid fa-lock me-1" />Desactivado
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Paginación */}
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
-            <div className="small bugie-muted">
-              Mostrando <strong>{fromIdx}–{toIdx}</strong> de <strong>{total.toLocaleString('es-PE')}</strong>
-            </div>
-            <div className="d-flex align-items-center gap-2">
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(1)} disabled={page === 1}>
-                <i className="fa-solid fa-angles-left" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <i className="fa-solid fa-chevron-left" />
-              </button>
-              <span className="small fw-semibold mx-2">
-                Página {page} de {totalPages}
-              </span>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                <i className="fa-solid fa-chevron-right" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                <i className="fa-solid fa-angles-right" />
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Modal para asignar/quitar rol administrativo */}
-      {assigning && (
-        <AssignRoleModal
-          user={assigning}
-          roles={assignableRoles}
-          onClose={() => setAssigning(null)}
-          onSaved={() => {
-            setAssigning(null);
-            load();  // recarga la lista para que se vea el rol nuevo
-          }}
+        <DataTable
+          columns={columns}
+          rows={users}
+          rowKey={u => u.id}
+          loading={loading}
+          actions={rowActions}
+          onRowClick={u => setViewing(u)}
+          empty={roleFilter === 'deleted' && !searchDebounced
+            ? { title: 'Sin cuentas eliminadas', text: 'Ninguna cuenta ha sido eliminada.', icon: 'fa-user-xmark' }
+            : { title: 'Sin resultados', text: 'No hay usuarios que coincidan con la búsqueda.', icon: 'fa-user-slash' }}
         />
-      )}
 
-      {/* Modal para crear un nuevo admin. Solo lo muestra el botón "Nuevo admin",
-          que solo aparece para super_admin. */}
-      {creatingAdmin && (
-        <CreateAdminModal
-          roles={assignableRoles}
-          onClose={() => setCreatingAdmin(false)}
-          onCreated={() => {
-            setCreatingAdmin(false);
-            load();  // recarga la lista para que aparezca el nuevo admin
-          }}
-        />
-      )}
-    </>
+        <div className="px-3">
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        </div>
+      </SectionCard>
+
+      <AssignRoleDrawer
+        user={assigning}
+        roles={assignableRoles}
+        onClose={() => setAssigning(null)}
+        onSaved={() => { setAssigning(null); toast.success('Rol actualizado.'); load(); }}
+      />
+
+      <AccountDrawer
+        user={viewing}
+        roleLabel={viewing ? ROLE_CFG[viewing.role]?.label ?? viewing.role : ''}
+        onClose={() => setViewing(null)}
+        onChanged={load}
+      />
+
+      <CreateAdminDrawer
+        open={creatingAdmin}
+        roles={assignableRoles}
+        onClose={() => setCreatingAdmin(false)}
+        onCreated={() => { setCreatingAdmin(false); toast.success('Administrador creado.'); load(); }}
+      />
+    </Page>
+  );
+}
+
+/// Descripción del rol elegido, para que el super_admin sepa qué permisos da.
+function RoleHint({ role, fallback }: { role?: AdminRole; fallback?: string }) {
+  const text = role?.description || fallback;
+  if (!text) return null;
+  return (
+    <div className="small bx-tone-primary rounded-3 p-2 mt-2" style={{ background: 'var(--tone-bg)' }}>
+      <i className="fa-solid fa-circle-info me-2" style={{ color: 'var(--tone)' }} aria-hidden="true" />{text}
+    </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Modal: asignar (o quitar) el rol administrativo de un usuario admin.
-// Solo aparece para usuarios con role='admin' y solo si el operador actual
-// es super_admin.
+// Asignar (o quitar) el rol administrativo de un usuario admin.
 // ─────────────────────────────────────────────────────────────────────────
-function AssignRoleModal({ user, roles, onClose, onSaved }: {
-  user: User;
+function AssignRoleDrawer({ user, roles, onClose, onSaved }: {
+  user: User | null;
   roles: AdminRole[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // Estado del select: rol elegido. Si el usuario ya tenía rol, lo pre-seleccionamos.
-  // Valor especial '' = quitar rol (deja AdminRoleId en NULL).
-  const [selectedId, setSelectedId] = useState<string>(user.adminRoleId ?? '');
-  const [saving, setSaving]         = useState(false);
-  const [error,  setError]          = useState<string | null>(null);
+  // '' = quitar rol (deja AdminRoleId en NULL).
+  const [selectedId, setSelectedId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
+
+  // Al abrir con otro usuario, precargar su rol actual.
+  useEffect(() => { setSelectedId(user?.adminRoleId ?? ''); setError(null); }, [user]);
 
   async function save() {
+    if (!user) return;
     setSaving(true); setError(null);
     try {
       await apiFetch(`${API.auth}/auth/admin/security/users/assign-role`, {
         method: 'PUT',
-        body: JSON.stringify({
-          userId: user.id,
-          // '' significa "quitar rol" → mandamos null al backend
-          roleId: selectedId === '' ? null : selectedId,
-        }),
+        body: JSON.stringify({ userId: user.id, roleId: selectedId === '' ? null : selectedId }),
       });
       onSaved();
     } catch (err) {
@@ -496,133 +368,114 @@ function AssignRoleModal({ user, roles, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
-  return createPortal(
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 99999, padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 'min(480px, 100%)', maxHeight: '90vh',
-        background: 'var(--bugie-surface)', borderRadius: 16,
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)' }}>
-          <div className="d-flex align-items-center gap-2">
-            <i className="fa-solid fa-user-shield" style={{ color: '#818cf8' }} />
-            <div>
-              <div className="fw-bold">Asignar rol administrativo</div>
-              <div className="small bugie-muted">{user.fullName} · {user.email}</div>
-            </div>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
+  return (
+    <Drawer
+      open={!!user}
+      onClose={onClose}
+      busy={saving}
+      dirty="auto"
+      title="Asignar rol administrativo"
+      description={user ? `${user.fullName} · ${user.email}` : undefined}
+      footer={
+        <div className="d-flex gap-2 justify-content-end w-100">
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-bugie" onClick={save} disabled={saving}>
+            {saving
+              ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Guardando…</>
+              : <><i className="fa-solid fa-floppy-disk me-2" aria-hidden="true" />Guardar</>}
           </button>
         </div>
+      }
+    >
+      <Field label="Rol a asignar" help="Define qué módulos del panel puede ver este administrador.">
+        <Select
+          value={selectedId}
+          onChange={setSelectedId}
+          options={[
+            { value: '', label: 'Sin rol (quitar permisos)', icon: 'fa-ban' },
+            ...roles.map(r => ({ value: r.id, label: `${r.name}${r.isSystem ? ' (sistema)' : ''}`, icon: 'fa-user-shield' })),
+          ]}
+        />
+      </Field>
+      {selectedId && <RoleHint role={roles.find(r => r.id === selectedId)} fallback="Este rol no tiene descripción." />}
 
-        {/* Cuerpo */}
-        <div style={{ padding: '1.25rem' }}>
-          <label className="form-label small bugie-muted text-uppercase mb-2">
-            Rol a asignar
-          </label>
-          <select
-            className="form-select mb-3"
-            value={selectedId}
-            onChange={e => setSelectedId(e.target.value)}>
-            <option value="">— Sin rol (quitar permisos) —</option>
-            {roles.map(r => (
-              <option key={r.id} value={r.id}>
-                {r.name}{r.isSystem ? ' (sistema)' : ''}
-              </option>
-            ))}
-          </select>
-
-          {/* Mostramos la descripción del rol seleccionado, si tiene */}
-          {(() => {
-            const sel = roles.find(r => r.id === selectedId);
-            if (!sel) return null;
-            return (
-              <div className="small bugie-muted mb-3" style={{
-                background: 'rgba(129,140,248,0.08)',
-                padding: '0.65rem 0.85rem',
-                borderRadius: 8,
-                borderLeft: '3px solid #818cf8',
-              }}>
-                {sel.description || 'Este rol no tiene descripción.'}
-              </div>
-            );
-          })()}
-
-          {error && <div className="alert alert-danger small mb-2">{error}</div>}
-
-          {/* Aviso si quita rol */}
-          {selectedId === '' && user.adminRoleId && (
-            <div className="alert alert-warning small mb-2">
-              <i className="fa-solid fa-triangle-exclamation me-2" />
-              Al quitar el rol, este admin ya no podrá ver ningún módulo del panel.
-            </div>
-          )}
-
-          <div className="d-flex gap-2 justify-content-end">
-            <button className="btn btn-bugie-outline" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn btn-bugie text-white" onClick={save} disabled={saving}>
-              {saving
-                ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                : <><i className="fa-solid fa-floppy-disk me-2" />Guardar</>}
-            </button>
-          </div>
+      {selectedId === '' && user?.adminRoleId && (
+        <div className="alert alert-warning small mt-3 mb-0">
+          <i className="fa-solid fa-triangle-exclamation me-2" aria-hidden="true" />
+          Al quitar el rol, este admin ya no podrá ver ningún módulo del panel.
         </div>
-      </div>
-    </div>,
-    document.body
+      )}
+      {error && <div className="alert alert-danger small mt-3 mb-0">{error}</div>}
+    </Drawer>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Modal: crear un nuevo usuario administrador. El backend exige que se le
-// asigne un rol al crearlo (no se permite crear admins "sin rol").
-// Solo super_admin puede usar este formulario.
+// Crear un nuevo administrador. El backend exige asignarle un rol al crearlo.
 // ─────────────────────────────────────────────────────────────────────────
-function CreateAdminModal({ roles, onClose, onCreated }: {
-  roles: AdminRole[];   // sin super_admin (no se asigna a admins nuevos)
+const EMPTY_FORM = { email: '', password: '', phone: '', roleId: '' };
+const EMPTY_NAMES: NamesValue = { firstNames: '', lastNamePaternal: '', lastNameMaternal: '' };
+const EMPTY_DOC: DocValue = { docType: 'DNI', docNumber: '' };
+
+function CreateAdminDrawer({ open, roles, onClose, onCreated }: {
+  open: boolean;
+  roles: AdminRole[];   // sin super_admin
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [form, setForm] = useState({
-    fullName: '',
-    email: '',
-    password: '',
-    phone: '',
-    roleId: roles[0]?.id ?? '',
-  });
+  const confirm = useConfirm();
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [names, setNames] = useState<NamesValue>(EMPTY_NAMES);
+  const [doc, setDoc] = useState<DocValue>(EMPTY_DOC);
+  const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState<string | null>(null);
 
-  const set = (k: keyof typeof form) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm(p => ({ ...p, [k]: e.target.value }));
+  // Formulario limpio cada vez que se abre, con el primer rol preseleccionado.
+  useEffect(() => {
+    if (open) {
+      setForm({ ...EMPTY_FORM, roleId: roles[0]?.id ?? '' });
+      setNames(EMPTY_NAMES); setDoc(EMPTY_DOC); setTouched(false); setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  const set = (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  async function save(e?: FormEvent) {
+    e?.preventDefault();
     setError(null);
+    setTouched(true);
 
     // Validaciones de cliente (el backend también valida)
-    if (!form.fullName.trim()) { setError('El nombre es obligatorio.'); return; }
-    if (!form.email.trim())    { setError('El correo es obligatorio.'); return; }
+    const nameErr = Object.values(namesErrors(names)).find(Boolean);
+    if (nameErr)                  { setError(nameErr); return; }
+    const docErr = docNumberError(doc.docType, doc.docNumber);
+    if (docErr)                   { setError(docErr); return; }
+    if (!form.email.trim())       { setError('El correo es obligatorio.'); return; }
     if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres.'); return; }
-    if (!form.phone.trim())    { setError('El teléfono es obligatorio.'); return; }
-    if (!form.roleId)          { setError('Debes elegir un rol.'); return; }
+    if (!form.phone.trim())       { setError('El teléfono es obligatorio.'); return; }
+    if (!form.roleId)             { setError('Debes elegir un rol.'); return; }
+
+    const fullName = [names.firstNames, names.lastNamePaternal, names.lastNameMaternal].map(x => x.trim()).filter(Boolean).join(' ');
+    const ok = await confirm({
+      title: '¿Crear este administrador?',
+      message: <>Se creará la cuenta de <strong>{fullName}</strong> ({form.email.trim()}) con el rol <strong>{roles.find(r => r.id === form.roleId)?.name}</strong>.</>,
+      confirmText: 'Crear admin',
+    });
+    if (!ok) return;
 
     setSaving(true);
     try {
       await apiFetch(`${API.auth}/auth/admin/security/users`, {
         method: 'POST',
         body: JSON.stringify({
-          fullName: form.fullName.trim(),
+          firstNames:       names.firstNames.trim(),
+          lastNamePaternal: names.lastNamePaternal.trim(),
+          lastNameMaternal: names.lastNameMaternal.trim() || null,
+          docType:          doc.docType,
+          docNumber:        doc.docNumber,
           email:    form.email.trim(),
           password: form.password,
           phone:    form.phone.trim(),
@@ -635,105 +488,127 @@ function CreateAdminModal({ roles, onClose, onCreated }: {
     } finally { setSaving(false); }
   }
 
-  return createPortal(
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 99999, padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 'min(520px, 100%)', maxHeight: '90vh',
-        background: 'var(--bugie-surface)', borderRadius: 16,
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)' }}>
-          <div className="d-flex align-items-center gap-2">
-            <i className="fa-solid fa-user-plus" style={{ color: '#818cf8' }} />
-            <div className="fw-bold">Nuevo administrador</div>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      busy={saving}
+      dirty="auto"
+      title="Nuevo administrador"
+      description="Podrá entrar al panel con el correo y la contraseña que definas."
+      footer={
+        <div className="d-flex gap-2 justify-content-end w-100">
+          <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button type="submit" form="create-admin-form" className="btn btn-bugie" disabled={saving || roles.length === 0}>
+            {saving
+              ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Creando…</>
+              : <><i className="fa-solid fa-user-plus me-2" aria-hidden="true" />Crear admin</>}
           </button>
         </div>
+      }
+    >
+      <form id="create-admin-form" onSubmit={save} className="bx-form" noValidate>
+        <NameFields value={names} onChange={setNames} touched={touched} />
+        <DocFields value={doc} onChange={setDoc} touched={touched} />
+        <FormGrid>
+          <Field label="Correo" required>
+            <input type="email" className="form-control" value={form.email} onChange={set('email')} placeholder="juan@bugie.pe" autoComplete="off" />
+          </Field>
+          <Field label="Teléfono" required>
+            <input className="form-control" value={form.phone} onChange={set('phone')} placeholder="+51 999 999 999" autoComplete="off" inputMode="tel" />
+          </Field>
+          <Field label="Contraseña" required help="Mínimo 6 caracteres. El admin podrá cambiarla después al ingresar.">
+            <input type="password" className="form-control" value={form.password} onChange={set('password')} autoComplete="new-password" />
+          </Field>
+          <Field label="Rol" required error={roles.length === 0 ? 'Primero crea un rol en el módulo de Seguridad.' : undefined}>
+            <Select
+              value={form.roleId || null}
+              onChange={roleId => setForm(p => ({ ...p, roleId }))}
+              placeholder={roles.length === 0 ? 'No hay roles disponibles' : 'Elige un rol'}
+              disabled={roles.length === 0}
+              options={roles.map(r => ({ value: r.id, label: r.name, icon: 'fa-user-shield' }))}
+            />
+          </Field>
+        </FormGrid>
+        <RoleHint role={roles.find(r => r.id === form.roleId)} />
+        {error && <div className="alert alert-danger small mb-0" role="alert">{error}</div>}
+      </form>
+    </Drawer>
+  );
+}
 
-        {/* Form */}
-        <form onSubmit={save} style={{ padding: '1.25rem', overflowY: 'auto' }}>
-          <div className="mb-3">
-            <label className="form-label small">Nombre completo <span className="text-danger">*</span></label>
-            <input className="form-control" value={form.fullName} onChange={set('fullName')}
-                   placeholder="Juan Pérez" autoFocus />
-          </div>
+// ─────────────────────────────────────────────────────────────────────────
+// Ficha de la cuenta: identidad (corregir nombres / documento), cuenta
+// eliminada (restaurar) e historial de cuenta. Sirve para cualquier rol.
+// ─────────────────────────────────────────────────────────────────────────
+function AccountDrawer({ user, roleLabel, onClose, onChanged }: {
+  user: User | null; roleLabel: string; onClose: () => void; onChanged: () => void;
+}) {
+  const [detail, setDetail] = useState<User | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [auditKey, setAuditKey] = useState(0);
 
-          <div className="mb-3">
-            <label className="form-label small">Correo <span className="text-danger">*</span></label>
-            <input type="email" className="form-control" value={form.email} onChange={set('email')}
-                   placeholder="juan@bugie.pe" />
-          </div>
+  async function load(id: string) {
+    setError(null);
+    try {
+      setDetail(await apiFetch<User>(`${API.auth}/auth/admin/users/${id}`));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo cargar la cuenta.');
+    }
+  }
 
-          <div className="mb-3">
-            <label className="form-label small">Contraseña <span className="text-danger">*</span></label>
-            <input type="password" className="form-control" value={form.password} onChange={set('password')}
-                   placeholder="Mínimo 6 caracteres" />
-            <div className="form-text small">
-              El admin podrá cambiarla después al ingresar.
+  useEffect(() => {
+    setDetail(null);
+    if (user) load(user.id);
+  }, [user]);
+
+  // Tras corregir o restaurar: recargar la ficha, el historial y la lista.
+  const refresh = () => { if (user) { load(user.id); setAuditKey(k => k + 1); onChanged(); } };
+
+  const u = detail ?? user;
+  return (
+    <Drawer open={!!user} onClose={onClose} size="lg" title="Cuenta del usuario"
+            description={u ? `${roleLabel} · ${u.email}` : undefined}>
+      {u && (
+        <div className="d-grid gap-3">
+          <div className="d-flex align-items-center gap-3 flex-wrap">
+            <Avatar src={fileUrl('auth', u.profilePhotoUrl)} name={u.fullName} size={56} />
+            <div style={{ minWidth: 0 }}>
+              <div className="h6 fw-bold mb-1" style={{ overflowWrap: 'anywhere' }}>{u.fullName}</div>
+              <span className="d-inline-flex flex-wrap gap-1">
+                {u.deletedAt
+                  ? <StatusBadge tone="bad" icon="fa-user-xmark" size="sm">Cuenta eliminada</StatusBadge>
+                  : u.deactivatedAt
+                    ? <DeactivatedBadge deactivatedAt={u.deactivatedAt} deactivatedReason={u.deactivatedReason} />
+                    : <StatusBadge tone={u.isActive ? 'ok' : 'neutral'} dot size="sm">{u.isActive ? 'Activo' : 'Inactivo'}</StatusBadge>}
+                {u.needsProfileCompletion && <IncompleteBadge />}
+              </span>
             </div>
           </div>
 
-          <div className="mb-3">
-            <label className="form-label small">Teléfono <span className="text-danger">*</span></label>
-            <input className="form-control" value={form.phone} onChange={set('phone')}
-                   placeholder="+51 999 999 999" />
-          </div>
+          {error && <div className="alert alert-danger small mb-0" role="alert">{error}</div>}
 
-          <div className="mb-3">
-            <label className="form-label small">Rol <span className="text-danger">*</span></label>
-            <select className="form-select" value={form.roleId} onChange={set('roleId')}>
-              {roles.length === 0 && <option value="">— No hay roles disponibles —</option>}
-              {roles.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-            {roles.length === 0 && (
-              <div className="form-text small text-warning">
-                Primero crea un rol en el módulo de Seguridad.
-              </div>
-            )}
-            {/* Descripción del rol seleccionado, si tiene */}
-            {(() => {
-              const sel = roles.find(r => r.id === form.roleId);
-              if (!sel?.description) return null;
-              return (
-                <div className="small bugie-muted mt-2" style={{
-                  background: 'rgba(129,140,248,0.08)',
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 8,
-                  borderLeft: '3px solid #818cf8',
-                }}>
-                  {sel.description}
-                </div>
-              );
-            })()}
-          </div>
+          {u.deletedAt && (
+            <DeletedAccountBanner userId={u.id} deletedAt={u.deletedAt} deletedReason={u.deletedReason} onRestored={refresh}
+              note="Mientras esté eliminada no puede iniciar sesión ni se le puede desactivar o asignar rol." />
+          )}
 
-          {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-          <div className="d-flex gap-2 justify-content-end">
-            <button type="button" className="btn btn-bugie-outline"
-                    onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button type="submit" className="btn btn-bugie text-white"
-                    disabled={saving || roles.length === 0}>
-              {saving
-                ? <><span className="spinner-border spinner-border-sm me-2" />Creando…</>
-                : <><i className="fa-solid fa-user-plus me-2" />Crear admin</>}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>,
-    document.body
+          {!detail && !error ? (
+            <SectionCard><Skeleton count={4} /></SectionCard>
+          ) : detail && (
+            <>
+              <IdentityCard userId={detail.id} info={detail} onChanged={refresh} />
+              <AccountAccessCard userId={detail.id} info={detail} onChanged={refresh} />
+              <SectionCard title="Contacto" icon="fa-address-book">
+                <InfoRow icon="fa-envelope" label="Correo">{detail.email}</InfoRow>
+                <InfoRow icon="fa-phone" label="Teléfono">{detail.phone || '—'}</InfoRow>
+                <InfoRow icon="fa-calendar-plus" label="Registrado">{fmtDate(detail.createdAt)}</InfoRow>
+              </SectionCard>
+              <AccountAuditList userId={detail.id} reloadKey={auditKey} />
+            </>
+          )}
+        </div>
+      )}
+    </Drawer>
   );
 }

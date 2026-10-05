@@ -32,7 +32,8 @@ public class ForgotPasswordHandler : IRequestHandler<ForgotPasswordCommand, stri
         var user = string.IsNullOrWhiteSpace(cmd.Email)
             ? null
             : await _users.GetByEmailAsync(cmd.Email.Trim(), ct);
-        if (user is null) return GenericMessage;
+        // Cuenta eliminada: no se envía enlace (debe pedir a soporte que la restauren).
+        if (user is null || user.IsDeleted) return GenericMessage;
 
         // Un enlace nuevo anula los anteriores sin usar.
         var token = PasswordResetToken.Generate();

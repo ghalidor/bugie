@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../../emergency_contact/presentation/emergency_contact_card.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_card.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../auth/domain/user_model.dart';
+import '../../auth/presentation/widgets/identity_info_card.dart';
 import '../../passenger/presentation/home_shared.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/trip_model.dart';
@@ -23,6 +27,8 @@ class DriverProfileScreen extends StatefulWidget {
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
   Driver? _driver;
+  /// Datos de identidad (GET /api/auth/me): nombres, apellidos y documento.
+  UserProfile? _user;
   /// Cantidad de viajes COMPLETADOS (status=4) del conductor.
   /// Se calcula en el cliente porque el backend Drivers no expone este dato
   /// (vive en el módulo Trips). Solo se carga al entrar a esta pantalla.
@@ -43,16 +49,19 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     try {
       final dRepo = context.read<DriverRepository>();
       final tRepo = context.read<TripsRepository>();
+      final aRepo = context.read<AuthRepository>();
       // En paralelo: perfil + historial. Si historial falla, dejamos 0.
       final results = await Future.wait([
         dRepo.getMyProfile(),
         tRepo.getHistory().catchError((_) => <Trip>[]),
+        aRepo.getMyProfile().then<UserProfile?>((p) => p, onError: (_) => null),
       ]);
       if (!mounted) return;
       final driver = results[0] as Driver?;
       final history = results[1] as List<Trip>;
       setState(() {
         _driver = driver;
+        _user = results[2] as UserProfile?;
         _completedTripsCount =
             history.where((t) => t.status == TripStatus.completed).length;
         _loading = false;
@@ -242,6 +251,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     ),
                     const SizedBox(height: 20),
 
+                    // ── Datos personales (solo lectura) ──────────────────
+                    IdentityInfoCard(profile: _user),
+                    const SizedBox(height: 16),
+
                     // ── Info del conductor ───────────────────────────────
                     BugieCard(
                       title: 'Información del conductor',
@@ -324,6 +337,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    // ── Contacto de emergencia (recomendado) ─────────────
+                    const EmergencyContactCard(),
+                    const SizedBox(height: 16),
+
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: BugieColors.danger,
@@ -333,7 +350,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       icon: const Icon(Icons.logout),
                       label: const Text('Cerrar sesión'),
                       onPressed: () async {
-                        await context.read<Session>().clear();
+                        await context.read<AuthRepository>().logout();
                         if (context.mounted) context.go('/');
                       },
                     ),

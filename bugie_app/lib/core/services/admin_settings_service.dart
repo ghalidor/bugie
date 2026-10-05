@@ -64,6 +64,21 @@ class AdminSettingsService {
     return v ?? fallback;
   }
 
+  /// Lee un setting de texto (ya sin espacios). Vacio si no existe o falla la red.
+  Future<String> getString(String key) async {
+    final map = await _loadAll();
+    return map[key]?.trim() ?? '';
+  }
+
+  /// Contacto de soporte que el admin configura (support_phone / support_email).
+  /// Cualquiera de los dos puede venir vacio.
+  Future<({String phone, String email})> getSupportContact() async {
+    return (
+      phone: await getString('support_phone'),
+      email: await getString('support_email'),
+    );
+  }
+
   /// Tarifa base y tarifa por kilometro, tal como las configura el admin.
   ///
   /// Antes estaban escritas a mano en las pantallas de solicitar viaje y

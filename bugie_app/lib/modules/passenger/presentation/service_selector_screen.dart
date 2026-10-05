@@ -74,30 +74,36 @@ class _ServiceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    // La sombra va en un contenedor aparte (antes, dentro del Ink, dejaba
+    // esquinas cuadradas oscuras debajo de la tarjeta).
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: gradient.last.withValues(alpha: 0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
         child: Ink(
-          height: 150,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
             gradient: LinearGradient(
               colors: gradient,
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: gradient.last.withOpacity(0.35),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
           ),
-          child: Padding(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 132),
+            child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
               children: [
@@ -118,11 +124,21 @@ class _ServiceCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Icon(icon, color: Colors.white.withOpacity(0.9), size: 64),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 34),
+                ),
               ],
             ),
           ),
+          ),
         ),
+      ),
       ),
     );
   }

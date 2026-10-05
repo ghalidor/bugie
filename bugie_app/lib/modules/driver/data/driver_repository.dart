@@ -1,8 +1,10 @@
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/notification_prefs.dart';
 import '../domain/driver_document_model.dart';
 import '../domain/driver_model.dart';
+import '../domain/presence_history_model.dart';
 import '../domain/vehicle_model.dart';
 
 /// Repositorio de conductores (puerto 5003).
@@ -23,7 +25,14 @@ class DriverRepository {
   Future<Driver?> getMyProfile() async {
     final json = await _api.get('${ApiConfig.drivers}/drivers/me');
     if (json == null) return null;
-    return Driver.fromJson(json as Map<String, dynamic>);
+    return _remember(Driver.fromJson(json as Map<String, dynamic>));
+  }
+
+  /// Guarda si el conductor está conectado (lo usa "No molestar cuando
+  /// estoy desconectado" de NotificationPrefs).
+  Driver _remember(Driver d) {
+    NotificationPrefs.driverOnline.value = d.isOnline;
+    return d;
   }
 
   /// PUT /api/drivers/submit-review
@@ -31,6 +40,18 @@ class DriverRepository {
   Future<Driver> submitForReview() async {
     final json = await _api.put('${ApiConfig.drivers}/drivers/submit-review');
     return Driver.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// POST /api/drivers/me/review-request
+  /// El conductor suspendido o rechazado pide que revisen su caso.
+  /// [message] de 10 a 1000 caracteres. Solo una solicitud abierta a la vez
+  /// (409 si ya tiene una o si su cuenta no está suspendida/rechazada).
+  Future<DriverReviewRequest> requestReview(String message) async {
+    final json = await _api.post(
+      '${ApiConfig.drivers}/drivers/me/review-request',
+      body: {'message': message},
+    );
+    return DriverReviewRequest.fromJson(json as Map<String, dynamic>);
   }
 
   // ── Disponibilidad ───────────────────────────────────────────────────────
@@ -41,13 +62,13 @@ class DriverRepository {
       '${ApiConfig.drivers}/drivers/go-online',
       body: {'lat': lat, 'lng': lng},
     );
-    return Driver.fromJson(json as Map<String, dynamic>);
+    return _remember(Driver.fromJson(json as Map<String, dynamic>));
   }
 
   /// PUT /api/drivers/go-offline
   Future<Driver> goOffline() async {
     final json = await _api.put('${ApiConfig.drivers}/drivers/go-offline');
-    return Driver.fromJson(json as Map<String, dynamic>);
+    return _remember(Driver.fromJson(json as Map<String, dynamic>));
   }
 
   /// PUT /api/drivers/location
@@ -68,6 +89,31 @@ class DriverRepository {
     });
   }
 
+  // ── Mis conexiones (historial de presencia) ─────────────────────────────
+
+  /// GET /api/drivers/me/presence/history?page=&pageSize=[&from=&to=]
+  /// Historial paginado de conexiones (check-in / check-out) del conductor
+  /// logueado, con resumen de minutos Hoy / 7 días / 30 días.
+  /// [from] y [to] son opcionales (solo se usa la fecha, yyyy-MM-dd).
+  Future<PresenceHistoryPage> getMyPresenceHistory({
+    int page = 1,
+    int pageSize = 20,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    String day(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+    final query = StringBuffer('page=$page&pageSize=$pageSize');
+    if (from != null) query.write('&from=${day(from)}');
+    if (to != null) query.write('&to=${day(to)}');
+    final json = await _api.get(
+      '${ApiConfig.drivers}/drivers/me/presence/history?$query',
+    );
+    return PresenceHistoryPage.fromJson(json as Map<String, dynamic>);
+  }
+
   // ── Vehículos ────────────────────────────────────────────────────────────
 
   /// POST /api/drivers/vehicles
@@ -85,14 +131,6 @@ class DriverRepository {
       'year': year,
       'color': color,
     });
-    return Vehicle.fromJson(json as Map<String, dynamic>);
-  }
-
-  /// PUT /api/drivers/vehicles/{vehicleId}/activate
-  Future<Vehicle> activateVehicle(String vehicleId) async {
-    final json = await _api.put(
-      '${ApiConfig.drivers}/drivers/vehicles/$vehicleId/activate',
-    );
     return Vehicle.fromJson(json as Map<String, dynamic>);
   }
 
@@ -118,6 +156,61 @@ class DriverRepository {
       filePath: filePath,
     );
     return (json as Map<String, dynamic>)['photoUrl'] as String? ?? '';
+  }
+
+  /// POST /api/drivers/vehicles/with-photos (multipart)
+  /// Registra un vehículo nuevo con sus TRES fotos obligatorias
+  /// (frente, costado y placa). Queda como vehículo activo.
+  /// Devuelve el id del vehículo creado.
+  Future<String> addVehicleWithPhotos({
+    required String plate,
+    required String brand,
+    required String model,
+    required int year,
+    required String color,
+    required String frontPath,
+    required String sidePath,
+    required String platePath,
+  }) async {
+    final json = await _api.postMultipartMany(
+      '${ApiConfig.drivers}/drivers/vehicles/with-photos',
+      fields: {
+        'plate': plate,
+        'brand': brand,
+        'model': model,
+        'year': year.toString(),
+        'color': color,
+      },
+      files: [
+        MapEntry('photoFront', frontPath),
+        MapEntry('photoSide', sidePath),
+        MapEntry('photoPlate', platePath),
+      ],
+    );
+    return (json as Map<String, dynamic>)['id']?.toString() ?? '';
+  }
+
+  /// GET /api/drivers/vehicles/{id}/photos
+  /// Fotos del vehículo como mapa tipo -> URL relativa
+  /// (tipos: 'front', 'side', 'plate'; solo los que existan).
+  Future<Map<String, String>> getVehiclePhotos(String vehicleId) async {
+    final json = await _api.get('${ApiConfig.drivers}/drivers/vehicles/$vehicleId/photos');
+    final list = (json as List?) ?? [];
+    return {
+      for (final p in list.cast<Map<String, dynamic>>())
+        p['type'].toString(): p['url'].toString(),
+    };
+  }
+
+  /// POST /api/drivers/vehicles/{id}/photos/{type} — sube o reemplaza una
+  /// foto del vehículo (type: 'front', 'side' o 'plate'). Devuelve la URL.
+  Future<String> uploadVehiclePhoto(String vehicleId, String type, String filePath) async {
+    final json = await _api.postMultipart(
+      '${ApiConfig.drivers}/drivers/vehicles/$vehicleId/photos/$type',
+      fields: {},
+      filePath: filePath,
+    );
+    return (json as Map<String, dynamic>)['url'] as String? ?? '';
   }
 
   /// POST /api/drivers/profile/me/photo — sube/reemplaza la foto de PERFIL
@@ -152,24 +245,6 @@ class DriverRepository {
       // subir; el backend validará y devolverá el error real si aplica.
       return (canUpload: true, reason: null, daysUntilExpiry: null);
     }
-  }
-
-  // ── Conductores cercanos (lo usa el pasajero) ───────────────────────────
-
-  /// GET /api/drivers/nearby
-  Future<List<NearbyDriver>> getNearby({
-    required double lat,
-    required double lng,
-    double radiusKm = 5,
-    int maxResults = 10,
-  }) async {
-    final url =
-        '${ApiConfig.drivers}/drivers/nearby?lat=$lat&lng=$lng&radiusKm=$radiusKm&maxResults=$maxResults';
-    final json = await _api.get(url);
-    final list = (json as List?) ?? [];
-    return list
-        .map((d) => NearbyDriver.fromJson(d as Map<String, dynamic>))
-        .toList();
   }
 
   // ── Documentos del conductor ────────────────────────────────────────────

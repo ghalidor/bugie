@@ -27,12 +27,6 @@ public class DriverRepository : IDriverRepository
         return rows.ToList();
     }
 
-    public async Task<List<Driver>> GetAllAsync(CancellationToken ct = default)
-    {
-        var rows = await _db.QueryAsync<Driver>("SELECT * FROM drivers.Drivers ORDER BY CreatedAt DESC");
-        return rows.ToList();
-    }
-
     public async Task<List<Driver>> GetOnlineAsync(CancellationToken ct = default)
     {
         var rows = await _db.QueryAsync<Driver>(
@@ -100,9 +94,40 @@ public class DriverRepository : IDriverRepository
                 ProfilePhotoUrl = @ProfilePhotoUrl,
                 Rating          = @Rating,
                 TotalRatings    = @TotalRatings,
-                ApprovedAt      = @ApprovedAt
+                ApprovedAt      = @ApprovedAt,
+                DocumentsDeadline = @DocumentsDeadline,
+                Strikes         = @Strikes,
+                SuspendedUntil  = @SuspendedUntil,
+                StatusReason    = @StatusReason
             WHERE Id = @Id",
             driver);
+
+    public async Task<List<Driver>> GetWithExpiredDeadlineAsync(DateTime nowUtc, CancellationToken ct = default)
+    {
+        // Solo aprobados: si ya fue suspendido/rechazado por otro motivo, no aplica.
+        var rows = await _db.QueryAsync<Driver>(@"
+            SELECT * FROM drivers.Drivers
+            WHERE DocumentsDeadline IS NOT NULL
+              AND DocumentsDeadline <= @Now
+              AND Status = 3",
+            new { Now = nowUtc });
+        return rows.ToList();
+    }
+
+    public async Task<List<Driver>> GetWithEndedSuspensionAsync(DateTime nowUtc, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<Driver>(@"
+            SELECT * FROM drivers.Drivers
+            WHERE Status = 4
+              AND SuspendedUntil IS NOT NULL
+              AND SuspendedUntil <= @Now",
+            new { Now = nowUtc });
+        return rows.ToList();
+    }
+
+    // Filtro "con solicitud de revisión abierta" (drivers.DriverReviewRequests)
+    private const string OpenReviewExists =
+        "EXISTS (SELECT 1 FROM drivers.DriverReviewRequests r WHERE r.DriverId = d.Id AND r.Status = 'open')";
 
     public async Task<List<VehicleBulkDto>> GetVehiclesByUserIdsAsync(
         IEnumerable<Guid> driverUserIds, CancellationToken ct = default)
@@ -151,9 +176,25 @@ public class DriverRepository : IDriverRepository
         return rows.ToList();
     }
 
+    /// <summary>
+    /// Busqueda del admin: nombre, correo o documento (auth.Users, misma base) o
+    /// placa de cualquiera de sus vehiculos (sin importar guiones ni mayusculas).
+    /// </summary>
+    private const string SearchSql = @"(u.FullName ILIKE @SearchLike OR u.Email ILIKE @SearchLike
+        OR u.DocNumber ILIKE @SearchLike OR u.Phone ILIKE @SearchLike
+        OR EXISTS (SELECT 1 FROM drivers.Vehicles v
+                   WHERE v.DriverId = d.Id AND REPLACE(UPPER(v.Plate), '-', '') LIKE @PlateLike))";
+
+    private static void AddSearch(DynamicParameters p, string search)
+    {
+        var term = search.Trim();
+        p.Add("SearchLike", $"%{term}%");
+        p.Add("PlateLike", $"%{term.Replace("-", "").ToUpperInvariant()}%");
+    }
+
     public async Task<(List<Driver> Items, int Total)> GetPagedAsync(
         int page, int pageSize, int? status, bool? online, string? search,
-        CancellationToken ct = default)
+        bool? openReview = null, CancellationToken ct = default, bool? deleted = false)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -161,6 +202,13 @@ public class DriverRepository : IDriverRepository
 
         var where = new List<string>();
         var p = new DynamicParameters();
+
+        // Cuentas eliminadas (auth.Users.DeletedAt): por defecto no se incluyen.
+        if(deleted.HasValue)
+            where.Add(deleted.Value ? "u.DeletedAt IS NOT NULL" : "u.DeletedAt IS NULL");
+
+        if(openReview.HasValue)
+            where.Add(openReview.Value ? OpenReviewExists : "NOT " + OpenReviewExists);
 
         if(status.HasValue)
         {
@@ -176,8 +224,8 @@ public class DriverRepository : IDriverRepository
         {
             // JOIN con auth.Users para buscar por nombre o email.
             // Como ambas tablas están en la misma BD (Bugie), no es cross-database.
-            where.Add("(u.FullName LIKE @SearchLike OR u.Email LIKE @SearchLike)");
-            p.Add("SearchLike", $"%{search.Trim()}%");
+            where.Add(SearchSql);
+            AddSearch(p, search);
         }
         var whereSql = where.Count == 0 ? "" : "WHERE " + string.Join(" AND ", where);
 
@@ -216,13 +264,13 @@ public class DriverRepository : IDriverRepository
         pageSize = Math.Clamp(pageSize, 1, 100);
         var skip = (page - 1) * pageSize;
 
-        var where = new List<string> { "d.Status IN (1, 2, 6)" };
+        var where = new List<string> { "d.Status IN (1, 2, 6)", "u.DeletedAt IS NULL" };
         var p = new DynamicParameters();
 
         if(!string.IsNullOrWhiteSpace(search))
         {
-            where.Add("(u.FullName LIKE @SearchLike OR u.Email LIKE @SearchLike)");
-            p.Add("SearchLike", $"%{search.Trim()}%");
+            where.Add(SearchSql);
+            AddSearch(p, search);
         }
         var whereSql = "WHERE " + string.Join(" AND ", where);
 
@@ -248,12 +296,17 @@ public class DriverRepository : IDriverRepository
         return (items, total);
     }
 
-    public async Task<(int Total, int Online, int PendingDocs, int UnderReview, int Approved, int Expired)>
-        GetStatsAsync(int? status, bool? online, string? search,
-            CancellationToken ct = default)
+    public async Task<DriverStats> GetStatsAsync(int? status, bool? online, string? search,
+        bool? openReview = null, CancellationToken ct = default, bool? deleted = false)
     {
         var where = new List<string>();
         var p = new DynamicParameters();
+
+        if(deleted.HasValue)
+            where.Add(deleted.Value ? "u.DeletedAt IS NOT NULL" : "u.DeletedAt IS NULL");
+
+        if(openReview.HasValue)
+            where.Add(openReview.Value ? OpenReviewExists : "NOT " + OpenReviewExists);
 
         if(status.HasValue)
         {
@@ -267,8 +320,8 @@ public class DriverRepository : IDriverRepository
         }
         if(!string.IsNullOrWhiteSpace(search))
         {
-            where.Add("(u.FullName LIKE @SearchLike OR u.Email LIKE @SearchLike)");
-            p.Add("SearchLike", $"%{search.Trim()}%");
+            where.Add(SearchSql);
+            AddSearch(p, search);
         }
         var whereSql = where.Count == 0 ? "" : "WHERE " + string.Join(" AND ", where);
 
@@ -280,22 +333,15 @@ public class DriverRepository : IDriverRepository
                 SUM(CASE WHEN d.Status   = 1            THEN 1 ELSE 0 END) AS PendingDocs,
                 SUM(CASE WHEN d.Status   = 2            THEN 1 ELSE 0 END) AS UnderReview,
                 SUM(CASE WHEN d.Status   = 3            THEN 1 ELSE 0 END) AS Approved,
-                SUM(CASE WHEN d.Status   = 6            THEN 1 ELSE 0 END) AS Expired
+                SUM(CASE WHEN d.Status   = 4            THEN 1 ELSE 0 END) AS Suspended,
+                SUM(CASE WHEN d.Status   = 5            THEN 1 ELSE 0 END) AS Rejected,
+                SUM(CASE WHEN d.Status   = 6            THEN 1 ELSE 0 END) AS Expired,
+                SUM(CASE WHEN {OpenReviewExists}        THEN 1 ELSE 0 END) AS OpenReviewRequests
             FROM drivers.Drivers d
             INNER JOIN auth.Users u ON u.Id = d.UserId
             {whereSql}";
 
-        var row = await _db.QuerySingleAsync<DriverStatsRow>(sql, p);
-        return (row.Total, row.Online, row.PendingDocs, row.UnderReview, row.Approved, row.Expired);
-    }
-
-    private class DriverStatsRow
-    {
-        public int Total { get; set; }
-        public int Online { get; set; }
-        public int PendingDocs { get; set; }
-        public int UnderReview { get; set; }
-        public int Approved { get; set; }
-        public int Expired { get; set; }
+        // Si no hay filas, SUM devuelve NULL y Dapper deja el 0 por defecto.
+        return await _db.QuerySingleAsync<DriverStats>(sql, p);
     }
 }

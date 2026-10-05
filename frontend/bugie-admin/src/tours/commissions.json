@@ -1,0 +1,34 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='commissions-tabs']",
+      "title": "Dos vistas",
+      "text": "«Conductores» muestra cuánto debe cada uno; «Pagos recibidos», todos los pagos de comisión registrados."
+    },
+    {
+      "selector": "[data-tour='commissions-stats']",
+      "title": "Lo que te deben",
+      "text": "La deuda total de comisiones y cuántos conductores tienen deuda pendiente."
+    },
+    {
+      "selector": "[data-tour='commissions-list']",
+      "title": "Conductores y su deuda",
+      "text": "Toca un conductor para ver sus movimientos (con enlace a cada viaje) y registrar un pago. Antes de guardar te mostramos el resumen del pago; tu búsqueda y página se conservan."
+    },
+    {
+      "selector": "[data-tour='commissions-paid-stats']",
+      "title": "Total cobrado",
+      "text": "La suma de todos los pagos de comisión que registraste."
+    },
+    {
+      "selector": "[data-tour='commissions-paid-list']",
+      "title": "Pagos recibidos",
+      "text": "Cada pago con método, n.º de operación, quién lo registró y el saldo del conductor después del pago («Debe» o «A favor»)."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

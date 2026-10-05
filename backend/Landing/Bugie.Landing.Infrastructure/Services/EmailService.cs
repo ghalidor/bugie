@@ -17,14 +17,14 @@ public class EmailService : IEmailService
 
     /// <summary>
     /// Lee la ciudad principal desde landing.SystemSettings (key 'default_city').
-    /// Si no existe o está vacía, cae a "Trujillo" como fallback histórico.
+    /// Si no existe o está vacía, usa el texto neutro "tu ciudad".
     /// Capitalizamos la primera letra para que quede prolijo en el email.
     /// </summary>
     private async Task<string> ResolveCityAsync(CancellationToken ct)
     {
         var setting = await _settings.GetByKeyAsync("default_city", ct);
         var raw = setting?.Value?.Trim();
-        if(string.IsNullOrWhiteSpace(raw)) return "Trujillo";
+        if(string.IsNullOrWhiteSpace(raw)) return "tu ciudad";
         // tacna -> Tacna, TRUJILLO -> Trujillo
         return char.ToUpper(raw[0]) + raw[1..].ToLower();
     }

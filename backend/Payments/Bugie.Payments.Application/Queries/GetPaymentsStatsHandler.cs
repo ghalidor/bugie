@@ -1,4 +1,5 @@
 ﻿using MediatR;
+using Bugie.Payments.Domain.Common;
 using Bugie.Payments.Domain.Interfaces;
 
 namespace Bugie.Payments.Application.Queries;
@@ -8,7 +9,12 @@ namespace Bugie.Payments.Application.Queries;
 /// Los totales monetarios siempre se calculan sobre pagos COMPLETED.
 /// "Pendientes" cuenta filas con status='pending'.
 /// </summary>
-public record GetPaymentsStatsQuery(string? Status) : IRequest<PaymentsStatsDto>;
+public record GetPaymentsStatsQuery(
+    string? Status,
+    string? Search = null,
+    string? Method = null,
+    DateTime? From = null,
+    DateTime? To = null) : IRequest<PaymentsStatsDto>;
 
 public record PaymentsStatsDto(
     decimal TotalAmount,
@@ -24,7 +30,9 @@ public class GetPaymentsStatsHandler
 
     public async Task<PaymentsStatsDto> Handle(GetPaymentsStatsQuery q, CancellationToken ct) {
         var (totalAmount, totalFee, totalDriver, pendingCount, completedCount) =
-            await _payments.GetStatsAsync(q.Status, ct);
+            await _payments.GetStatsAsync(q.Status, ct, q.Search, q.Method,
+                q.From is null ? null : BugieTime.PeruToUtc(q.From.Value.Date),
+                q.To   is null ? null : BugieTime.PeruToUtc(q.To.Value.Date.AddDays(1)));
         return new PaymentsStatsDto(totalAmount, totalFee, totalDriver, pendingCount, completedCount);
     }
 }

@@ -31,13 +31,21 @@ public class LocalFileStorageService : IFileStorageService
     }
 
     public async Task<StoredFile> UploadAsync(Stream fileStream, string originalFileName, string mimeType,
-                                               string folderPath, CancellationToken ct = default)
+                                               string folderPath, CancellationToken ct = default, bool allowPdf = false)
     {
+        // Tipo real por magic bytes (no se confía en el nombre ni en el Content-Type).
+        fileStream = await FileSignature.EnsureSeekableAsync(fileStream, ct);
+        var kind = FileSignature.Detect(fileStream);
+        if(!FileSignature.IsAllowed(kind, allowPdf))
+            throw new InvalidOperationException(FileSignature.RejectMessage(allowPdf));
+        mimeType = kind!.MimeType;
+
         var safeFolder = Sanitize(folderPath);
         var folder = Path.Combine(_rootPath, safeFolder);
         Directory.CreateDirectory(folder);
 
-        var diskName = $"{Guid.NewGuid():N}_{SanitizeFileName(originalFileName)}";
+        // Nombre en disco generado: no se usa el nombre original.
+        var diskName = $"{Guid.NewGuid():N}{kind.Extension}";
         var fullPath = Path.Combine(folder, diskName);
 
         await using(var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))

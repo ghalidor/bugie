@@ -19,6 +19,16 @@ export const PERMS = {
   ViewFaq:        'view:faq',
   ViewReports:    'view:reports',
   ViewSecurity:   'view:security',
+  // Cada página con su propio permiso (antes compartían landing/payments/drivers)
+  ViewVerification:        'view:verification',
+  ViewDriverPayouts:       'view:driver_payouts',
+  ViewCommissions:         'view:commissions',
+  ViewRewards:             'view:rewards',
+  ViewMessages:            'view:messages',
+  ViewSettings:            'view:settings',
+  ViewNotificationsConfig: 'view:notifications_config',
+  ViewComplaints:          'view:complaints',
+  ViewCompany:             'view:company',
   // Acciones (Fase 2 — declarados pero no usados aún)
   ActionApproveDriver:    'action:approve_driver',
   ActionApprovePassenger: 'action:approve_passenger',
@@ -81,7 +91,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     PERMS.ViewDashboard, PERMS.ViewUsers, PERMS.ViewDrivers, PERMS.ViewPassengers,
     PERMS.ViewTrips, PERMS.ViewPayments, PERMS.ViewLiveMap, PERMS.ViewSosCenter,
     PERMS.ViewLanding, PERMS.ViewCommunity, PERMS.ViewLegalDocs, PERMS.ViewFaq,
-    PERMS.ViewReports, PERMS.ViewSecurity,
+    PERMS.ViewReports, PERMS.ViewSecurity, PERMS.ViewSettings, PERMS.ViewNotificationsConfig,
   ];
   const isSuperAdmin = allViewPerms.every(p => permissions.includes(p));
 

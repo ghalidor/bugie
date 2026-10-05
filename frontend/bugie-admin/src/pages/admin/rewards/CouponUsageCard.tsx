@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
-import { API, ApiError, apiFetch } from '../../../state/api';
-import { rewardsAdminApi, CouponUsageReport, fmtDate } from '../../../state/rewards';
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { API, apiFetch } from '../../../state/api';
+import { rewardsAdminApi, CouponUsage, CouponUsageReport, fmtDate } from '../../../state/rewards';
+import { Column, DataTable, SectionCard, Skeleton, StatCard, StatGrid, StatusBadge, Tone } from '../../../components/ui';
+import { errMsg, LoadError, soles } from './common';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Cupones aplicados a viajes.
@@ -8,170 +11,106 @@ import { rewardsAdminApi, CouponUsageReport, fmtDate } from '../../../state/rewa
    Mientras el interruptor esté apagado esto no crece, y la tarjeta lo dice:
    una tabla vacía sin explicación parece que algo se rompió.
 
-   Lo que el descuento te cuesta de verdad son dos cosas: el monto que el
-   pasajero dejó de pagar, y la comisión que dejaste de cobrar sobre ese
-   monto. La comisión se calcula sobre lo que SE PAGÓ, así que un cupón de
-   S/ 2 en un viaje de S/ 10 te deja S/ 0.80 en vez de S/ 1.
+   Lo que el descuento te cuesta: el monto que el pasajero dejó de pagar y la
+   comisión que dejaste de cobrar sobre ese monto (la comisión se calcula
+   sobre lo que SE PAGÓ).
    ────────────────────────────────────────────────────────────────────────── */
 
-const soles = (n: number) => `S/ ${n.toFixed(2)}`;
-
-const ESTADO: Record<string, { label: string; color: string }> = {
-  completed:   { label: 'Completado', color: 'var(--bugie-ok)' },
-  cancelled:   { label: 'Cancelado',  color: 'var(--bugie-neutral)' },
-  in_progress: { label: 'En curso',   color: 'var(--bugie-primary-soft)' },
+const ESTADO: Record<string, { label: string; tone: Tone }> = {
+  completed:   { label: 'Completado', tone: 'ok' },
+  cancelled:   { label: 'Cancelado',  tone: 'neutral' },
+  in_progress: { label: 'En curso',   tone: 'info' },
 };
 
 export default function CouponUsageCard() {
   const [data,    setData]    = useState<CouponUsageReport | null>(null);
   const [loading, setLoading] = useState(true);
-  // % de comision configurado (landing.systemsettings.platform_fee_rate)
+  const [error,   setError]   = useState<string | null>(null);
+  // % de comisión configurado (landing.systemsettings.platform_fee_rate)
   const [feeRate, setFeeRate] = useState<number | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
     apiFetch<{ settingKey: string; value: string }[]>(`${API.landing}/landing/settings`)
       .then(list => {
         const v = Number(list.find(s => s.settingKey === 'platform_fee_rate')?.value);
         if (Number.isFinite(v)) setFeeRate(v);
       })
-      .catch(() => { /* sin el % no se muestra la estimacion */ });
+      .catch(() => { /* sin el % no se muestra la estimación */ });
 
     rewardsAdminApi.couponUsage()
       .then(setData)
-      .catch((e: unknown) => {
-        if (!(e instanceof ApiError)) return;
-        setData(null);
-      })
+      .catch(e => { setData(null); setError(errMsg(e, 'No se pudo cargar el uso de cupones.')); })
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return (
-      <div className="bugie-card">
-        <div className="bugie-card-body d-flex justify-content-center py-4">
-          <span className="spinner-border spinner-border-sm" />
-        </div>
+  useEffect(load, [load]);
+
+  const columns: Column<CouponUsage>[] = [
+    { key: 'coupon', header: 'Cupón', priority: 1, render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div className="rw-mono">{r.couponCode}</div>
+        {r.itemName && <div className="rw-cell-sub">{r.itemName}</div>}
       </div>
-    );
-  }
-  if (!data) return null;
+    ) },
+    { key: 'passenger', header: 'Pasajero', priority: 2, render: r => r.passengerName ?? '—' },
+    { key: 'driver', header: 'Conductor', priority: 3, render: r => r.driverName ?? '—' },
+    { key: 'fare', header: 'Tarifa', align: 'right', priority: 3, render: r => <span className="bugie-muted">{soles(r.fareBeforeDiscount)}</span> },
+    { key: 'discount', header: 'Descuento', align: 'right', priority: 1, render: r => <span className="rw-minus">−{soles(r.discountAmount)}</span> },
+    { key: 'paid', header: 'Pagó', align: 'right', priority: 2, render: r => <strong>{soles(r.amountPaid)}</strong> },
+    { key: 'status', header: 'Estado', priority: 1, render: r => {
+      const e = ESTADO[r.status] ?? ESTADO.in_progress;
+      return <StatusBadge tone={e.tone} size="sm">{e.label}</StatusBadge>;
+    } },
+    { key: 'date', header: 'Fecha', priority: 2, render: r => fmtDate(r.completedAt ?? r.createdAt) },
+  ];
 
   return (
-    <div className="bugie-card">
-      <div className="bugie-card-header d-flex align-items-center">
-        <i className="fa-solid fa-tag me-2" />
-        <span>Cupones aplicados a viajes</span>
-        {!data.featureEnabled && (
-          <span className="badge rounded-pill ms-auto"
-                style={{ background: 'var(--bugie-warn)22', color: 'var(--bugie-warn)',
-                         fontSize: '.68rem' }}>
-            Función apagada
-          </span>
-        )}
-      </div>
-
-      <div className="bugie-card-body">
-        {!data.featureEnabled && (
-          <div className="alert alert-warning small py-2">
-            Los cupones todavía no descuentan del precio de los viajes. Se enciende
-            en <strong>Configuración → Cupones sobre la tarifa</strong>.
-            {data.trips > 0 && ' Lo que ves abajo es de cuando estuvo encendida.'}
-          </div>
-        )}
-
-        {data.trips === 0 ? (
-          <div className="text-center py-4 bugie-muted small">
-            Todavía ningún viaje usó un cupón.
-          </div>
+    <SectionCard
+      title="Cupones aplicados a viajes"
+      icon="fa-tag"
+      description="Lo que dejan de pagar los pasajeros cuando usan un cupón."
+      actions={data && !data.featureEnabled ? <StatusBadge tone="warn" icon="fa-power-off">Función apagada</StatusBadge> : undefined}
+      flush
+    >
+      <div className="p-3 rw-stack">
+        {loading ? <Skeleton count={3} height={16} /> : error || !data ? (
+          <LoadError text={error ?? 'No se pudo cargar.'} onRetry={load} />
         ) : (
           <>
-            <div className="row g-3 mb-3">
-              {[
-                ['Viajes con cupón', String(data.trips),
-                 `${data.tripsCompleted} completados, ${data.tripsCancelled} cancelados`],
-                ['Descontado en total', soles(data.totalDiscount),
-                 'Lo que dejaron de pagar los pasajeros'],
-                ['Promedio por viaje', soles(data.averageDiscount), ''],
-                ['Comisión no cobrada',
-                 feeRate == null ? '—' : soles(data.totalDiscount * feeRate / 100),
-                 feeRate == null ? 'No se pudo leer el % de comisión' : `Aprox., al ${feeRate}% sobre lo descontado`],
-              ].map(([label, value, help]) => (
-                <div className="col-6 col-xl-3" key={label}>
-                  <div className="bugie-kpi h-100">
-                    <div className="label">{label}</div>
-                    <div className="value">{value}</div>
-                    {help && (
-                      <div className="small bugie-muted mt-1" style={{ fontSize: '.72rem' }}>
-                        {help}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-
-            <div className="table-responsive">
-              <table className="table table-sm align-middle mb-0">
-                <thead>
-                  <tr className="small bugie-muted">
-                    <th>Cupón</th><th>Pasajero</th><th>Conductor</th>
-                    <th className="text-end">Tarifa</th>
-                    <th className="text-end">Descuento</th>
-                    <th className="text-end">Pagó</th>
-                    <th>Estado</th><th>Fecha</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recent.map(r => {
-                    const e = ESTADO[r.status] ?? ESTADO.in_progress;
-                    return (
-                      <tr key={r.tripId} className="small">
-                        <td>
-                          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace',
-                                         fontWeight: 600 }}>
-                            {r.couponCode}
-                          </span>
-                          {r.itemName && (
-                            <div className="bugie-muted" style={{ fontSize: '.72rem' }}>
-                              {r.itemName}
-                            </div>
-                          )}
-                        </td>
-                        <td className="text-truncate" style={{ maxWidth: 140 }}>
-                          {r.passengerName ?? '—'}
-                        </td>
-                        <td className="text-truncate" style={{ maxWidth: 140 }}>
-                          {r.driverName ?? '—'}
-                        </td>
-                        <td className="text-end bugie-muted">
-                          {soles(r.fareBeforeDiscount)}
-                        </td>
-                        <td className="text-end fw-bold" style={{ color: 'var(--bugie-bad)' }}>
-                          −{soles(r.discountAmount)}
-                        </td>
-                        <td className="text-end fw-bold">{soles(r.amountPaid)}</td>
-                        <td>
-                          <span style={{ color: e.color }}>{e.label}</span>
-                        </td>
-                        <td className="bugie-muted" style={{ fontSize: '.74rem' }}>
-                          {fmtDate(r.completedAt ?? r.createdAt)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="small bugie-muted mt-3">
-              El conductor cobra el monto que el pasajero le pagó, y su comisión
-              se calcula sobre ese mismo monto. Un viaje cancelado con cupón no
-              lo consume: vuelve a quedar disponible para su dueño.
-            </div>
+            {!data.featureEnabled && (
+              <div className="alert alert-warning small py-2 mb-0">
+                La función está apagada: los cupones no descuentan del precio. Se enciende en{' '}
+                <Link to="/admin/puntos/ajustes">Ajustes → General → Canje y cupones</Link>.
+                {data.trips > 0 && ' Lo que ves abajo es de cuando estuvo encendida.'}
+              </div>
+            )}
+            {data.trips > 0 && (
+              <StatGrid min={160}>
+                <StatCard label="Viajes con cupón" value={data.trips} icon="fa-car-side" tone="primary" hint={`${data.tripsCompleted} completados, ${data.tripsCancelled} cancelados`} />
+                <StatCard label="Descontado en total" value={soles(data.totalDiscount)} icon="fa-tags" tone="warn" hint="Lo que dejaron de pagar" />
+                <StatCard label="Promedio por viaje" value={soles(data.averageDiscount)} icon="fa-divide" tone="info" />
+                <StatCard
+                  label="Comisión no cobrada"
+                  value={feeRate == null ? '—' : soles(data.totalDiscount * feeRate / 100)}
+                  icon="fa-percent"
+                  tone="bad"
+                  hint={feeRate == null ? 'No se pudo leer el % de comisión' : `Aprox., al ${feeRate}% de lo descontado`}
+                />
+              </StatGrid>
+            )}
           </>
         )}
       </div>
-    </div>
+      {!loading && data && (
+        <DataTable
+          columns={columns}
+          rows={data.recent ?? []}
+          rowKey={r => r.tripId}
+          maxHeight="none"
+          empty={{ title: 'Todavía ningún viaje usó un cupón', text: 'Un viaje cancelado con cupón no lo consume: vuelve a quedar disponible para su dueño.' }}
+        />
+      )}
+    </SectionCard>
   );
 }

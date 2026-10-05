@@ -1,5 +1,7 @@
 namespace Bugie.Rewards.Application.DTOs;
 
+/// <param name="DrawSeed">Semilla del sorteo. Permite recalcular y comprobar el ganador.</param>
+/// <param name="TicketsNow">Tickets repartidos hasta ahora.</param>
 public record RaffleDto(
     Guid      Id,
     string    Name,
@@ -14,9 +16,7 @@ public record RaffleDto(
     string    Status,
     DateTime? DrawnAt,
     int?      TicketsAtDraw,
-    /// <summary>Semilla del sorteo. Permite recalcular y comprobar el ganador.</summary>
     string?   DrawSeed,
-    /// <summary>Tickets repartidos hasta ahora.</summary>
     int       TicketsNow,
     List<RaffleWinnerDto> Winners);
 
@@ -31,7 +31,9 @@ public record RaffleWinnerDto(
     string?   Note,
     // Nombre y rol del ganador (para el admin)
     string?   UserName = null,
-    string?   UserRole = null);
+    string?   UserRole = null,
+    // Codigo que el ganador presenta para cobrar (PZ-XXXXXX)
+    string?   PrizeCode = null);
 
 public record RaffleInput(
     string    Name,
@@ -44,15 +46,3 @@ public record RaffleInput(
     string    TargetUserType,
     int       WinnersCount,
     bool      Open);
-
-/// <summary>Lo que ve el usuario: en qué sorteos participa y con cuántos tickets.</summary>
-public record MyRaffleDto(
-    Guid      RaffleId,
-    string    Name,
-    string    RaffleType,
-    string    PrizeDescription,
-    DateTime  DrawDate,
-    string    Status,
-    int       MyTickets,
-    bool      IWon,
-    int?      MyPrizeRank);

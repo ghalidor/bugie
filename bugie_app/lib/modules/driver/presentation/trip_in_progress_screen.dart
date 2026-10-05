@@ -2,17 +2,21 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'driver_delivery_confirmation_screen.dart';
+import 'driver_idle_tracking.dart';
 import 'driver_pickup_verification_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/active_trip_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/ui/app_messenger.dart';
-import '../../../core/widgets/bugie_card.dart';
 import '../../../core/widgets/bugie_map.dart';
+import '../../../core/widgets/delivery_info.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../../core/widgets/trip_photos_gallery.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/route_model.dart';
 import '../../trips/domain/trip_model.dart';
@@ -50,12 +54,16 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   /// Refresco del viaje cada 10 s: si el pasajero cancela, el conductor se
   /// entera aunque no le llegue el push.
   Timer? _pollTimer;
+
   /// Ya se resolvio el final del viaje (evita avisos dobles).
   bool _endHandled = false;
 
   @override
   void initState() {
     super.initState();
+    // Mientras esta pantalla esté abierta se oculta la franja
+    // "Viaje en curso · Volver".
+    ActiveTripService().tripScreens.value++;
     _load();
     _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
     FcmService.tripCancelled.addListener(_poll);
@@ -69,7 +77,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       final next = LatLng(pos.latitude, pos.longitude);
       // Solo rebuild si la posición realmente cambió (evita repaints inútiles).
       if (_myPosition == null ||
-          _myPosition!.latitude  != next.latitude ||
+          _myPosition!.latitude != next.latitude ||
           _myPosition!.longitude != next.longitude) {
         setState(() => _myPosition = next);
       }
@@ -81,14 +89,17 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     _myPositionTimer?.cancel();
     _pollTimer?.cancel();
     FcmService.tripCancelled.removeListener(_poll);
+    // Vuelve la franja (si el viaje sigue activo). Se consulta de nuevo por
+    // si el viaje terminó o se canceló.
+    final active = ActiveTripService();
+    active.tripScreens.value = (active.tripScreens.value - 1).clamp(0, 99);
+    active.refresh(force: true);
     // Al salir de la pantalla del viaje (completado / cancelado), el conductor
-    // sigue ONLINE pero deja de mandar GPS.
-    // Política nueva: GPS solo durante un viaje activo. Cuando se acaba el
-    // viaje, paramos el tracking completamente — el conductor sigue online
-    // hasta que presione "Desconectarme", pero sin gastar batería ni cuota.
+    // sigue ONLINE: volvemos al envío de GPS "en línea sin viaje" (cada 30s)
+    // para que el backend le muestre las solicitudes cercanas a donde está.
     final tracking = context.read<LocationTrackingService>();
-    if (tracking.isRunning) {
-      tracking.stop();
+    if (tracking.isRunning && tracking.mode != TrackingMode.driverIdle) {
+      startDriverIdleTracking(context);
     }
     super.dispose();
   }
@@ -174,8 +185,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     if (_trip!.isDelivery && !_trip!.pickupVerified) {
       final ok = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
-          builder: (_) =>
-              DriverPickupVerificationScreen(tripId: _trip!.id),
+          builder: (_) => DriverPickupVerificationScreen(tripId: _trip!.id),
         ),
       );
       if (ok != true) return; // el conductor cancelo la verificacion
@@ -254,7 +264,8 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                 TextField(
                   controller: otroCtrl,
                   maxLength: 200,
-                  decoration: const InputDecoration(hintText: 'Escribe el motivo'),
+                  decoration:
+                      const InputDecoration(hintText: 'Escribe el motivo'),
                 ),
             ],
           ),
@@ -264,7 +275,8 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
               child: const Text('Volver'),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
+              style:
+                  FilledButton.styleFrom(backgroundColor: BugieColors.danger),
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Cancelar viaje'),
             ),
@@ -287,8 +299,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
           .cancel(_trip!.id, reason: motivo.isEmpty ? 'Otro motivo' : motivo);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Viaje cancelado. Le avisamos al pasajero.')),
+        const SnackBar(
+            content: Text('Viaje cancelado. Le avisamos al pasajero.')),
       );
+      ActiveTripService().clear(); // sin franja: ya no hay viaje
       context.go('/driver');
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -317,13 +331,14 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       final fin = await repo.getById(prevId);
       if (!mounted) return;
       if (fin.status == TripStatus.cancelled && fin.cancelledBy != 'driver') {
-        final tracking = context.read<LocationTrackingService>();
-        if (tracking.isRunning) tracking.stop();
+        // Sigue en línea: vuelve al envío de GPS sin viaje.
+        startDriverIdleTracking(context);
         await showDialog(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
-            icon: const Icon(Icons.cancel_outlined, size: 48, color: BugieColors.danger),
+            icon: const Icon(Icons.cancel_outlined,
+                size: 48, color: BugieColors.danger),
             title: Text(fin.cancelledBy == 'admin'
                 ? 'Bugie canceló el viaje'
                 : 'El pasajero canceló el viaje'),
@@ -340,12 +355,30 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
             ],
           ),
         );
-        if (mounted) context.go('/driver');
+        if (mounted) {
+          ActiveTripService().clear(); // sin franja: ya no hay viaje
+          context.go('/driver');
+        }
       }
     } catch (_) {
       // sin red: se reintenta en el proximo tick
       _endHandled = false;
     }
+  }
+
+  /// Hoja inferior con la galería de fotos del envío.
+  void _showPhotos(Trip t) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: TripPhotosGallery(tripId: t.id),
+        ),
+      ),
+    );
   }
 
   Future<void> _complete() async {
@@ -370,14 +403,16 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     try {
       await context.read<TripsRepository>().complete(_trip!.id);
       if (!mounted) return;
-      // Viaje completo: PARAR el tracking. El conductor sigue ONLINE recibiendo
-      // solicitudes, pero deja de mandar GPS hasta que acepte otro viaje.
-      final tracking = context.read<LocationTrackingService>();
-      if (tracking.isRunning) tracking.stop();
+      // Viaje completo: el conductor sigue ONLINE recibiendo solicitudes,
+      // así que vuelve al envío de GPS sin viaje (cada 30s).
+      startDriverIdleTracking(context);
       // Redirige SIEMPRE al dashboard del conductor y muestra mensaje verde
       // (que sobrevive a la navegación gracias al messenger global).
+      final wasDelivery = _trip!.isDelivery;
+      ActiveTripService().clear(); // sin franja: ya no hay viaje
       context.go('/driver');
-      showSuccessSnack('Viaje completado correctamente');
+      showSuccessSnack(
+          wasDelivery ? 'Envío completado' : 'Viaje completado correctamente');
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -409,11 +444,6 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     }
 
     final t = _trip!;
-    // DEBUG: imprimir status real para diagnosticar por qué no aparece el botón.
-    // Si ves SOLO el botón SOS y no "Iniciar viaje" ni "Completar viaje",
-    // el status del viaje no es 2 (accepted) ni 3 (inProgress).
-    debugPrint('[trip_in_progress] trip.status=${t.status} '
-        '(esperado: ${TripStatus.accepted}=accepted o ${TripStatus.inProgress}=inProgress)');
 
     final origin = LatLng(t.originLat, t.originLng);
     final dest = LatLng(t.destLat, t.destLng);
@@ -424,7 +454,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     // - accepted (2): debe ir a recoger al pasajero → destino = origen del viaje
     // - inProgress (3): llevarlo al destino → destino = destino del viaje
     final targetForDriver = canComplete ? dest : origin;
-    final targetLabel = canComplete ? 'destino' : 'recogida';
+    final targetLabel = canComplete ? 'Al destino' : 'A la recogida';
 
     // Distancia y tiempo restante usando la posición ACTUAL del conductor
     // (no la del origen del viaje). Usamos la fórmula Haversine local.
@@ -440,7 +470,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
 
     final markers = <BugieMarker>[
       BugieMarker(position: origin, kind: MarkerKind.origin),
-      BugieMarker(position: dest,   kind: MarkerKind.destination),
+      BugieMarker(position: dest, kind: MarkerKind.destination),
       // Pin del propio conductor (auto). Solo si tenemos posición GPS.
       if (_myPosition != null)
         BugieMarker(position: _myPosition!, kind: MarkerKind.driver),
@@ -453,255 +483,370 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: const BugieInternalHeader(title: 'Viaje en curso'),
+      appBar: BugieInternalHeader(
+          title: t.isDelivery ? 'Envío en curso' : 'Viaje en curso'),
+      // En pantallas bajas (celular en horizontal, pantalla dividida) todo
+      // pasa a una columna con scroll y el mapa toma un alto fijo, para que
+      // nada se desborde.
       body: SafeArea(
-        child: Column(
-          children: [
-            // Banner de estado + KPIs grandes (distancia / tiempo al
-            // siguiente punto). Solo se muestran cuando tenemos GPS y ruta.
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              color: BugieColors.primary.withOpacity(0.06),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(TripStatus.labelForDriver(t.status),
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.bold)),
-                  if (remainingKm != null && remainingMin != null) ...[
-                    const SizedBox(height: 8),
+        child: LayoutBuilder(builder: (context, constraints) {
+          final compact = constraints.maxHeight < 620;
+          Widget mapSlot(Widget map) => compact
+              ? SizedBox(height: 260, child: map)
+              : Expanded(child: map);
+          final content = Column(
+            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+            children: [
+              // Banner de estado + KPIs grandes (distancia / tiempo al
+              // siguiente punto). Solo se muestran cuando tenemos GPS y ruta.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                color: BugieColors.primary.withValues(alpha: 0.06),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Row(
                       children: [
                         Expanded(
-                          child: _DriverKpiCard(
-                            icon: Icons.straighten,
-                            label: 'Distancia al $targetLabel',
-                            value: '${remainingKm.toStringAsFixed(1)} km',
-                            color: BugieColors.primary,
-                          ),
+                          child: Text(
+                              t.isDelivery && t.status == TripStatus.inProgress
+                                  ? 'Envío en curso'
+                                  : TripStatus.labelForDriver(t.status),
+                              style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  color: c.text)),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _DriverKpiCard(
-                            icon: Icons.schedule,
-                            label: 'Tiempo estimado',
-                            value: '$remainingMin min',
-                            color: BugieColors.success,
-                          ),
-                        ),
+                        ServiceBadge(isDelivery: t.isDelivery, compact: true),
                       ],
                     ),
-                  ] else if (_myPosition == null) ...[
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Esperando ubicación GPS...',
-                      style: TextStyle(fontSize: 12, color: BugieColors.textMuted),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            // Mapa
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: BugieMap(
-                  height: double.infinity,
-                  markers: markers,
-                  route: routePoints,
-                  center: origin,
-                  fitBoundsOnMarkers: true,
-                ),
-              ),
-            ),
-            // Panel inferior con acciones
-            Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-              decoration: BoxDecoration(
-                color: c.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('${t.originAddress} → ${t.destAddress}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      // Si el pasajero aplico un cupon, el conductor cobra el
-                      // monto YA DESCONTADO. Sin el desglose veria un numero
-                      // menor al acordado y no sabria por que: ahi es donde
-                      // empiezan los reclamos.
-                      if (t.discountAmount != null) ...[
-                        Text(
-                          'Cobras: S/ '
-                          '${((t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!).toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Tarifa S/ ${(t.fareBeforeDiscount ?? t.estimatedFare).toStringAsFixed(2)} · '
-                          'cupón del pasajero −S/ ${t.discountAmount!.toStringAsFixed(2)}',
-                          style: const TextStyle(fontSize: 12, color: BugieColors.textMuted),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'El descuento lo pone Bugie, no sale de tu ganancia.',
-                          style: TextStyle(fontSize: 11.5, color: BugieColors.textMuted),
-                        ),
-                      ] else
-                        Text('Tarifa: S/ ${t.estimatedFare.toStringAsFixed(2)}'),
-                      const Spacer(),
-                      if (_routeInfo != null && _routeInfo!.options.isNotEmpty)
-                        Text(
-                          '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km · ${_routeInfo!.options.first.durationMinutes.round()} min',
-                          style: const TextStyle(
-                              fontSize: 12, color: BugieColors.textMuted),
-                        ),
-                      const SizedBox(width: 8),
-                      Chip(
-                        label: Text(t.paymentMethod.toUpperCase(),
-                            style: const TextStyle(fontSize: 11)),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
-                  ),
-                  // Envio: que lleva y a quien se entrega
-                  if (t.isDelivery) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: BugieColors.primary.withOpacity(0.4)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    if (remainingKm != null && remainingMin != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
                         children: [
-                          Row(children: [
-                            const Icon(Icons.inventory_2_outlined, size: 18),
-                            const SizedBox(width: 6),
-                            Expanded(child: Text(t.packageDescription ?? 'Envío',
-                                style: const TextStyle(fontWeight: FontWeight.w600))),
-                          ]),
-                          if (t.recipientName != null) ...[
-                            const SizedBox(height: 4),
-                            Text('Entregar a: ${t.recipientName}'
-                                '${t.recipientPhone != null ? ' · ${t.recipientPhone}' : ''}',
-                                style: const TextStyle(fontSize: 13)),
-                          ],
-                          if (t.deliveryConfirmedAt != null)
-                            Text('Entregado a ${t.deliveryReceivedBy ?? ''}',
-                                style: const TextStyle(fontSize: 12, color: BugieColors.success)),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_error!,
-                        style: const TextStyle(color: BugieColors.danger)),
-                  ],
-                  const SizedBox(height: 12),
-                  // Avisar al pasajero que ya está en el punto de recojo
-                  if (canStart) ...[
-                    OutlinedButton.icon(
-                      icon: Icon(t.driverArrivedAt == null
-                          ? Icons.place
-                          : Icons.notifications_active),
-                      label: Text(t.driverArrivedAt == null
-                          ? 'Ya llegué'
-                          : 'Avisar de nuevo al pasajero'),
-                      onPressed: _busy ? null : _arrived,
-                    ),
-                    if (t.driverArrivedAt != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Pasajero avisado a las ${_hhmm(t.driverArrivedAt!)}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontSize: 12, color: BugieColors.success),
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                  ],
-                  if (canStart)
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text(t.isDelivery ? 'Paquete a bordo' : 'Iniciar viaje'),
-                      onPressed: _busy ? null : _start,
-                    )
-                  else if (canComplete)
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: BugieColors.success),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Completar viaje'),
-                      onPressed: _busy ? null : _complete,
-                    )
-                  else
-                    // Fallback de diagnóstico: si no se cumple ni canStart ni
-                    // canComplete, mostramos el status real para que sea visible
-                    // sin tener que abrir los logs.
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: BugieColors.warning.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: BugieColors.warning),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline,
-                              color: BugieColors.warning, size: 18),
+                          Expanded(
+                            child: _DriverKpiCard(
+                              icon: Icons.straighten,
+                              label: targetLabel,
+                              value: '${remainingKm.toStringAsFixed(1)} km',
+                              color: BugieColors.primary,
+                            ),
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              'Estado actual: ${TripStatus.labelForDriver(t.status)} '
-                              '(código ${t.status}).',
-                              style: const TextStyle(fontSize: 12),
+                            child: _DriverKpiCard(
+                              icon: Icons.schedule,
+                              label: 'Llegas en',
+                              value: '$remainingMin min',
+                              color: BugieColors.success,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  // Cancelar: solo con el viaje aceptado y antes de iniciarlo
-                  if (canStart) ...[
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(foregroundColor: BugieColors.danger),
-                      icon: const Icon(Icons.cancel_outlined),
-                      label: const Text('Cancelar viaje'),
-                      onPressed: _busy ? null : _cancelByDriver,
+                    ] else if (_myPosition == null) ...[
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Esperando ubicación GPS...',
+                        style: TextStyle(
+                            fontSize: 12, color: BugieColors.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              // Mapa
+              mapSlot(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: BugieMap(
+                    height: double.infinity,
+                    markers: markers,
+                    route: routePoints,
+                    center: origin,
+                    fitBoundsOnMarkers: true,
+                    // Margen derecho extra: que los botones del mapa no tapen
+                    // tu auto ni los pines.
+                    fitPadding: const EdgeInsets.fromLTRB(40, 40, 72, 40),
+                  ),
+                ),
+              ),
+              // Panel inferior con acciones
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  border: Border(top: BorderSide(color: c.border)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, -3),
                     ),
                   ],
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: BugieColors.danger,
-                      side: const BorderSide(color: BugieColors.danger),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _StopLine(
+                      color: BugieColors.mapOrigin,
+                      text: t.originAddress,
+                      strong: canStart,
                     ),
-                    icon: const Icon(Icons.shield),
-                    label: const Text('SOS'),
-                    onPressed: () => context.push('/driver/sos'),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    _StopLine(
+                      color: BugieColors.mapDestination,
+                      text: t.destAddress,
+                      strong: canComplete,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Si el pasajero aplico un cupon, el conductor cobra el
+                        // monto YA DESCONTADO. Sin el desglose veria un numero
+                        // menor al acordado y no sabria por que: ahi es donde
+                        // empiezan los reclamos.
+                        if (t.discountAmount != null) ...[
+                          Text(
+                            'Cobras: S/ '
+                            '${((t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!).toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Tarifa S/ ${(t.fareBeforeDiscount ?? t.estimatedFare).toStringAsFixed(2)} · '
+                            'cupón del pasajero −S/ ${t.discountAmount!.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                                fontSize: 12, color: BugieColors.textMuted),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'El descuento lo pone Bugie, no sale de tu ganancia.',
+                            style: TextStyle(
+                                fontSize: 11.5, color: BugieColors.textMuted),
+                          ),
+                        ] else
+                          Text('S/ ${t.estimatedFare.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: c.text)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: (_routeInfo != null &&
+                                  _routeInfo!.options.isNotEmpty)
+                              ? Text(
+                                  '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km · ${_routeInfo!.options.first.durationMinutes.round()} min',
+                                  maxLines: 1,
+                                  textAlign: TextAlign.right,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 12.5, color: c.textMuted),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: c.surface2,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: c.border),
+                          ),
+                          child: Text(_payLabel(t.paymentMethod),
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: c.text)),
+                        ),
+                      ],
+                    ),
+                    // Envio: que lleva y a quien se entrega
+                    if (t.isDelivery) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: BugieColors.primary.withOpacity(0.4)),
+                        ),
+                        // Paquete (descripción, peso, frágil, detalles), a quién
+                        // se entrega y estado. Con tope de alto + scroll para no
+                        // tapar el mapa; las fotos se ven aparte.
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 170),
+                              child: SingleChildScrollView(
+                                child:
+                                    DeliveryInfo(trip: t, showGallery: false),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: () => _showPhotos(t),
+                                icon: const Icon(Icons.photo_library_outlined,
+                                    size: 18),
+                                label: const Text('Ver fotos del envío'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_error!,
+                          style: const TextStyle(color: BugieColors.danger)),
+                    ],
+                    const SizedBox(height: 14),
+                    // Avisar al pasajero que ya está en el punto de recojo
+                    if (canStart) ...[
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 48),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: Icon(t.driverArrivedAt == null
+                            ? Icons.place
+                            : Icons.notifications_active),
+                        label: Text(t.driverArrivedAt == null
+                            ? 'Ya llegué'
+                            : 'Avisar de nuevo al pasajero'),
+                        onPressed: _busy ? null : _arrived,
+                      ),
+                      if (t.driverArrivedAt != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Pasajero avisado a las ${_hhmm(t.driverArrivedAt!)}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 12, color: BugieColors.success),
+                          ),
+                        ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (canStart)
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(0, 56),
+                          textStyle: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w800),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.play_arrow),
+                        label: Text(
+                            t.isDelivery ? 'Paquete a bordo' : 'Iniciar viaje'),
+                        onPressed: _busy ? null : _start,
+                      )
+                    else if (canComplete)
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: BugieColors.success,
+                          minimumSize: const Size(0, 56),
+                          textStyle: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w800),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.check),
+                        label: Text(t.isDelivery
+                            ? 'Completar envío'
+                            : 'Completar viaje'),
+                        onPressed: _busy ? null : _complete,
+                      )
+                    else
+                      // Fallback de diagnóstico: si no se cumple ni canStart ni
+                      // canComplete, mostramos el status real para que sea visible
+                      // sin tener que abrir los logs.
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: BugieColors.warning.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: BugieColors.warning),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline,
+                                color: BugieColors.warning, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Estado actual: ${TripStatus.labelForDriver(t.status)} '
+                                '(código ${t.status}).',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    // Fila secundaria: Cancelar (solo antes de iniciar) y SOS.
+                    // Mismo alto que el botón principal; si no hay Cancelar,
+                    // SOS ocupa todo el ancho para que no quede un botón suelto.
+                    Row(
+                      children: [
+                        if (canStart) ...[
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: BugieColors.danger,
+                                minimumSize: const Size.fromHeight(52),
+                                side: BorderSide(
+                                    color: BugieColors.danger
+                                        .withValues(alpha: 0.5)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
+                              ),
+                              icon: const Icon(Icons.cancel_outlined, size: 20),
+                              label: const Text('Cancelar viaje',
+                                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                              onPressed: _busy ? null : _cancelByDriver,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  BugieColors.danger.withValues(alpha: 0.12),
+                              foregroundColor: BugieColors.danger,
+                              minimumSize: const Size.fromHeight(52),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: const BorderSide(
+                                      color: BugieColors.danger, width: 1.4)),
+                            ),
+                            icon: const Icon(Icons.shield, size: 20),
+                            label: Text(canStart ? 'SOS' : 'SOS · Emergencia',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800)),
+                            onPressed: () => context.push('/driver/sos'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+          return compact ? SingleChildScrollView(child: content) : content;
+        }),
       ),
     );
   }
@@ -724,13 +869,63 @@ double _haversineKm(LatLng a, LatLng b) {
 
 double _deg2rad(double deg) => deg * (pi / 180.0);
 
+String _payLabel(String m) {
+  switch (m) {
+    case 'cash':
+      return 'Efectivo';
+    case 'yape':
+      return 'Yape';
+    case 'plin':
+      return 'Plin';
+    default:
+      return m.toUpperCase();
+  }
+}
+
+/// Una parada (origen o destino) en una línea con su punto de color.
+/// La parada a la que vas ahora se muestra resaltada.
+class _StopLine extends StatelessWidget {
+  final Color color;
+  final String text;
+  final bool strong;
+  const _StopLine(
+      {required this.color, required this.text, required this.strong});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: strong ? 15 : 13.5,
+              fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
+              color: strong ? c.text : c.textMuted,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Card de KPI para mostrar al conductor cuánto le falta.
 /// Diseño compacto pero legible mientras maneja.
 class _DriverKpiCard extends StatelessWidget {
   final IconData icon;
-  final String   label;
-  final String   value;
-  final Color    color;
+  final String label;
+  final String value;
+  final Color color;
 
   const _DriverKpiCard({
     required this.icon,
@@ -752,7 +947,8 @@ class _DriverKpiCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 36, height: 36,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: color.withOpacity(0.12),
               borderRadius: BorderRadius.circular(8),
@@ -766,13 +962,12 @@ class _DriverKpiCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(label,
-                    style: TextStyle(
-                        fontSize: 11, color: c.textMuted),
-                    maxLines: 1,
+                    style: TextStyle(fontSize: 12, color: c.textMuted),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis),
                 Text(value,
                     style: TextStyle(
-                        fontSize: 17,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: color)),
               ],

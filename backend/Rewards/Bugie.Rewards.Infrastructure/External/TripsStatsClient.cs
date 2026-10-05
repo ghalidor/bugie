@@ -56,4 +56,29 @@ public class TripsStatsClient : ITripsStatsClient
             return null;
         }
     }
+
+    public async Task<TripRatingCheck?> GetRatingCheckAsync(
+        Guid tripId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(
+                HttpMethod.Get, $"api/trips/internal/verify/rating/{tripId}");
+            req.Headers.Add("X-Internal-Token", _opt.InternalToken);
+
+            using var res = await _http.SendAsync(req, ct);
+            if (!res.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Trips respondió {Status} al verificar la calificación del viaje {TripId}",
+                    (int)res.StatusCode, tripId);
+                return null;
+            }
+            return await res.Content.ReadFromJsonAsync<TripRatingCheck>(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "No se pudo verificar la calificación del viaje {TripId} en Trips.", tripId);
+            return null;
+        }
+    }
 }

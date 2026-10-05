@@ -25,6 +25,10 @@ public class GoOnlineHandler : IRequestHandler<GoOnlineCommand, DriverDto>
         var d = await _drivers.GetByUserIdAsync(cmd.UserId, ct)
             ?? throw new KeyNotFoundException("Conductor no encontrado.");
 
+        // Rechazado o suspendido: mensaje claro antes de pedir la foto de verificación.
+        var blocked = ConnectBlockedMessage(d.Status);
+        if(blocked is not null) throw new InvalidOperationException(blocked);
+
         // Validación de presence check-in: para conectarse online, el conductor
         // debe haber pasado la verificación facial primero. Si no tiene un
         // check-in activo, bloqueamos. Esto previene que conductores logueados
@@ -56,4 +60,17 @@ public class GoOnlineHandler : IRequestHandler<GoOnlineCommand, DriverDto>
 
         return RegisterDriverHandler.ToDto(d);
     }
+
+    /// <summary>
+    /// Mensaje si el estado no permite conectarse por rechazo/suspensión (null = sigue
+    /// la validación normal). Lo usa también el check-in de presencia.
+    /// </summary>
+    public static string? ConnectBlockedMessage(Domain.Enums.DriverStatus status) => status switch
+    {
+        Domain.Enums.DriverStatus.Suspended =>
+            "Tu cuenta está suspendida. No puedes conectarte ni recibir viajes.",
+        Domain.Enums.DriverStatus.Rejected =>
+            "Tu registro como conductor no fue aceptado. No puedes conectarte ni recibir viajes.",
+        _ => null,
+    };
 }

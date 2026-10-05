@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
 using Bugie.Payments.Application.Commands;
 using Bugie.Payments.Application.DTOs;
@@ -18,19 +19,25 @@ public class PaymentsController : ControllerBase {
     private Guid CurrentUserId =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+    /// <summary>
+    /// POST /api/payments — pago de un viaje completado. Lo llama Trips al
+    /// completar, reenviando el token del conductor. Solo puede crearlo el
+    /// conductor del viaje (o un admin); el handler valida contra el viaje.
+    /// </summary>
     [HttpPost]
+    [RequirePermission(Perm.ViewPayments, SkipForNonAdmins = true)]
     public async Task<IActionResult> Create(
-        [FromBody] CreatePaymentRequest req, CancellationToken ct) =>
-        Ok(await _mediator.Send(
-            new CreatePaymentCommand(req.TripId, req.PassengerId, req.DriverId, req.Amount, req.Method), ct));
-
-    /// <summary>PUT /api/payments/{id}/complete  body: { "reference": "..." } (opcional)</summary>
-    [HttpPut("{id:guid}/complete")]
-    public async Task<IActionResult> Complete(
-        Guid id, [FromBody] CompletePaymentBody? body, CancellationToken ct) =>
-        Ok(await _mediator.Send(new CompletePaymentCommand(id, body?.Reference), ct));
-
-    public record CompletePaymentBody(string? Reference);
+        [FromBody] CreatePaymentRequest req, CancellationToken ct)
+    {
+        if (!User.IsInRole("admin") && req.DriverId != CurrentUserId) return Forbid();
+        try
+        {
+            return Ok(await _mediator.Send(
+                new CreatePaymentCommand(req.TripId, req.PassengerId, req.DriverId, req.Amount, req.Method), ct));
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
 
     [HttpGet("earnings")]
     [Authorize(Roles = "driver")]
@@ -52,35 +59,41 @@ public class PaymentsController : ControllerBase {
     public async Task<IActionResult> MyPayments(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetPassengerPaymentsQuery(CurrentUserId), ct));
 
-    // Admin — ver todos los pagos
-    [HttpGet]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> GetAll(
-        [FromQuery] string? status, CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetAllPaymentsQuery(status), ct));
-
     /// <summary>
     /// Admin: lista paginada de pagos.
-    /// GET /api/payments/paged?page=1&amp;pageSize=25&amp;status=completed
+    /// GET /api/payments/paged?page=1&amp;pageSize=25&amp;status=completed&amp;search=&amp;method=yape&amp;from=2026-10-01&amp;to=2026-10-31
+    /// search: nombre, correo o documento del pasajero o del conductor, referencia o Id del viaje.
+    /// from / to: dias de Peru (yyyy-MM-dd), ambos incluidos.
     /// </summary>
     [HttpGet("paged")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewPayments)]
     public async Task<IActionResult> Paged(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? method = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
-            new GetPaymentsPagedQuery(page, pageSize, status), ct));
+            new GetPaymentsPagedQuery(page, pageSize, status, search, method, from, to), ct));
 
     /// <summary>
     /// Admin: KPIs agregados de pagos (totales monetarios + cuentas).
-    /// GET /api/payments/stats?status=completed
+    /// GET /api/payments/stats?status=completed&amp;search=&amp;method=&amp;from=&amp;to=
+    /// Mismos filtros que /paged.
     /// </summary>
     [HttpGet("stats")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewPayments)]
     public async Task<IActionResult> Stats(
         [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? method = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
         CancellationToken ct = default) =>
-        Ok(await _mediator.Send(new GetPaymentsStatsQuery(status), ct));
+        Ok(await _mediator.Send(new GetPaymentsStatsQuery(status, search, method, from, to), ct));
 }

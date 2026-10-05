@@ -1,24 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
-import PageHeader from '../../../components/PageHeader';
+import {
+  EmptyState, FilterBar, Page, SaveBar, SectionCard, Skeleton, StatusBadge, Tabs, Tone,
+  IconButton, useConfirm, useMediaQuery, useToast, useUnsavedChanges,
+} from '../../../components/ui';
 import ContentForm from './ContentForm';
+import { API, ApiError, apiFetch } from '../../../state/api';
 import { SECTIONS, GROUPS, EXCLUDED, SectionMeta } from './meta';
+import '../siteAdmin.scss';
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Gestor de Landing.
+   Gestor de Landing (maestro-detalle).
 
-   Edita el contenido del sitio público con un formulario, en vez del JSON
-   crudo. El formulario se genera del propio contenido, así que un campo nuevo
-   aparece solo, y los nombres en español salen del diccionario de meta.ts.
+   Izquierda: grupos → secciones, con buscador y estado por idioma.
+   Derecha: el editor de la sección elegida, con el idioma en pestañas.
+   En pantallas angostas se ve primero la lista y, al elegir, el editor a
+   pantalla completa con un botón "Volver".
 
-   Nada se guarda hasta pulsar Guardar.
+   Nada se guarda hasta pulsar Guardar (barra inferior). Cambiar de sección o
+   de idioma con cambios pendientes pide confirmación.
    ────────────────────────────────────────────────────────────────────────── */
 
-const LANDING_API = `${import.meta.env.VITE_API_LANDING}/landing`;
+const LANDING_API = `${API.landing}/landing`;
 
 const LANGS = [
-  { code: 'es', label: 'ES', flag: '🇵🇪', name: 'Español' },
-  { code: 'en', label: 'EN', flag: '🇺🇸', name: 'Inglés' },
-  { code: 'pt', label: 'PT', flag: '🇧🇷', name: 'Portugués' },
+  { code: 'es', label: 'ES', name: 'Español' },
+  { code: 'en', label: 'EN', name: 'Inglés' },
+  { code: 'pt', label: 'PT', name: 'Portugués' },
 ] as const;
 type Lang = typeof LANGS[number]['code'];
 
@@ -44,7 +51,7 @@ function emptyLike(v: any): any {
   return '';
 }
 
-/** Cuenta cuántos textos tiene un contenido y cuántos están vacíos. */
+/** Cuenta cuántos textos tiene un contenido y cuántos están llenos. */
 function countFilled(v: any): [filled: number, total: number] {
   let filled = 0, total = 0;
   const walk = (x: any) => {
@@ -56,27 +63,47 @@ function countFilled(v: any): [filled: number, total: number] {
   return [filled, total];
 }
 
+/** Estado de una sección en los tres idiomas, en palabras. */
+function sectionStatus(meta: SectionMeta, store: Store): { text: string; tone: Tone; icon: string } {
+  if (meta.unused) return { text: 'El sitio no la usa', tone: 'neutral', icon: 'fa-eye-slash' };
+  const faltan = LANGS.filter(l => !store[l.code]?.[meta.key]);
+  if (faltan.length === 0) return { text: 'Completa', tone: 'ok', icon: 'fa-circle-check' };
+  if (faltan.length === LANGS.length) return { text: 'Sin contenido', tone: 'bad', icon: 'fa-circle-xmark' };
+  return { text: 'Falta ' + faltan.map(l => l.label).join(' y '), tone: 'warn', icon: 'fa-language' };
+}
+
+const SWITCH_OPTS = {
+  title: '¿Descartar los cambios?',
+  message: 'Tienes cambios sin guardar en esta sección. Si continúas se perderán.',
+  confirmText: 'Descartar y continuar',
+  cancelText: 'Seguir editando',
+  tone: 'warning' as const,
+};
+
 export default function LandingManager() {
+  const toast   = useToast();
+  const confirm = useConfirm();
+  const narrow  = useMediaQuery('(max-width: 991.98px)');
+
   const [store,    setStore]    = useState<Store>({});
   const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
+  const [loadErr,  setLoadErr]  = useState<string | null>(null);
 
-  const [group,    setGroup]    = useState<string>('home');
   const [lang,     setLang]     = useState<Lang>('es');
   const [selected, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['home']));
+  const [listQ,    setListQ]    = useState('');
 
   const [draft,    setDraft]    = useState<any>(null);
   const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
   const [showJson, setShowJson] = useState(false);
   const [search,   setSearch]   = useState('');
 
   /* ── Cargar los tres idiomas ──────────────────────────────────────── */
   useEffect(() => {
-    setLoading(true); setError(null);
+    setLoading(true); setLoadErr(null);
     Promise.all(LANGS.map(l =>
-      fetch(`${LANDING_API}?lang=${l.code}`)
-        .then(r => { if (!r.ok) throw new Error(`Error ${r.status}`); return r.json(); })
+      apiFetch<{ sections?: ApiSection[] }>(`${LANDING_API}?lang=${l.code}`)
         .then(d => [l.code, (d.sections ?? []) as ApiSection[]] as const)
     ))
       .then(pairs => {
@@ -90,7 +117,7 @@ export default function LandingManager() {
         });
         setStore(next);
       })
-      .catch(e => setError(`No se pudo cargar el contenido: ${e.message}`))
+      .catch(e => setLoadErr(e instanceof ApiError ? `No se pudo cargar el contenido: ${e.message}` : 'No se pudo cargar el contenido. Vuelve a intentarlo.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -99,11 +126,12 @@ export default function LandingManager() {
   /** Cambios sin guardar. */
   const dirty = useMemo(() => {
     if (!selected || !draft) return false;
-    // "no existe" y "objeto vacío" son lo mismo para el usuario: si no lo
-    // tratáramos igual, una sección vacía diría "cambios sin guardar" al abrirla.
+    // "No existe" y "objeto vacío" son lo mismo para quien edita.
     const original = store[lang]?.[selected] ?? {};
     return JSON.stringify(original) !== JSON.stringify(draft ?? {});
   }, [draft, store, lang, selected]);
+
+  useUnsavedChanges(dirty);
 
   function open(key: string, toLang: Lang = lang) {
     const existing = store[toLang]?.[key];
@@ -113,194 +141,224 @@ export default function LandingManager() {
     setSelected(key);
     setLang(toLang);
     setDraft(JSON.parse(JSON.stringify(base)));
-    setSaved(false);
     setSearch('');
+    const g = SECTIONS.find(s => s.key === key)?.group;
+    if (g) setExpanded(prev => new Set(prev).add(g));
+  }
+
+  /** Cambia de sección/idioma preguntando si hay cambios sin guardar. */
+  async function guardedOpen(key: string, toLang: Lang = lang) {
+    if (key === selected && toLang === lang) return;
+    if (dirty && !(await confirm(SWITCH_OPTS))) return;
+    open(key, toLang);
+  }
+
+  async function goBack() {
+    if (dirty && !(await confirm(SWITCH_OPTS))) return;
+    setSelected(null); setDraft(null);
   }
 
   async function save() {
     if (!selected || !draft) return;
-    setSaving(true); setError(null);
+    setSaving(true);
     try {
-      const token = localStorage.getItem('bugie_token') ?? '';
-      const res = await fetch(`${LANDING_API}/section`, {
+      await apiFetch(`${LANDING_API}/section`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sectionKey: selected, lang, contentJson: JSON.stringify(draft) }),
       });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        throw new Error((b as any).error ?? `Error ${res.status}`);
-      }
       setStore(prev => ({ ...prev, [lang]: { ...(prev[lang] ?? {}), [selected]: draft } }));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e: any) {
-      setError(`No se pudo guardar: ${e.message}`);
+      toast.success(`Se publicó «${meta?.label ?? selected}» en ${LANGS.find(l => l.code === lang)?.name}.`, 'Guardado');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? `No se pudo guardar: ${e.message}` : 'No se pudo guardar. Vuelve a intentarlo.');
     } finally {
       setSaving(false);
     }
   }
 
-  const visible = SECTIONS.filter(s => s.group === group && !EXCLUDED.includes(s.key));
+  /* ── Lista (maestro) ──────────────────────────────────────────────── */
+  const q = listQ.trim().toLowerCase();
+  const groups = GROUPS.map(g => ({
+    ...g,
+    sections: SECTIONS.filter(s => s.group === g.key && !EXCLUDED.includes(s.key)
+      && (!q || s.label.toLowerCase().includes(q) || s.where.toLowerCase().includes(q) || s.key.includes(q))),
+  })).filter(g => g.sections.length > 0);
 
-  return (
-    <>
-      <PageHeader title="Gestor de Landing"
-                  subtitle="Edita los textos del sitio público en los tres idiomas."
-                  icon="fa-solid fa-paintbrush" />
+  const toggleGroup = (key: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {/* Grupos */}
-      <div className="d-flex flex-wrap gap-2 mb-3">
-        {GROUPS.map(g => (
-          <button key={g.key} type="button"
-                  onClick={() => { setGroup(g.key); setSelected(null); setDraft(null); }}
-                  className={`btn btn-sm rounded-pill ${group === g.key ? 'btn-bugie' : 'btn-bugie-outline'}`}>
-            <i className={`fa-solid ${g.icon} me-1`} />{g.label}
-          </button>
-        ))}
-        {loading && <span className="spinner-border spinner-border-sm ms-2" />}
+  const master = (
+    <SectionCard title="Secciones del sitio" icon="fa-sitemap" className="sa-md-master" tourId="landing-list"
+                 description="Elige qué parte de la web quieres editar.">
+      <div className="mb-3" data-tour="landing-search">
+        <FilterBar search={listQ} onSearchChange={setListQ} searchPlaceholder="Buscar sección…" />
       </div>
-
-      {/* Secciones */}
-      <div className="row g-2 mb-3">
-        {visible.map(s => (
-          <div key={s.key} className="col-12 col-sm-6 col-lg-4 col-xxl-3">
-            <SectionCard meta={s} store={store} active={selected === s.key} onClick={() => open(s.key)} />
-          </div>
-        ))}
-      </div>
-
-      {!selected && !loading && (
-        <div className="bugie-card">
-          <div className="bugie-card-body text-center py-5 bugie-muted">
-            <i className="fa-solid fa-hand-pointer fa-2x d-block mb-3" style={{ opacity: .4 }} />
-            Elige una sección para editar sus textos.
-          </div>
-        </div>
-      )}
-
-      {selected && meta && draft && (
-        <div className="bugie-card">
-          {/* Barra de la sección */}
-          <div className="bugie-card-header d-flex flex-wrap align-items-center gap-2">
-            <i className={`fa-solid ${meta.icon}`} />
-            <span className="fw-semibold">{meta.label}</span>
-            <span className="small bugie-muted d-none d-md-inline">· {meta.where}</span>
-
-            <div className="ms-auto d-flex flex-wrap align-items-center gap-2">
-              <input className="form-control form-control-sm" style={{ width: 170 }}
-                     placeholder="Buscar campo…" value={search}
-                     onChange={e => setSearch(e.target.value)} />
-              <button type="button" className="btn btn-sm btn-bugie-outline rounded-pill py-0 px-2"
-                      style={{ fontSize: '.74rem' }} onClick={() => setShowJson(v => !v)}>
-                {showJson ? 'Ver formulario' : 'Ver JSON'}
-              </button>
-            </div>
-          </div>
-
-          <div className="bugie-card-body">
-            {/* Idiomas */}
-            <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-              <span className="small bugie-muted">Idioma:</span>
-              {LANGS.map(l => {
-                const content = store[l.code]?.[selected];
-                const [filled, total] = content ? countFilled(content) : [0, 0];
-                const pendientes = total - filled;
-                const aviso = !content
-                  ? `Todavía no existe en ${l.name}`
-                  : pendientes > 0
-                  ? `${pendientes} ${pendientes === 1 ? 'texto vacío' : 'textos vacíos'} en ${l.name}`
-                  : `Completo en ${l.name}`;
-                return (
-                  <button key={l.code} type="button" title={aviso}
-                          onClick={() => {
-                            if (dirty && !confirm('Hay cambios sin guardar. ¿Cambiar de idioma y perderlos?')) return;
-                            open(selected, l.code);
-                          }}
-                          className={`btn btn-sm rounded-pill ${lang === l.code ? 'btn-bugie' : 'btn-bugie-outline'}`}>
-                    <span className="me-1">{l.flag}</span>{l.name}
-                    {!content && (
-                      <span className="ms-2" style={{ fontSize: '.68rem', opacity: .85 }}>vacío</span>
-                    )}
-                    {content && pendientes > 0 && (
-                      <span className="ms-2" style={{ fontSize: '.68rem', opacity: .85 }}>
-                        faltan {pendientes}
+      {loading ? (
+        <Skeleton height={44} count={6} />
+      ) : groups.length === 0 ? (
+        <EmptyState compact title="Sin resultados" text={`Ninguna sección coincide con «${listQ}».`} />
+      ) : (
+        <nav aria-label="Secciones de la landing" className="d-grid gap-2">
+          {groups.map(g => {
+            const isOpen = !!q || expanded.has(g.key);
+            return (
+              <div key={g.key} className="sa-nav-group">
+                <button type="button" className="sa-nav-title" aria-expanded={isOpen}
+                        onClick={() => toggleGroup(g.key)}>
+                  <i className={`fa-solid ${g.icon}`} aria-hidden="true" />
+                  {g.label}
+                  <span className="count">{g.sections.length}</span>
+                  <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+                </button>
+                {isOpen && g.sections.map(s => {
+                  const st = sectionStatus(s, store);
+                  return (
+                    <button key={s.key} type="button"
+                            className={`sa-item sa-anim ${selected === s.key ? 'active' : ''}`}
+                            aria-current={selected === s.key ? 'true' : undefined}
+                            onClick={() => guardedOpen(s.key)}>
+                      <i className={`fa-solid ${s.icon}`} aria-hidden="true" />
+                      <span className="text">
+                        <span className="name">{s.label}</span>
+                        <span className="sub">{s.where}</span>
+                        <span><StatusBadge size="sm" tone={st.tone} icon={st.icon}>{st.text}</StatusBadge></span>
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-
-              {dirty && (
-                <span className="small ms-auto" style={{ color: '#f59e0b' }}>
-                  <i className="fa-solid fa-circle-exclamation me-1" />Cambios sin guardar
-                </span>
-              )}
-            </div>
-
-            {meta.unused && (
-              <div className="alert small py-2 d-flex gap-2"
-                   style={{ background: '#94a3b81a', border: '1px solid #94a3b840', color: 'inherit' }}>
-                <i className="fa-solid fa-eye-slash mt-1" />
-                <span>
-                  <strong>El sitio público no muestra esta sección.</strong> Revisado en el código de
-                  la web: nada lee este contenido, así que lo que escribas aquí no se verá.
-                  {selected === 'navbar' && ' Los enlaces del menú están escritos directamente en PublicTopNav.tsx.'}
-                </span>
+                      {narrow && <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />}
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            );
+          })}
+        </nav>
+      )}
+    </SectionCard>
+  );
 
-            {lang !== 'es' && !store[lang]?.[selected] && Object.keys(draft).length > 0 && (
-              <div className="alert alert-warning small py-2">
-                Esta sección todavía no existe en {LANGS.find(l => l.code === lang)?.name}.
-                Se cargaron los campos del español en blanco: cada uno muestra el texto
-                original debajo, con un botón para copiarlo.
-              </div>
-            )}
+  /* ── Editor (detalle) ─────────────────────────────────────────────── */
+  const langTabs = selected ? LANGS.map(l => {
+    const content = store[l.code]?.[selected];
+    const [filled, total] = content ? countFilled(content) : [0, 0];
+    const pendientes = total - filled;
+    return {
+      value: l.code,
+      label: <span title={!content ? `Todavía no existe en ${l.name}` : pendientes > 0 ? `${pendientes} textos vacíos` : `Completo en ${l.name}`}>
+        {l.name}{!content && <span className="bugie-muted ms-1">(vacío)</span>}
+      </span>,
+      count: content && pendientes > 0 ? pendientes : undefined,
+    };
+  }) : [];
 
-            {Object.keys(draft).length === 0 ? (
-              <EmptySection meta={meta} lang={lang} store={store}
-                            onStartFrom={from => setDraft(emptyLike(store[from][selected!]))} />
-            ) : showJson ? (
-              <pre className="small p-3 mb-0" style={{
-                background: 'var(--bugie-bg-2, rgba(125,125,160,.07))', borderRadius: 10,
-                maxHeight: 520, overflow: 'auto',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              }}>{JSON.stringify(draft, null, 2)}</pre>
-            ) : (
-              <ContentForm value={draft} onChange={setDraft} search={search}
-                           reference={lang === 'es' ? undefined : store.es?.[selected]}
-                           translating={lang !== 'es'} />
-            )}
+  const editor = selected && meta && draft ? (
+    <div className="d-grid gap-3 sa-anim-slide" key={selected}>
+      <SectionCard
+        icon={meta.icon}
+        title={meta.label}
+        description={meta.where}
+        tourId="landing-editor"
+        actions={
+          <button type="button" className="btn btn-sm btn-bugie-outline rounded-pill"
+                  onClick={() => setShowJson(v => !v)} aria-pressed={showJson}>
+            <i className={`fa-solid ${showJson ? 'fa-pen-to-square' : 'fa-code'} me-1`} aria-hidden="true" />
+            {showJson ? 'Ver formulario' : 'Ver JSON'}
+          </button>
+        }
+      >
+        <div className="d-grid gap-3">
+          <div data-tour="landing-lang">
+            <Tabs ariaLabel="Idioma" items={langTabs} value={lang}
+                  onChange={v => guardedOpen(selected, v as Lang)} />
+            <p className="small bugie-muted mt-2 mb-0">
+              El número junto al idioma indica cuántos textos faltan llenar.
+            </p>
+          </div>
 
-            {/* Acciones */}
-            <div className="d-flex flex-wrap align-items-center gap-2 mt-3 pt-3"
-                 style={{ borderTop: '1px solid var(--bugie-border)' }}>
-              <button type="button" className="btn btn-bugie rounded-pill px-4"
-                      onClick={save} disabled={saving || !dirty}>
-                {saving
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                  : <><i className="fa-solid fa-floppy-disk me-2" />Guardar {lang.toUpperCase()}</>}
-              </button>
-              <button type="button" className="btn btn-bugie-outline rounded-pill"
-                      onClick={() => open(selected, lang)} disabled={saving || !dirty}>
-                Descartar cambios
-              </button>
-              {saved && (
-                <span className="small" style={{ color: '#34d399' }}>
-                  <i className="fa-solid fa-circle-check me-1" />Guardado
-                </span>
-              )}
-              <span className="small bugie-muted ms-auto">
-                Los cambios se publican al guardar.
+          {meta.unused && (
+            <div className="sa-note bx-tone-neutral">
+              <i className="fa-solid fa-eye-slash" aria-hidden="true" />
+              <span>
+                <strong>El sitio público no muestra esta sección.</strong> Nada en la web lee este
+                contenido, así que lo que escribas aquí no se verá.
+                {selected === 'navbar' && ' Los enlaces del menú están escritos directamente en PublicTopNav.tsx.'}
               </span>
             </div>
-          </div>
+          )}
+
+          {lang !== 'es' && !store[lang]?.[selected] && Object.keys(draft).length > 0 && (
+            <div className="sa-note bx-tone-warn">
+              <i className="fa-solid fa-language" aria-hidden="true" />
+              <span>
+                Esta sección todavía no existe en {LANGS.find(l => l.code === lang)?.name}. Cargamos
+                los campos del español en blanco: cada uno muestra el texto original con un botón para copiarlo.
+              </span>
+            </div>
+          )}
+
+          {Object.keys(draft).length > 0 && !showJson && (
+            <FilterBar search={search} onSearchChange={setSearch} searchPlaceholder="Buscar campo…" />
+          )}
+        </div>
+      </SectionCard>
+
+      {Object.keys(draft).length === 0 ? (
+        <SectionCard>
+          <EmptySection meta={meta} lang={lang} store={store}
+                        onStartFrom={from => setDraft(emptyLike(store[from][selected!]))} />
+        </SectionCard>
+      ) : showJson ? (
+        <SectionCard title="Contenido en JSON" icon="fa-code" description="Solo lectura. Para editar, vuelve al formulario.">
+          <pre className="sa-json">{JSON.stringify(draft, null, 2)}</pre>
+        </SectionCard>
+      ) : (
+        <ContentForm value={draft} onChange={setDraft} search={search}
+                     reference={lang === 'es' ? undefined : store.es?.[selected]}
+                     translating={lang !== 'es'} />
+      )}
+
+      <SaveBar dirty={dirty} saving={saving} onSave={save}
+               onDiscard={() => open(selected, lang)}
+               saveText={`Guardar ${lang.toUpperCase()}`}
+               message="Cambios sin guardar: se publican al guardar" />
+    </div>
+  ) : (
+    <SectionCard tourId="landing-editor">
+      <EmptyState icon="fa-hand-pointer" title="Elige una sección"
+                  text="Selecciona una sección de la lista para editar sus textos en español, inglés y portugués." />
+    </SectionCard>
+  );
+
+  const showEditorOnly = narrow && !!selected;
+
+  return (
+    <Page title="Contenido del sitio web"
+          subtitle="Edita los textos de la web pública en los tres idiomas."
+          icon="fa-paintbrush"
+          helpKey="landing">
+      {loadErr && (
+        <div className="sa-note bx-tone-bad" role="alert">
+          <i className="fa-solid fa-circle-exclamation" aria-hidden="true" />
+          <span>{loadErr}</span>
         </div>
       )}
-    </>
+
+      {showEditorOnly ? (
+        <div className="d-grid gap-3">
+          <div className="sa-backbar">
+            <IconButton icon="fa-arrow-left" label="Volver a la lista" onClick={goBack} />
+            <span className="title">{meta?.label}</span>
+          </div>
+          {editor}
+        </div>
+      ) : (
+        <div className="sa-md">
+          {master}
+          {!narrow && <div className="sa-md-detail">{editor}</div>}
+        </div>
+      )}
+    </Page>
   );
 }
 
@@ -310,78 +368,36 @@ function EmptySection({ meta, lang, store, onStartFrom }: {
 }) {
   // Idiomas que sí tienen contenido y pueden servir de molde.
   const fuentes = LANGS.filter(l => l.code !== lang && store[l.code]?.[meta.key]);
+  const langName = LANGS.find(l => l.code === lang)?.name;
 
-  return (
-    <div className="text-center py-4 px-3">
-      <i className="fa-regular fa-folder-open fa-2x d-block mb-3" style={{ opacity: .35 }} />
-      <div className="fw-semibold mb-1">Esta sección todavía no tiene contenido</div>
-
-      {fuentes.length > 0 ? (
-        <>
-          <div className="small bugie-muted mb-3">
-            No hay nada guardado en {LANGS.find(l => l.code === lang)?.name}.
-            Puedes empezar copiando la estructura de otro idioma: se crean los mismos
-            campos, vacíos y listos para escribir.
-          </div>
+  if (fuentes.length > 0) {
+    return (
+      <EmptyState
+        icon="fa-folder-open"
+        title="Esta sección todavía no tiene contenido"
+        text={`No hay nada guardado en ${langName}. Empieza copiando la estructura de otro idioma: se crean los mismos campos, vacíos y listos para escribir.`}
+        action={
           <div className="d-flex justify-content-center gap-2 flex-wrap">
             {fuentes.map(f => (
               <button key={f.code} type="button" className="btn btn-bugie rounded-pill"
                       onClick={() => onStartFrom(f.code)}>
-                <i className="fa-solid fa-wand-magic-sparkles me-2" />
-                Empezar con los campos de {f.name}
+                <i className="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true" />
+                Usar los campos de {f.name}
               </button>
             ))}
           </div>
-        </>
-      ) : (
-        <div className="small bugie-muted" style={{ maxWidth: 520, margin: '0 auto' }}>
-          No existe en ningún idioma, así que no hay de dónde copiar los campos.
-          {meta.unused
-            ? ' Además, el sitio público no lee esta sección: se puede dejar así.'
-            : ' Para crearla desde cero hace falta saber qué campos espera la web; conviene definirlos con quien desarrolló esa página.'}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Tarjeta de sección ────────────────────────────────────────────────── */
-function SectionCard({ meta, store, active, onClick }: {
-  meta: SectionMeta; store: Store; active: boolean; onClick: () => void;
-}) {
-  const faltan = LANGS.filter(l => !store[l.code]?.[meta.key]);
-
-  // En vez de "2/3", que no dice nada, se escribe qué pasa.
-  let estado: string;
-  let color: string;
-  if (faltan.length === 0)            { estado = 'Completo en los 3 idiomas'; color = '#34d399'; }
-  else if (faltan.length === LANGS.length) { estado = 'Sin contenido';        color = '#ef4444'; }
-  else                                { estado = 'Falta ' + faltan.map(l => l.label).join(' y '); color = '#f59e0b'; }
+        }
+      />
+    );
+  }
 
   return (
-    <button type="button" onClick={onClick} className="bugie-card w-100 p-3 text-start h-100"
-            style={{ cursor: 'pointer', border: active ? '2px solid var(--bugie-primary)' : undefined }}>
-      <div className="d-flex align-items-center gap-2 mb-1">
-        <i className={`fa-solid ${meta.icon}`}
-           style={{ color: active ? 'var(--bugie-primary)' : undefined, width: 16 }} />
-        <span className="small fw-semibold">{meta.label}</span>
-      </div>
-
-      <div className="small bugie-muted text-truncate mb-2" style={{ fontSize: '.74rem' }}>
-        {meta.where}
-      </div>
-
-      {meta.unused ? (
-        <span className="badge rounded-pill"
-              style={{ background: '#94a3b822', color: '#94a3b8', fontSize: '.66rem', fontWeight: 600 }}>
-          <i className="fa-solid fa-eye-slash me-1" />El sitio no la usa
-        </span>
-      ) : (
-        <span className="small fw-semibold" style={{ color, fontSize: '.74rem' }}>
-          <i className="fa-solid fa-circle me-1" style={{ fontSize: '.4rem', verticalAlign: 'middle' }} />
-          {estado}
-        </span>
-      )}
-    </button>
+    <EmptyState
+      icon="fa-folder-open"
+      title="Esta sección todavía no tiene contenido"
+      text={'No existe en ningún idioma, así que no hay de dónde copiar los campos.' + (meta.unused
+        ? ' Además, el sitio público no lee esta sección: se puede dejar así.'
+        : ' Para crearla desde cero hace falta saber qué campos espera la web; defínelos con quien desarrolló esa página.')}
+    />
   );
 }

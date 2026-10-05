@@ -51,6 +51,8 @@ class BugieColors {
   static const mapOrigin        = Color(0xFF2563EB); // Origen del viaje (= azul)
   static const mapDestination   = Color(0xFFFF5BD6); // Destino del viaje (= rosa)
   static const mapWaypoint      = Color(0xFFF59E0B); // Parada intermedia
+  static const mapPlannedRoute  = Color(0xFF2563EB); // Ruta del sistema (punteada)
+  static const mapRealPath      = Color(0xFF16A34A); // Recorrido real del conductor
   static const proposal         = Color(0xFF5B7CEC); // Tarjeta de propuesta
   static const trendDown        = Color(0xFF16A34A); // Bajó precio
   static const trendUp          = Color(0xFFDC2626); // Subió precio

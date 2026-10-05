@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Color del ícono de las notificaciones push. -->
+    <color name="bugie_notification">#5B5BD6</color>
 </resources>

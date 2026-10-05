@@ -28,6 +28,21 @@ public class WithdrawalRepository : IWithdrawalRepository
                            WHERE SourceType = @SourceType AND SourceRef = @SourceRef)",
             new { SourceType = sourceType, SourceRef = sourceRef });
 
+    public Task<Withdrawal?> GetBySourceAsync(string sourceType, IEnumerable<string> sourceRefs, CancellationToken ct = default) =>
+        _db.QueryFirstOrDefaultAsync<Withdrawal>(@"
+            SELECT * FROM payments.Withdrawals
+            WHERE SourceType = @SourceType AND SourceRef = ANY(@Refs)
+            ORDER BY CreatedAt
+            LIMIT 1",
+            new { SourceType = sourceType, Refs = sourceRefs.Distinct().ToArray() });
+
+    public async Task<string> NextReceiptCodeAsync(int year, CancellationToken ct = default)
+    {
+        // Secuencia creada en scripts/2026-10-03_cobros_ranking.sql
+        var n = await _db.ExecuteScalarAsync<long>("SELECT nextval('payments.payout_receipt_seq')");
+        return $"PAG-{year}-{n:000000}";
+    }
+
     public async Task<(List<Withdrawal> Items, int Total)> GetPagedAsync(
         PayoutFilter filter, int page, int pageSize, CancellationToken ct = default)
     {

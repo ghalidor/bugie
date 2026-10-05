@@ -1,0 +1,260 @@
+/* ═══════════════════════════════════════════════════════════════════════
+ * LANDING PÚBLICA — estilos propios de componentes de la landing.
+ *
+ * Antes estaban como style={{...}} en cada página. Se cargan después de
+ * index.scss (lo importan PublicLayout y ComplaintsBook), así que a igual
+ * especificidad estas reglas ganan, igual que ganaba el estilo en línea.
+ * Lo compartido con el área con sesión sigue en index.scss.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Menú superior ─────────────────────────────────────────────────────── */
+.bugie-nav-logo,
+.bugie-offcanvas-logo { width: auto; object-fit: contain; }
+.bugie-nav-logo       { height: 32px; }
+.bugie-offcanvas-logo { height: 28px; }
+
+/* Doble clase para ganarle a `.bugie-topbar .btn` (index.scss). */
+.bugie-topbar .bugie-lang-btn {
+  font-size: .78rem;
+  padding: 0 .75rem;
+  gap: .5rem;
+}
+.bugie-topbar .bugie-lang-btn span { font-weight: 600; }
+.bugie-topbar .bugie-login-btn {
+  padding: 0 1rem;
+  gap: .5rem;
+}
+.bugie-offcanvas-admin i { font-size: .7rem; }
+
+/* ── Pie de página ─────────────────────────────────────────────────────── */
+.bugie-complaints-icon { color: #dc3545; }
+
+/* ── Inicio: programa de puntos ────────────────────────────────────────── */
+.bugie-reward-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  color: var(--bugie-primary);
+}
+
+/* ── Empresa ───────────────────────────────────────────────────────────── */
+.bugie-problem-icon { font-size: 1.4rem; }
+
+/* ── Gana con Bugie ────────────────────────────────────────────────────── */
+.bugie-earn-badge {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(79,125,245,.18), rgba(230,115,217,.18));
+  border: 1px solid var(--bugie-border);
+}
+.bugie-earn-badge > i { font-size: 90px; color: #D4A933; }
+
+/* Ícono de beneficio: mismo .bugie-mini-icon pero con esquinas de 12px. */
+.bugie-benefit-icon { border-radius: 12px; }
+
+/* Número de paso (1, 2, 3…) */
+.bugie-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #4F7DF5, #B85FE6);
+  color: #fff;
+  font-size: 14px;
+}
+
+/* ── Preguntas frecuentes ──────────────────────────────────────────────── */
+.bugie-faq-help-icon { color: var(--bugie-primary, #818cf8); }
+.bugie-faq-list { max-width: 820px; }
+
+.bugie-faq-item { transition: box-shadow .2s; }
+.bugie-faq-item.is-open { box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+
+.bugie-faq-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.bugie-faq-plus {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  /* Color fijo a propósito: antes era var(--bugie-primary-soft, este color),
+     y esa variable no existía. Ahora app.scss (zona con sesión) define
+     --bugie-primary-soft como un violeta sólido y el ícono cambiaría. */
+  background: rgba(129,140,248,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform .2s;
+  transform: rotate(0deg);
+}
+.bugie-faq-item.is-open .bugie-faq-plus { transform: rotate(45deg); }
+.bugie-faq-plus i { color: var(--bugie-primary, #818cf8); font-size: .85rem; }
+
+.bugie-faq-badge {
+  background: rgba(148,163,184,0.15);
+  color: var(--bugie-muted);
+  font-size: .7rem;
+}
+
+/* Respuesta: se despliega animando max-height. */
+.bugie-faq-answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .25s ease-out;
+}
+.bugie-faq-item.is-open .bugie-faq-answer { max-height: 800px; }
+.bugie-faq-answer p { white-space: pre-wrap; }
+
+/* ── Libro de reclamaciones ────────────────────────────────────────────── */
+.bugie-complaints-page {
+  background: var(--bugie-bg);
+  min-height: 100vh;
+  padding: 2rem 1rem;
+}
+.bugie-complaints-page > .container { max-width: 1100px; }
+.bugie-complaints-logo {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: var(--bugie-surface-2);
+  border: 2px solid var(--bugie-border);
+  font-size: 28px;
+  font-weight: 900;
+}
+/* Logo subido en "Datos de la empresa": mismo círculo, imagen contenida. */
+.bugie-complaints-logo-img {
+  object-fit: contain;
+  padding: 10px;
+  background: #fff;
+}
+/* Hoja en modo lectura (consulta). */
+.bugie-complaints-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Preguntas frecuentes: buscador y enlace de cada pregunta ──────────── */
+.bugie-faq-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.bugie-faq-search > .fa-magnifying-glass {
+  position: absolute;
+  left: 1.1rem;
+  color: var(--bugie-muted);
+  pointer-events: none;
+}
+.bugie-faq-search .form-control {
+  border-radius: 999px;
+  padding: .8rem 2.8rem;
+  background: var(--bugie-surface);
+  color: var(--bugie-text);
+  border: 1px solid color-mix(in srgb, var(--bugie-border) 85%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .05);
+}
+.bugie-faq-search .form-control::placeholder { color: var(--bugie-muted); }
+.bugie-faq-search .form-control:focus {
+  border-color: color-mix(in srgb, var(--bugie-primary) 45%, var(--bugie-border));
+  box-shadow: var(--bugie-ring);
+}
+/* El navegador agrega su propia "x" en type=search: usamos la nuestra. */
+.bugie-faq-search .form-control::-webkit-search-cancel-button { display: none; }
+.bugie-faq-search-clear {
+  position: absolute;
+  right: .55rem;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--bugie-muted);
+}
+.bugie-faq-search-clear:hover,
+.bugie-faq-search-clear:focus-visible { background: rgba(129,140,248,0.15); color: var(--bugie-text); }
+
+.bugie-faq-mark {
+  padding: 0 .1em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bugie-accent) 24%, transparent);
+  color: inherit;
+}
+.bugie-faq-copy {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--bugie-link);
+}
+.bugie-faq-copy:hover { text-decoration: underline; }
+.bugie-faq-empty { animation: bugieFadeUp .35s ease both; }
+
+@keyframes bugieFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Botón flotante de ayuda (WhatsApp / llamada) ──────────────────────── */
+.bugie-help-fab {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 1030;
+  height: 54px;
+  min-width: 54px;
+  padding: 0 1.1rem 0 1rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  background: var(--bugie-grad);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, .25);
+  animation: bugieFabIn .5s cubic-bezier(.22,.61,.36,1) .8s backwards;
+  transition: transform .25s ease, opacity .25s ease, box-shadow .2s ease;
+}
+/* Verde oscuro de WhatsApp: contraste suficiente con texto blanco. */
+.bugie-help-fab.is-whatsapp { background: #128c4a; }
+.bugie-help-fab > i { font-size: 1.5rem; }
+.bugie-help-fab:hover,
+.bugie-help-fab:focus-visible {
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, .32);
+}
+.bugie-help-fab:focus-visible { outline: 3px solid color-mix(in srgb, var(--bugie-primary) 60%, #fff); outline-offset: 3px; }
+.bugie-help-fab-text { font-size: .9rem; white-space: nowrap; }
+
+@keyframes bugieFabIn {
+  from { opacity: 0; transform: translateY(16px) scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (max-width: 991.98px) {
+  /* En móvil y tablet solo el ícono, y se esconde sobre el pie de página. */
+  .bugie-help-fab { padding: 0; justify-content: center; width: 54px; }
+  .bugie-help-fab-text { display: none; }
+  .bugie-help-fab.is-over-footer {
+    opacity: 0;
+    transform: translateY(20px) scale(.9);
+    pointer-events: none;
+    visibility: hidden;
+    transition: transform .25s ease, opacity .25s ease, visibility 0s linear .25s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bugie-help-fab,
+  .bugie-faq-empty { animation: none; }
+  .bugie-help-fab,
+  .bugie-help-fab.is-over-footer { transition: none !important; }
+  .bugie-help-fab:hover { transform: none; }
+}

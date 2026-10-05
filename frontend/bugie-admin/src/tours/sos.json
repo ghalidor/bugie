@@ -1,0 +1,34 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='sos-tabs']",
+      "title": "Activas e historial",
+      "text": "«Activas» es la bandeja de emergencias en curso; «Historial», las alertas ya resueltas con quién las resolvió, el motivo y cuánto duraron."
+    },
+    {
+      "selector": "[data-tour='sos-inbox']",
+      "title": "Bandeja de alertas",
+      "text": "Cada SOS activo parpadea en rojo con el nombre y el celular de quien lo activó. Se actualiza sola cada 15 segundos y al instante cuando llega una alerta nueva."
+    },
+    {
+      "selector": "[data-tour='sos-detail']",
+      "title": "Ubica y llama",
+      "text": "Ves a quién activó y al otro participante del viaje (con su celular y enlace a su ficha), el mapa, el enlace al viaje y el contacto de emergencia."
+    },
+    {
+      "selector": "[data-tour='sos-inbox']",
+      "title": "Desactivar con motivo",
+      "text": "Cuando confirmes que la persona está bien, toca «Desactivar alerta» y escribe el motivo (obligatorio). Queda en el historial."
+    },
+    {
+      "selector": "[data-tour='sos-history-filters']",
+      "title": "Busca en el historial",
+      "text": "Filtra por rango de fechas o busca por nombre, celular o motivo. Toca una fila para abrir el viaje."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

@@ -42,7 +42,11 @@ public record RewardLevelDto(
     int     MonthlyFreeTrips,
     int     WeeklyRaffleTickets,
     int     MonthlyRaffleTickets,
-    bool    IsActive);
+    bool    IsActive,
+    // Solo pasajero: cupones de DiscountPercentage reclamables al mes y tope
+    // de cada viaje gratis (null = sin viajes gratis).
+    int      MonthlyDiscountCoupons = 0,
+    decimal? FreeTripMaxAmount      = null);
 
 public record RewardSettingDto(
     string    SettingKey,
@@ -51,11 +55,11 @@ public record RewardSettingDto(
     DateTime  UpdatedAt);
 
 /// <summary>Resultado de acreditar los puntos de un viaje.</summary>
+/// <param name="Promotions">Promociones que aplicaron, para verlo en el log.</param>
 public record AccrueTripPointsResultDto(
     Guid  TripId,
     int   PassengerPoints,
     int   DriverPoints,
     bool  Skipped,
     string? Reason,
-    /// <summary>Promociones que aplicaron, para verlo en el log.</summary>
     IReadOnlyList<string>? Promotions = null);

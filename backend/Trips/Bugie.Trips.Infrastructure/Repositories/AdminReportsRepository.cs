@@ -80,4 +80,40 @@ public class AdminReportsRepository : IAdminReportsRepository
                 cancellationToken: ct));
         return rows.ToList();
     }
+
+    public async Task<IReadOnlyList<MonthlyRankingRow>> GetMonthlyRankingAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        // El mes se toma en hora de Peru (UTC-5, sin horario de verano: ver BugieTime).
+        // El puesto usa el mismo orden que el ranking mensual: promedio, cantidad, nombre.
+        const string sql = @"
+            WITH porMes AS (
+                SELECT r.DriverId,
+                       date_trunc('month', r.CreatedAt - interval '5 hours') AS Mes,
+                       ROUND(AVG(CAST(r.Stars AS DECIMAL(5,3))), 2)       AS AvgStars,
+                       COUNT(*)::int                                      AS RatingCount
+                FROM trips.TripRatings r
+                WHERE r.CreatedAt >= @From AND r.CreatedAt < @To
+                GROUP BY r.DriverId, date_trunc('month', r.CreatedAt - interval '5 hours')
+            )
+            SELECT
+                m.DriverId                                         AS DriverUserId,
+                u.FullName                                         AS FullName,
+                COALESCE(d.ProfilePhotoUrl, d.FaceIdPhotoUrl)      AS PhotoUrl,
+                EXTRACT(YEAR  FROM m.Mes)::int                     AS Year,
+                EXTRACT(MONTH FROM m.Mes)::int                     AS Month,
+                m.AvgStars                                         AS AvgStars,
+                m.RatingCount                                      AS RatingCount,
+                ROW_NUMBER() OVER (PARTITION BY m.Mes
+                    ORDER BY m.AvgStars DESC, m.RatingCount DESC, u.FullName ASC)::int AS Place
+            FROM porMes m
+            JOIN auth.Users u           ON u.Id     = m.DriverId
+            LEFT JOIN drivers.Drivers d ON d.UserId = m.DriverId
+            ORDER BY Year, Month, Place;
+        ";
+
+        var rows = await _db.QueryAsync<MonthlyRankingRow>(
+            new CommandDefinition(sql, new { From = from, To = to }, cancellationToken: ct));
+        return rows.ToList();
+    }
 }

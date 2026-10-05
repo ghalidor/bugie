@@ -1,4 +1,5 @@
 import { API, apiFetch } from './api';
+import { downloadCsv } from './csv';
 
 // ─────────────────────────────────────────────────────────────
 // Pagos a conductores (Bugie.Payments.Api /payments/admin/payouts)
@@ -23,6 +24,37 @@ export interface Payout {
   sourceType:      PayoutSource;
   sourceRef:       string | null;
   createdAt:       string;
+  /** Código del pago: canje (BG-...), premio (PZ-...) o comprobante manual (PAG-...). */
+  code?:           string | null;
+}
+
+/** Lo que hay detrás del código que trae el conductor (GET /payouts/code/{code}). */
+export interface PayoutCodeLookup {
+  kind:           'reward_redemption' | 'raffle_prize';
+  code:           string;
+  driverId:       string;
+  driverName:     string | null;
+  userRole:       string | null;
+  title:          string;
+  detail:         string | null;
+  /** null = el premio no tiene valor en dinero: el admin escribe el monto. */
+  amount:         number | null;
+  status:         string;
+  statusLabel:    string;
+  payable:        boolean;
+  reason:         string | null;
+  expiresAt:      string | null;
+  settledAt:      string | null;
+  createdAt:      string;
+  existingPayout: Payout | null;
+}
+
+export interface PayByCodeInput {
+  method:           PayoutMethod;
+  operationNumber?: string | null;
+  paidAt?:          string | null;
+  note?:            string | null;
+  amount?:          number | null;
 }
 
 export interface PayoutReport {
@@ -87,7 +119,21 @@ export const payoutsApi = {
 
   list: (f: PayoutFilters, page = 1, pageSize = 25) =>
     apiFetch<PayoutReport>(`${base()}${qs({ ...f, page, pageSize })}`),
+
+  /** Busca el código que trae el conductor (canje BG-... o premio PZ-...). */
+  lookupCode: (code: string) =>
+    apiFetch<PayoutCodeLookup>(`${base()}/code/${encodeURIComponent(code.trim().toUpperCase())}`),
+
+  /** Registra el pago del código y lo deja marcado como pagado. */
+  payCode: (code: string, input: PayByCodeInput) =>
+    apiFetch<Payout>(`${base()}/code/${encodeURIComponent(code.trim().toUpperCase())}/pay`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
 };
+
+/** Código visible de un pago (los pagos antiguos de premios guardaban un id interno). */
+export const payoutCode = (p: Payout) =>
+  p.code ?? (p.sourceRef && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(p.sourceRef) ? p.sourceRef : null);
 
 /** Fecha y hora actual "YYYY-MM-DDTHH:mm" para inputs datetime-local. */
 export function nowLocalInput() {
@@ -101,8 +147,7 @@ export const fmtSoles = (n: number) =>
 
 /** Descarga un CSV (abre bien en Excel: separador ; y BOM UTF-8). */
 export function downloadPayoutsCsv(items: Payout[], filename = 'pagos-conductores.csv') {
-  const head = ['Fecha de pago', 'Conductor', 'Monto (S/)', 'Metodo', 'N. operacion', 'Origen', 'Referencia', 'Nota', 'Registrado por'];
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['Fecha de pago', 'Conductor', 'Monto (S/)', 'Metodo', 'N. operacion', 'Origen', 'Codigo', 'Nota', 'Registrado por'];
   const rows = items.map(p => [
     p.paidAt ? new Date(p.paidAt).toLocaleString('es-PE') : '',
     p.driverName ?? p.driverId,
@@ -110,13 +155,9 @@ export function downloadPayoutsCsv(items: Payout[], filename = 'pagos-conductore
     PAYOUT_METHOD[p.method]?.label ?? p.method,
     p.operationNumber ?? '',
     PAYOUT_SOURCE[p.sourceType] ?? p.sourceType,
-    p.sourceRef ?? '',
+    payoutCode(p) ?? '',
     p.note ?? '',
     p.paidByAdminName ?? '',
-  ].map(esc).join(';'));
-  const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  ]);
+  downloadCsv(head, rows, filename);
 }

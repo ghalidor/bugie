@@ -1,8 +1,10 @@
-﻿using Bugie.Auth.Application.Email;
+﻿using Bugie.Auth.Application.Common;
+using Bugie.Auth.Application.Email;
 using Bugie.Auth.Domain.External;
 using Bugie.Auth.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 
 namespace Bugie.Auth.Api.Controllers;
 
@@ -11,6 +13,7 @@ public record PassengerRejectRequest(string? Reason);
 [ApiController]
 [Route("api/auth/admin/passengers")]
 [Authorize(Roles = "admin")]
+[RequirePermission(Perm.ViewPassengers)]
 public class PassengersAdminController : ControllerBase
 {
     private readonly IUserRepository _users;
@@ -36,27 +39,13 @@ public class PassengersAdminController : ControllerBase
         _log = log;
     }
 
-    [HttpGet("pending")]
-    public async Task<IActionResult> Pending(CancellationToken ct)
-    {
-        var all = await _users.GetAllAsync("passenger", ct);
-        var pending = all.Where(u => !u.IsVerified).Select(ToDto);
-        return Ok(pending);
-    }
-
-    [HttpGet]
-    public async Task<IActionResult> All(CancellationToken ct)
-    {
-        var all = await _users.GetAllAsync("passenger", ct);
-        return Ok(all.Select(ToDto));
-    }
-
     /// <summary>
     /// Lista paginada de pasajeros. Recomendado para 1000+ pasajeros.
     /// GET /api/auth/admin/passengers/paged?page=1&amp;pageSize=25&amp;search=jose&amp;verified=false
     /// - verified=true → solo verificados
     /// - verified=false → solo pendientes
     /// - sin verified → todos los pasajeros
+    /// - deleted=false (defecto) → sin cuentas eliminadas; deleted=true → solo eliminadas
     /// </summary>
     [HttpGet("paged")]
     public async Task<IActionResult> Paged(
@@ -64,10 +53,11 @@ public class PassengersAdminController : ControllerBase
         [FromQuery] int pageSize = 25,
         [FromQuery] string? search = null,
         [FromQuery] bool? verified = null,
+        [FromQuery] bool? deleted = false,
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
             new Application.Queries.GetUsersPagedQuery(
-                page, pageSize, search, "passenger", verified), ct));
+                page, pageSize, search, "passenger", verified, deleted), ct));
 
     /// <summary>
     /// KPIs de pasajeros (total, verificados, pendientes). Misma query SQL
@@ -78,10 +68,20 @@ public class PassengersAdminController : ControllerBase
     public async Task<IActionResult> Stats(
         [FromQuery] string? search = null,
         [FromQuery] bool? verified = null,
+        [FromQuery] bool? deleted = false,
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
             new Application.Queries.GetUsersStatsQuery(
-                search, "passenger", verified), ct));
+                search, "passenger", verified, deleted), ct));
+
+    /// <summary>
+    /// Cuántos pasajeros subieron su DNI y esperan aprobación (solo el número).
+    /// Lo usa el Centro de avisos del panel (vía Trips, resumen de avisos).
+    /// GET /api/auth/admin/passengers/pending-review/count
+    /// </summary>
+    [HttpGet("pending-review/count")]
+    public async Task<IActionResult> PendingReviewCount(CancellationToken ct) =>
+        Ok(new { count = await _docs.CountPassengersPendingReviewAsync(ct) });
 
     [HttpGet("{userId:guid}")]
     public async Task<IActionResult> Detail(Guid userId, CancellationToken ct)
@@ -105,16 +105,24 @@ public class PassengersAdminController : ControllerBase
                 rejectionReason = d.RejectionReason,
                 createdAt = d.CreatedAt,
             }),
+            // Requisitos de verificación (DNI frente/reverso + foto de perfil)
+            requirements = PassengerRequirements.Build(user, docs),
         });
     }
 
     [HttpPut("{userId:guid}/approve")]
+    [RequirePermission(Perm.ActionApprovePassenger)]
     public async Task<IActionResult> Approve(Guid userId, CancellationToken ct)
     {
         var user = await _users.GetByIdAsync(userId, ct);
         if(user is null) return NotFound();
         if(user.Role != "passenger")
             return BadRequest(new { error = "Solo aplica a pasajeros." });
+        if(user.IsDeleted)
+            return Conflict(new { error = "La cuenta del pasajero está eliminada. Restáurala antes de verificarla." });
+        // La foto de perfil es requisito de la verificación (junto al DNI).
+        if(string.IsNullOrWhiteSpace(user.ProfilePhotoUrl))
+            return Conflict(new { error = PassengerRequirements.MissingPhotoMessage });
 
         user.Activate();
         await _users.UpdateAsync(user, ct);
@@ -132,6 +140,7 @@ public class PassengersAdminController : ControllerBase
     }
 
     [HttpPut("{userId:guid}/reject")]
+    [RequirePermission(Perm.ActionApprovePassenger)]
     public async Task<IActionResult> Reject(Guid userId, [FromBody] PassengerRejectRequest body, CancellationToken ct)
     {
         var user = await _users.GetByIdAsync(userId, ct);
@@ -163,5 +172,15 @@ public class PassengersAdminController : ControllerBase
         termsAccepted = u.TermsAccepted,
         termsAcceptedAt = u.TermsAcceptedAt,
         signatureImage = u.SignatureImage,
+        docType = u.DocType,
+        docNumber = u.DocNumber,
+        firstNames = u.FirstNames,
+        lastNamePaternal = u.LastNamePaternal,
+        lastNameMaternal = u.LastNameMaternal,
+        needsProfileCompletion = u.NeedsProfileCompletion,
+        deletedAt = u.DeletedAt,
+        deletedReason = u.DeletedReason,
+        deactivatedAt = u.DeactivatedAt,
+        deactivatedReason = u.DeactivatedReason,
     };
 }

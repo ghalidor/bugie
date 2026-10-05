@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puntos Bugie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: guía por secciones (ganar → nivel → canjear → promociones → sorteos → referidos), con un selector Pasajero/Conductor que filtra todo. */
+:root{
+  --bg:#f6f6fb; --surface:#ffffff; --ink:#1d1b38; --muted:#5f5d7a; --line:#dcdbec;
+  --brand:#5B5BD6; --brand-soft:#ebebfb; --magenta:#b04fb0; --magenta-soft:#f7e9f7;
+  --ok:#17804f; --ok-soft:#e3f4ec; --warn:#a8650a; --warn-soft:#fbf0de;
+  --bronze:#a8673a; --silver:#7d8796; --gold:#b98a12; --plat:#5b6fae;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Figtree","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#13122a; --surface:#1c1b38; --ink:#ecebfa; --muted:#a9a7c6; --line:#34325a;
+  --brand:#8f8ff0; --brand-soft:#26254f; --magenta:#d98bd9; --magenta-soft:#36213f;
+  --ok:#4fc58e; --ok-soft:#163528; --warn:#e7aa52; --warn-soft:#3a2b14;
+  --bronze:#d39566; --silver:#aab4c3; --gold:#e3b844; --plat:#97a8e6; color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#13122a; --surface:#1c1b38; --ink:#ecebfa; --muted:#a9a7c6; --line:#34325a;
+  --brand:#8f8ff0; --brand-soft:#26254f; --magenta:#d98bd9; --magenta-soft:#36213f;
+  --ok:#4fc58e; --ok-soft:#163528; --warn:#e7aa52; --warn-soft:#3a2b14;
+  --bronze:#d39566; --silver:#aab4c3; --gold:#e3b844; --plat:#97a8e6; color-scheme:dark; }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:28px 56px;display:grid;gap:34px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4.4vw,42px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:24px;font-weight:800;letter-spacing:-.01em}
+h3{font:700 16px var(--f-body)}
+p{margin:0}
+.lead{color:var(--muted);max-width:64ch;margin-top:.5rem}
+.muted{color:var(--muted)}
+.eyebrow{font:700 12px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--brand)}
+.sec{display:grid;gap:14px}
+.sec > header{display:grid;gap:4px}
+
+header.top{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:end;justify-content:space-between}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px;gap:2px;position:sticky;top:env(safe-area-inset-top,0px)}
+.seg button{font:600 14px var(--f-body);color:var(--muted);background:none;border:0;border-radius:999px;padding:8px 18px;cursor:pointer}
+.seg button[aria-pressed="true"]{color:#fff}
+#r-pasajero[aria-pressed="true"]{background:var(--magenta)}
+#r-conductor[aria-pressed="true"]{background:var(--ok)}
+.seg button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+body.r-pasajero .only-c, body.r-conductor .only-p{display:none !important}
+
+/* Ciclo */
+.cycle{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;counter-reset:c}
+.cycle li{list-style:none;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:4px;position:relative}
+.cycle li::before{counter-increment:c;content:counter(c);font:800 13px var(--f-mono);color:var(--brand);background:var(--brand-soft);width:26px;height:26px;border-radius:8px;display:grid;place-items:center}
+.cycle{padding:0;margin:0}
+.cycle p{font-size:13.5px;color:var(--muted)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:700 11.5px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td.n{font:700 14px var(--f-mono);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tbl table tr:last-child td{border-bottom:0}
+
+.formula{font:700 15px var(--f-mono);background:var(--brand-soft);color:var(--ink);border-radius:10px;padding:10px 14px;overflow-x:auto;white-space:nowrap}
+.example{border-left:4px solid var(--brand);padding-left:12px;display:grid;gap:4px}
+.example code{font:600 13.5px var(--f-mono)}
+
+/* Niveles */
+.levels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.lvl{border-radius:14px;padding:14px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);display:grid;gap:6px}
+.lvl b{font:800 18px var(--f-display);color:var(--c)}
+.lvl .range{font:700 12.5px var(--f-mono);color:var(--muted)}
+.lvl ul{margin:0;padding-left:16px;font-size:13.5px;display:grid;gap:3px}
+.dim{opacity:.62}
+.tag{display:inline-block;font:700 11px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;border-radius:6px;padding:2px 6px;vertical-align:1px}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.brand{background:var(--brand-soft);color:var(--brand)}
+.tag.p{background:var(--magenta-soft);color:var(--magenta)}
+.tag.c{background:var(--ok-soft);color:var(--ok)}
+
+/* Pasos */
+.steps{margin:0;padding:0;display:grid;gap:10px;counter-reset:s}
+.steps li{list-style:none;display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.steps li::before{counter-increment:s;content:counter(s);font:800 12px var(--f-mono);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--brand);color:var(--brand)}
+.steps small{display:block;color:var(--muted);font-size:13px}
+
+.who{font:700 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+.who.p{color:var(--magenta)} .who.c{color:var(--ok)} .who.a{color:var(--brand)} .who.s{color:var(--muted)}
+
+.pending{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:14px;padding:16px}
+.pending ul{margin:8px 0 0;padding-left:18px;display:grid;gap:6px}
+
+@media (max-width:860px){
+  .cycle,.levels{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid2,.grid3{grid-template-columns:1fr}
+}
+@media (max-width:440px){ .cycle,.levels{grid-template-columns:1fr} }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <span class="eyebrow">Fidelización · Fase 2</span>
+      <h1>Puntos, promociones y sorteos</h1>
+      <p class="lead">Cómo gana y usa puntos cada usuario, tal como funciona hoy el sistema. Todos los valores son los de fábrica y el admin los cambia en Fidelización › Ajustes.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Ver como">
+      <button type="button" id="r-pasajero" aria-pressed="true">Pasajero</button>
+      <button type="button" id="r-conductor" aria-pressed="false">Conductor</button>
+    </div>
+  </header>
+
+  <!-- Ciclo -->
+  <section class="sec" aria-label="El ciclo">
+    <ol class="cycle">
+      <li><h3>Gana</h3><p>Al completar viajes, calificar<span class="only-c"> o recibir 5 estrellas</span>, cumplir rachas y metas, e invitar amigos.</p></li>
+      <li><h3>Acumula y sube de nivel</h3><p>Bronce, Plata, Oro y Platino según sus puntos históricos. El nivel nunca baja.</p></li>
+      <li><h3>Canjea</h3><p>Elige del catálogo de su rol. Los puntos se descuentan al instante y recibe un código <code>BG-…</code>.</p></li>
+      <li><h3>Usa o cobra</h3><p class="only-p">Aplica el cupón en un viaje, o el equipo le entrega el premio.</p><p class="only-c">El admin le paga el bono con su código, o le entrega el premio.</p></li>
+    </ol>
+  </section>
+
+  <!-- Ganar -->
+  <section class="sec">
+    <header><span class="eyebrow">1 · Ganar puntos</span><h2>Qué le da puntos <span class="only-p">al pasajero</span><span class="only-c">al conductor</span></h2></header>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Acción</th><th>Puntos</th><th>Regla</th></tr></thead>
+        <tbody class="only-p">
+          <tr><td>Viaje completado</td><td class="n">10 por S/ 1</td><td>Sobre lo que pagó de verdad (si usó cupón, sobre el monto ya descontado).</td></tr>
+          <tr><td>Calificar al conductor</td><td class="n">30</td><td>Solo si pone 5 estrellas (se puede cambiar para cualquier nota).</td></tr>
+          <tr><td>Racha</td><td class="n">150</td><td>Cada 7 días seguidos viajando (a los 7, 14, 21…).</td></tr>
+          <tr><td>Meta semanal</td><td class="n">200</td><td>Apagada de fábrica (0 viajes). El admin fija cuántos viajes por semana.</td></tr>
+          <tr><td>Mes de aniversario</td><td class="n">×3</td><td>Triplica los puntos de sus viajes en el mes en que se registró (desde el segundo año).</td></tr>
+          <tr><td>Invitar a un amigo</td><td class="n">500 / 375</td><td>Al registrarse el invitado (pasajero / conductor) y 200 más cuando completa 5 viajes.</td></tr>
+        </tbody>
+        <tbody class="only-c">
+          <tr><td>Viaje completado</td><td class="n">5 por S/ 1</td><td>Sobre la tarifa cobrada.</td></tr>
+          <tr><td>Recibir 5 estrellas</td><td class="n">50</td><td>Cuando el pasajero lo califica con 5.</td></tr>
+          <tr><td>Día sin cancelar</td><td class="n">100</td><td>Si el día anterior completó 3 viajes o más y no canceló ninguno. Las cancelaciones del pasajero no cuentan.</td></tr>
+          <tr><td>Racha</td><td class="n">150</td><td>Cada 7 días seguidos trabajando.</td></tr>
+          <tr><td>Meta semanal</td><td class="n">200</td><td>Al llegar a 50 servicios en la semana (de lunes a domingo).</td></tr>
+          <tr><td>Mes de aniversario</td><td class="n">×3</td><td>Triplica los puntos de sus viajes en su mes de alta (desde el segundo año).</td></tr>
+          <tr><td>Invitar a alguien</td><td class="n">500 / 375</td><td>Al registrarse el invitado (pasajero / conductor) y 200 más cuando completa 5 viajes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid2">
+      <div class="card" style="display:grid;gap:10px">
+        <h3>Cálculo por viaje</h3>
+        <div class="formula">monto × tasa × multiplicador + puntos extra</div>
+        <div class="example only-p">
+          <span class="muted">Ejemplo: viaje de S/ 15 pagado con Yape un lunes a la 1 p. m., con «Hora Feliz ×2» y «Yape/Plin +50» activas.</span>
+          <code>15 × 10 × 2 + 50 = 350 pts</code>
+        </div>
+        <div class="example only-c">
+          <span class="muted">Ejemplo: viaje de S/ 15 sin promociones.</span>
+          <code>15 × 5 × 1 = 75 pts</code>
+        </div>
+      </div>
+      <div class="card" style="display:grid;gap:8px">
+        <h3>Cuándo llegan y cuándo vencen</h3>
+        <p>Se acreditan solos al completar el viaje; si el servicio de puntos estuviera caído, se reintenta y nunca se cuentan dos veces.</p>
+        <p>Vencen <b>todos juntos</b> 12 meses después de la última vez que ganó puntos: cada viaje renueva la fecha. Recibe avisos 30, 7 y 1 día antes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Niveles -->
+  <section class="sec">
+    <header><span class="eyebrow">2 · Niveles</span><h2>Cuatro niveles por puntos históricos</h2><p class="muted">Se calculan con todo lo ganado, así que canjear o vencer no baja de nivel.</p></header>
+    <div class="levels">
+      <div class="lvl" style="--c:var(--bronze)"><b>Bronce</b><span class="range">0 – 4 999</span>
+        <ul><li>1 ticket en el sorteo mensual</li><li class="only-p">1 cupón de 5 % al mes</li></ul></div>
+      <div class="lvl" style="--c:var(--silver)"><b>Plata</b><span class="range">5 000 – 14 999</span>
+        <ul><li>3 tickets mensuales</li><li class="only-p">2 cupones de 10 % al mes</li></ul></div>
+      <div class="lvl" style="--c:var(--gold)"><b>Oro</b><span class="range">15 000 – 39 999</span>
+        <ul><li>2 semanales y 5 mensuales</li><li class="only-p">3 cupones de 15 % al mes</li><li class="only-p">1 viaje gratis al mes, hasta S/ 15</li></ul></div>
+      <div class="lvl" style="--c:var(--plat)"><b>Platino</b><span class="range">40 000 o más</span>
+        <ul><li>5 semanales y 10 mensuales</li><li class="only-p">4 cupones de 25 % al mes</li><li class="only-p">3 viajes gratis al mes, hasta S/ 25</li></ul></div>
+    </div>
+    <div class="card only-p" style="display:grid;gap:6px"><h3>Beneficios del mes: se reclaman como cupón</h3><p>En Mis puntos › «Beneficios de tu nivel este mes» el pasajero toca <b>Reclamar cupón</b> o <b>Reclamar viaje gratis</b> y recibe su código <code>BG-…</code>, que usa con «Usar un cupón» en un viaje. Cada reclamo descuenta uno del cupo del mes. Si el viaje gratis cuesta más que el tope, paga la diferencia.</p><p class="muted">El cupo se renueva el día 1; lo no reclamado no se acumula y los cupones reclamados vencen a fin de mes. Recibe un aviso al subir de nivel y al empezar cada mes. Cantidades y topes se editan en Admin › Catálogo y niveles.</p></div>
+    <p class="muted">El nivel también abre ítems del catálogo y sorteos que piden un nivel mínimo.</p>
+  </section>
+
+  <!-- Canje -->
+  <section class="sec">
+    <header><span class="eyebrow">3 · Canjear</span><h2>Catálogo y cómo se usa lo canjeado</h2></header>
+    <div class="grid2">
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Puntos</th><th>Recompensa (de fábrica)</th></tr></thead>
+          <tbody class="only-p">
+            <tr><td class="n">500</td><td>S/ 2 de descuento en un viaje</td></tr>
+            <tr><td class="n">1 000</td><td>Viaje gratis hasta S/ 8</td></tr>
+            <tr><td class="n">2 000</td><td>Viaje gratis hasta S/ 15</td></tr>
+            <tr><td class="n">3 000</td><td>10 % de descuento <span class="tag warn">se usa en 1 viaje</span></td></tr>
+            <tr><td class="n">5 000</td><td>Cupón de 1 ticket: se usa en el sorteo que elija</td></tr>
+            <tr><td class="n">7 500</td><td>Viaje gratis hasta S/ 25</td></tr>
+            <tr><td class="n">10 000</td><td>Producto del catálogo</td></tr>
+            <tr><td class="n">20 000</td><td>Smartphone</td></tr>
+          </tbody>
+          <tbody class="only-c">
+            <tr><td class="n">500</td><td>Bono de S/ 5</td></tr>
+            <tr><td class="n">1 250</td><td>Bono de S/ 15</td></tr>
+            <tr><td class="n">2 500</td><td>Bono de S/ 35</td></tr>
+            <tr><td class="n">3 750</td><td>Mantenimiento con un socio</td></tr>
+            <tr><td class="n">5 000</td><td>Bono de S/ 80</td></tr>
+            <tr><td class="n">7 500</td><td>Seguro con un socio</td></tr>
+            <tr><td class="n">12 500</td><td>Producto premium</td></tr>
+            <tr><td class="n">25 000</td><td>Gran premio</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="display:grid;gap:12px">
+        <h3>El canje</h3>
+        <ol class="steps">
+          <li><p><span class="who p only-p">Pasajero</span><span class="who c only-c">Conductor</span>Elige un ítem y confirma.<small>Debe tener saldo, el nivel mínimo y que haya stock. Nadie tiene que aprobarlo.</small></p></li>
+          <li><p><span class="who s">Sistema</span>Descuenta los puntos y entrega un código <code>BG-XXXXXX</code> con vigencia (30 días de fábrica).</p></li>
+          <li class="only-p"><p><span class="who p">Pasajero</span>Aplica el cupón en un viaje aceptado o en curso.<small>Uno por viaje. Se consume al completar; si el viaje se cancela, queda libre.</small></p></li>
+          <li class="only-c"><p><span class="who a">Admin</span>Paga el bono en Pagos a conductores › «Cobrar con código».<small>Registra método y número de operación; el conductor recibe push y correo.</small></p></li>
+          <li><p><span class="who p only-p">Pasajero</span><span class="who c only-c">Conductor</span>Cupón de ticket: en Promos y sorteos toca «Usar mi cupón de ticket» en el sorteo que quiera.</p></li>
+          <li><p><span class="who a">Admin</span>Productos y beneficios con socios: los marca como entregados en Canjes.</p></li>
+        </ol>
+        <p class="muted">Si el código vence sin usarse, no se devuelven los puntos. Si el admin lo anula, sí.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Promociones -->
+  <section class="sec">
+    <header><span class="eyebrow">4 · Promociones</span><h2>Dan más puntos bajo ciertas condiciones</h2><p class="muted">Las crea el admin. No cambian el precio del viaje, solo los puntos.</p></header>
+    <div class="grid3">
+      <div class="card" style="display:grid;gap:8px"><h3>Tipos</h3>
+        <p><b>Multiplicador</b> de ×1 a ×10 sobre los puntos del viaje.</p>
+        <p><b>Puntos extra</b> fijos por viaje.</p></div>
+      <div class="card" style="display:grid;gap:8px"><h3>Condiciones</h3>
+        <p>Para pasajeros, conductores o ambos; fechas de inicio y fin; días de la semana; franja horaria; primer viaje del día; método de pago (Yape, Plin, efectivo); monto mínimo.</p></div>
+      <div class="card" style="display:grid;gap:8px"><h3>Si coinciden varias</h3>
+        <p>Entre las de día u horario paga solo una (gana la de horario, o la mayor). Las de primer viaje y método de pago se suman encima.</p></div>
+    </div>
+    <div class="card"><p><span class="tag brand">De ejemplo</span> «Hora Feliz» ×2 lunes a viernes de 12 a 2 p. m., «Primer viaje del día» +50, «Pago con Yape o Plin» +50 y «Fin de semana» ×1.5.</p></div>
+  </section>
+
+  <!-- Sorteos -->
+  <section class="sec">
+    <header><span class="eyebrow">5 · Sorteos</span><h2>Semanales, mensuales y especiales</h2></header>
+    <div class="grid2">
+      <div class="card" style="display:grid;gap:12px">
+        <h3>Cómo funciona</h3>
+        <ol class="steps">
+          <li><p><span class="who a">Admin</span>Crea el sorteo.<small>Premio y valor, fecha, para quién, nivel mínimo, antigüedad mínima y número de ganadores (hasta 50).</small></p></li>
+          <li><p><span class="who s">Sistema</span>Reparte tickets cada día (o el admin con «Repartir tickets»).<small>Entran quienes ya tienen puntos y cumplen rol, nivel y antigüedad.</small></p></li>
+          <li><p><span class="who s">Sistema</span>Sortea en la fecha, o el admin con «Sortear ahora».<small>Más tickets, más probabilidad; máximo un premio por persona. El resultado se puede verificar.</small></p></li>
+          <li><p><span class="who s">Sistema</span>Al ganador le llega un push y un correo con el premio y su código <code>PZ-XXXXXX</code>.</p></li>
+          <li class="only-c"><p><span class="who a">Admin</span>Le paga el premio en dinero desde Sorteos o con «Cobrar con código».</p></li>
+          <li class="only-p"><p><span class="who a">Admin</span>Le entrega el premio y lo marca como entregado.</p></li>
+        </ol>
+      </div>
+      <div class="card" style="display:grid;gap:10px">
+        <h3>De dónde salen los tickets</h3>
+        <p><b>Por nivel:</b> los que da su nivel (ver arriba). El semanal usa los tickets semanales; el mensual y el especial, los mensuales. Si sube de nivel, recibe la diferencia.</p>
+        <p><b>Por puntos del mes:</b> 1 ticket por cada 500 puntos ganados en el mes.</p>
+        <p><b>Por cupón de ticket:</b> canjeado en el catálogo y usado en el sorteo que elija.</p>
+        <p class="muted">Ejemplo: alguien de nivel Plata que ganó 1 600 puntos este mes tiene 3 + 3 = 6 tickets en el sorteo mensual.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Referidos -->
+  <section class="sec">
+    <header><span class="eyebrow">6 · Referidos</span><h2>Invita y gana</h2></header>
+    <div class="card" style="display:grid;gap:8px">
+      <p>Cada usuario tiene un código fijo (por ejemplo <code>ANA4K7MP</code>) que comparte o envía por correo (hasta 20 invitaciones al día). El invitado lo escribe <b>al registrarse</b>.</p>
+      <p>Quien invita gana <b>500 puntos</b> si el invitado es pasajero o <b>375</b> si es conductor, y <b>200 más</b> cuando el invitado completa 5 viajes. El invitado no gana puntos por usar el código.</p>
+      <p class="muted">No se puede usar el código propio y a cada persona la puede invitar una sola. En Puntos se ve un ranking del mes con sus amigos.</p>
+    </div>
+  </section>
+
+  <!-- Pendiente -->
+  <section class="pending" aria-label="Pendientes">
+    <h2>Lo que todavía no se aplica</h2>
+    <ul>
+      <li>El cupón del catálogo de <b>10 % «durante 30 días»</b> se gasta en un solo viaje.</li>
+      <li>Las promociones de tipo <b>descuento o viaje gratis</b> todavía no se pueden crear; las promociones solo dan puntos.</li>
+      <li>Para que los cupones descuenten del precio (y se puedan reclamar los de nivel) debe estar prendido «Aplicar cupones a la tarifa» en Ajustes de puntos.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+(function(){
+  var roles=['pasajero','conductor'];
+  function set(r){
+    roles.forEach(function(x){ document.body.classList.toggle('r-'+x, x===r); document.getElementById('r-'+x).setAttribute('aria-pressed', String(x===r)); });
+    try{ localStorage.setItem('bugie-puntos-rol', r); }catch(e){}
+  }
+  roles.forEach(function(r){ document.getElementById('r-'+r).addEventListener('click', function(){ set(r); }); });
+  var saved='pasajero'; try{ saved=localStorage.getItem('bugie-puntos-rol')||'pasajero'; }catch(e){}
+  set(roles.indexOf(saved)>=0?saved:'pasajero');
+})();
+</script>
+
+</html>

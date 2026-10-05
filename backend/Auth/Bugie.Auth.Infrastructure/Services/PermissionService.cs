@@ -19,22 +19,29 @@ public class PermissionService : IPermissionService
     }
 
     public async Task<List<string>> GetUserPermissionsAsync(
+        Guid userId, CancellationToken ct = default) =>
+        (await GetAdminAccessAsync(userId, ct)).Permissions;
+
+    public async Task<(bool IsSuperAdmin, List<string> Permissions)> GetAdminAccessAsync(
         Guid userId, CancellationToken ct = default)
     {
         var user = await _users.GetByIdAsync(userId, ct);
+        // Admin desactivado o eliminado: sin permisos (su JWT puede seguir vigente).
+        if(user is null || !user.IsActive || user.DeletedAt is not null)
+            return (false, new List<string>());
         // Solo los admins tienen permisos administrativos. Para los otros roles
         // devolvemos lista vacía (no se les muestra el panel admin nunca).
-        if(user is null || user.Role != "admin" || user.AdminRoleId is null)
-            return new List<string>();
+        if(user.Role != "admin" || user.AdminRoleId is null)
+            return (false, new List<string>());
 
         var role = await _roles.GetByIdAsync(user.AdminRoleId.Value, ct);
-        if(role is null) return new List<string>();
+        if(role is null) return (false, new List<string>());
 
         // super_admin: TODO el catálogo, sin consultar BD.
-        if(role.IsSystem) return Permissions.All.ToList();
+        if(role.IsSystem) return (true, Permissions.All.ToList());
 
         // Roles normales: lo que esté en RolePermissions.
-        return await _roles.GetPermissionsAsync(role.Id, ct);
+        return (false, await _roles.GetPermissionsAsync(role.Id, ct));
     }
 
     public async Task<bool> HasPermissionAsync(

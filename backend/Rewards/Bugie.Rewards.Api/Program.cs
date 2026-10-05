@@ -1,3 +1,4 @@
+using Bugie.Api.Theming;
 using Bugie.Rewards.Infrastructure.Time;
 using System.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,6 +31,7 @@ builder.Services.AddScoped<IReferralRepository,          ReferralRepository>();
 builder.Services.AddScoped<IMilestoneRepository,         MilestoneRepository>();
 builder.Services.AddScoped<IAdminQueryRepository,        AdminQueryRepository>();
 builder.Services.AddScoped<IUserDirectory,               UserDirectory>();
+builder.Services.AddScoped<ILevelBenefitRepository,      LevelBenefitRepository>();
 
 // Correo: mismos campos de configuración que usa Auth.
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
@@ -43,10 +45,15 @@ builder.Services.AddHttpClient<IAuthTokensClient, AuthTokensClient>(c =>
     c.Timeout     = TimeSpan.FromSeconds(10);
 });
 
-// Scoped a proposito: depende del HttpClient tipado de Auth, que es
-// transient. Registrarlo como singleton lo dejaria cautivo. La init de
-// Firebase es estatica, asi que no cuesta nada crearlo por scope.
-builder.Services.AddScoped<IFcmSender, FcmSender>();
+// Push: Rewards ya no manda directo a Firebase. Llama al endpoint interno de
+// Trips (api/internal/notify/push) que envia el push y lo guarda en la
+// bandeja de notificaciones del usuario. Usa Services:TripsApi e InternalToken
+// (TripsClientOptions, configurado mas abajo).
+builder.Services.AddHttpClient<IFcmSender, FcmSender>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/");
+    c.Timeout     = TimeSpan.FromSeconds(10);
+});
 
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(AccrueTripPointsCommand).Assembly));
@@ -66,13 +73,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey         = new SymmetricSecurityKey(
                 System.Text.Encoding.UTF8.GetBytes(jwtKey))
         };
+        // Sesion: claim "sst" vs sello vigente (cierre de sesiones). Ver Security/SessionState.cs.
+        Bugie.Security.SessionValidation.Configure(o);
     });
 
 builder.Services.AddAuthorization();
+// Filtro [RequirePermission]: permisos del admin pedidos a Auth (cache corta).
+Bugie.Security.AdminPermissions.AddBugieAdminPermissionsFromAuth(builder.Services);
+// Estado de sesion pedido a Auth (cache corta) para validar el JWT.
+Bugie.Security.SessionValidation.AddBugieSessionStateFromAuth(builder.Services);
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
+    .AddJsonOptions(o => { o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()); o.AllowInputFormatterExceptionMessages = false; }); // JSON mal formado: error generico, sin nombres internos de clases
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddBugieSwagger("Rewards",
+    "Programa de puntos: saldo, historial, niveles, catálogo y canjes, referidos, promociones y sorteos. Panel admin: ajustes, catálogo, canjes, promociones, sorteos y usuarios. Endpoints internos: viajes completados y calificados, referidos, cupones y códigos de pago.");
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
     p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [])
      .AllowAnyHeader().AllowAnyMethod()));
@@ -105,16 +119,18 @@ builder.Services.Configure<RedemptionExpirationOptions>(
     builder.Configuration.GetSection("RedemptionExpiration"));
 builder.Services.AddHostedService<RedemptionExpirationService>();
 
+// Aviso de inicio de mes de los beneficios de nivel del pasajero.
+builder.Services.Configure<LevelBenefitsNoticeOptions>(
+    builder.Configuration.GetSection("LevelBenefitsNotice"));
+builder.Services.AddHostedService<LevelBenefitsNoticeService>();
+
 var app = builder.Build();
+// Errores sin detalles internos (ver Middleware/ExceptionMiddleware.cs).
+app.UseMiddleware<Bugie.Rewards.Api.Middleware.ExceptionMiddleware>();
 app.UseCors();
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.DocumentTitle = "Bugie API - Rewards";
-        c.DefaultModelsExpandDepth(-1);
-    });
+    app.UseBugieSwagger("Rewards");
 }
 app.UseAuthentication();
 app.UseAuthorization();

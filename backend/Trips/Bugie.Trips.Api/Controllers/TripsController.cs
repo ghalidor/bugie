@@ -3,10 +3,13 @@ using System.Net.Http.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Application.Queries;
+using Bugie.Trips.Application.Services;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 
@@ -26,13 +29,16 @@ public class TripsController : ControllerBase
     private readonly IPassengerAcceptanceCancellationRepository _cancellations;
     private readonly ITripNotificationService _notify;
     private readonly IRewardsClient _rewardsClient;
+    private readonly IDriversClient _driversClient;
 
     public TripsController(IMediator mediator, ITripRepository trips,
         IHttpClientFactory httpFactory, ITripProposalRepository proposals,
         IPassengerAcceptanceCancellationRepository cancellations,
         ITripNotificationService notify,
-        IRewardsClient rewardsClient)
+        IRewardsClient rewardsClient,
+        IDriversClient driversClient)
     {
+        _driversClient = driversClient;
         _mediator = mediator;
         _trips = trips;
         _http = httpFactory.CreateClient();
@@ -45,19 +51,44 @@ public class TripsController : ControllerBase
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     private string CurrentUserRole => User.FindFirstValue(ClaimTypes.Role) ?? "passenger";
 
+    /// <summary>
+    /// Solo un usuario con rol driver y perfil de conductor APROBADO (estado 3)
+    /// puede actuar como conductor (mismo criterio que AcceptTripHandler).
+    /// null = puede; si no, 403 (no es conductor) o 409 (suspendido, rechazado,
+    /// pendiente, sin perfil o Drivers no responde).
+    /// </summary>
+    private Task<IActionResult?> EnsureApprovedDriverAsync(CancellationToken ct) =>
+        Bugie.Trips.Api.Security.DriverAccess.EnsureApprovedDriverAsync(this, _driversClient, CurrentUserId, ct);
+
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateTripRequest req, CancellationToken ct)
+    public async Task<IActionResult> Create(
+        [FromBody] CreateTripRequest req,
+        [FromServices] FluentValidation.IValidator<CreateTripCommand> validator,
+        CancellationToken ct)
     {
+        // Los envios se crean con sus fotos en POST /api/trips/delivery:
+        // un envio sin fotos del paquete no se puede solicitar.
+        if(req.ServiceType == Bugie.Trips.Domain.Enums.ServiceType.Delivery)
+            return BadRequest(new { error = "Para solicitar un envío usa POST /api/trips/delivery con las fotos del paquete." });
+
+        var cmd = new CreateTripCommand(
+            CurrentUserId,
+            req.OriginAddress, req.OriginLat, req.OriginLng,
+            req.DestAddress, req.DestLat, req.DestLng,
+            req.EstimatedFare, req.PaymentMethod, req.Waypoints,
+            req.ServiceType, req.PackageDescription, req.PackageWeightKg,
+            req.PackageIsFragile, req.PackageDetails,
+            req.RecipientName, req.RecipientPhone,
+            ScheduledAt: req.ScheduledAt is null ? null : BugieTime.ToUtcFromInput(req.ScheduledAt.Value));
+
+        // Reglas de CreateTripValidator (direcciones, tarifa, datos del envio).
+        var validation = await validator.ValidateAsync(cmd, ct);
+        if(!validation.IsValid)
+            return BadRequest(new { error = validation.Errors[0].ErrorMessage });
+
         try
         {
-            var dto = await _mediator.Send(new CreateTripCommand(
-                CurrentUserId,
-                req.OriginAddress, req.OriginLat, req.OriginLng,
-                req.DestAddress, req.DestLat, req.DestLng,
-                req.EstimatedFare, req.PaymentMethod, req.Waypoints,
-                req.ServiceType, req.PackageDescription, req.PackageWeightKg,
-                req.PackageIsFragile, req.PackageDetails,
-                req.RecipientName, req.RecipientPhone), ct);
+            var dto = await _mediator.Send(cmd, ct);
             return Ok(dto);
         }
         catch(InvalidOperationException ex)
@@ -75,6 +106,27 @@ public class TripsController : ControllerBase
     public async Task<IActionResult> Pending(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetPendingTripsQuery(CurrentUserId), ct));
 
+    /// <summary>
+    /// GET /api/trips/driver/demand?lat=&amp;lng=&amp;radiusKm=10 — mapa del inicio del conductor.
+    /// zones: demanda (pendientes/negociando) de los últimos 30 min en celdas de ~500 m dentro del radio.
+    /// nearby: hasta 10 solicitudes que este conductor ve en su lista, por distancia. Sin datos del pasajero.
+    /// </summary>
+    [HttpGet("driver/demand")]
+    [Authorize(Roles = "driver")]
+    public async Task<IActionResult> DriverDemand(
+        [FromQuery] double? lat, [FromQuery] double? lng,
+        [FromQuery] double radiusKm = 10, CancellationToken ct = default)
+    {
+        if(lat is null || lng is null || double.IsNaN(lat.Value) || double.IsNaN(lng.Value)
+           || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+            return BadRequest(new { error = "lat y lng son obligatorios y deben ser coordenadas válidas." });
+        if(double.IsNaN(radiusKm) || radiusKm <= 0 || radiusKm > 50)
+            return BadRequest(new { error = "radiusKm debe estar entre 0 y 50." });
+
+        return Ok(await _mediator.Send(
+            new GetDriverDemandQuery(CurrentUserId, lat.Value, lng.Value, radiusKm), ct));
+    }
+
     [HttpGet("active")]
     public async Task<IActionResult> Active(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetActiveTripQuery(CurrentUserId), ct));
@@ -83,14 +135,71 @@ public class TripsController : ControllerBase
     public async Task<IActionResult> History(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetTripHistoryQuery(CurrentUserId, CurrentUserRole), ct));
 
+    /// <summary>
+    /// GET /api/trips/scheduled — programados vigentes del usuario (pendientes,
+    /// negociando o aceptados), ordenados por hora. Pasajero: los suyos.
+    /// Conductor: los que tiene asignados.
+    /// </summary>
+    [HttpGet("scheduled")]
+    public async Task<IActionResult> Scheduled(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetScheduledTripsQuery(CurrentUserId), ct));
+
+    /// <summary>
+    /// GET /api/trips/{id}/tracking — seguimiento de UN viaje (como /active, con
+    /// conductor y vehiculo). Sirve para un programado que todavia no es el
+    /// viaje activo. Solo su pasajero o su conductor.
+    /// </summary>
+    [HttpGet("{id:guid}/tracking")]
+    public async Task<IActionResult> Tracking(Guid id, CancellationToken ct)
+    {
+        var dto = await _mediator.Send(new GetActiveTripQuery(CurrentUserId, id), ct);
+        return dto is null ? NotFound(new { error = "Viaje no encontrado." }) : Ok(dto);
+    }
+
+    /// <summary>
+    /// PUT /api/trips/{id}/republish — el conductor del programado no llego
+    /// (15 min despues de la hora sin "Ya llegue"). El viaje vuelve a pendiente
+    /// para otros conductores, se quita al conductor y se le avisa.
+    /// </summary>
+    [HttpPut("{id:guid}/republish")]
+    public async Task<IActionResult> Republish(Guid id, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+        if(trip.PassengerId != CurrentUserId) return Forbid();
+
+        Guid removedDriver;
+        try
+        {
+            removedDriver = trip.Republish(DateTime.UtcNow);
+        }
+        catch(InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+        await _trips.UpdateAsync(trip, ct);
+
+        // El conductor quitado ya no ve el viaje como suyo.
+        await _proposals.RejectDriverOnTripAsync(id, removedDriver, "driver_no_show", ct);
+        _ = _notify.NotifyDriverRemovedNoShowAsync(removedDriver, id, trip.ServiceType);
+
+        // Los demas conductores lo vuelven a ver (y reciben el aviso).
+        await _mediator.Send(new NotifyNearbyDriversCommand(id), ct);
+
+        return Ok(CreateTripHandler.ToDto(trip));
+    }
+
     [HttpPut("{id:guid}/accept")]
     public async Task<IActionResult> Accept(Guid id, CancellationToken ct)
     {
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
         try
         {
             var dto = await _mediator.Send(new AcceptTripCommand(id, CurrentUserId), ct);
             // Notificar al pasajero que el conductor confirmó/aceptó.
-            _ = _notify.NotifyPassengerDriverConfirmedAsync(dto.PassengerId, id);
+            _ = _notify.NotifyPassengerDriverConfirmedAsync(dto.PassengerId, id, dto.ServiceType);
             return Ok(dto);
         }
         catch(InvalidOperationException ex)
@@ -111,11 +220,18 @@ public class TripsController : ControllerBase
     [HttpPost("{id:guid}/driver-accept")]
     public async Task<IActionResult> DriverAccept(Guid id, CancellationToken ct)
     {
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
         if(trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Pending &&
            trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Negotiating)
             return BadRequest(new { error = "Este viaje ya no está disponible." });
+
+        // Programado: no puede chocar con otro programado suyo (margen 1 hora).
+        var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
+        if(conflict is not null) return Conflict(new { error = conflict });
 
         // ¿Este conductor ya aceptó este viaje? No duplicar.
         var existing = await _proposals.GetDirectAcceptAsync(id, CurrentUserId, ct);
@@ -134,7 +250,7 @@ public class TripsController : ControllerBase
         await _proposals.AddAsync(accept, ct);
 
         // Notificar al pasajero que un conductor aceptó su viaje.
-        _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, trip.EstimatedFare);
+        _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, trip.EstimatedFare, trip.ServiceType);
 
         return Ok(new
         {
@@ -164,12 +280,23 @@ public class TripsController : ControllerBase
         if(trip.DriverId is not null)
             return Conflict(new { error = "Este viaje ya tiene un conductor asignado." });
 
+        // El conductor tiene que seguir aprobado (pudo ser suspendido despues de aceptar).
+        var driverStatus = await _driversClient.GetDriverStatusByUserIdAsync(proposal.DriverId, ct);
+        if(driverStatus?.Status != Bugie.Trips.Api.Security.DriverAccess.StatusApproved)
+            return Conflict(new { error = "Este conductor ya no está disponible. Elige otra propuesta." });
+
+        // Programado: el conductor no puede tener otro programado a menos de 1 hora.
+        var conflict = await ScheduledConflicts.FindConflictMessageAsync(
+            _trips, proposal.DriverId, trip, ct, forDriver: false);
+        if(conflict is not null) return Conflict(new { error = conflict });
+
         // 1) Marcar esta aceptación como aceptada definitiva.
         await _proposals.UpdateStatusAsync(proposalId, "accepted", null, ct);
         // 2) Rechazar las otras propuestas/aceptaciones del mismo viaje.
         await _proposals.RejectOthersAsync(id, proposalId, ct);
         // 3) Cascada: aceptaciones/propuestas del MISMO conductor en OTROS viajes.
-        var cascaded = await _proposals.RejectAllOtherPendingByDriverAsync(
+        //    Un programado no ocupa al conductor ahora: sin cascada.
+        var cascaded = trip.IsScheduled ? 0 : await _proposals.RejectAllOtherPendingByDriverAsync(
             proposal.DriverId, id, ct);
 
         // 4) Asignar conductor y pasar a Accepted ("Conductor en camino").
@@ -180,7 +307,7 @@ public class TripsController : ControllerBase
         await _trips.UpdateAsync(trip, ct);
 
         // 5) Notificar al conductor que el pasajero lo confirmó (va a recogerlo).
-        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare);
+        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType);
 
         return Ok(new
         {
@@ -197,6 +324,9 @@ public class TripsController : ControllerBase
     [HttpPut("{id:guid}/propose")]
     public async Task<IActionResult> Propose(Guid id, [FromBody] ProposeFareRequest req, CancellationToken ct)
     {
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
 
@@ -210,17 +340,27 @@ public class TripsController : ControllerBase
 
         // VALIDACIÓN: el conductor no puede proponer si ya está ocupado
         // (viaje activo o propuesta accepted_by_passenger pendiente de confirmar).
-        var ownActive = await _trips.GetActiveTripAsync(CurrentUserId, ct);
-        if(ownActive is not null)
-            return Conflict(new { error = "Ya tienes un viaje activo. Termínalo antes de negociar otro." });
+        // Programado: no lo bloquea un viaje activo (es para mas tarde), pero no
+        // puede chocar con otro programado suyo (margen 1 hora).
+        if(trip.IsScheduled)
+        {
+            var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
+            if(conflict is not null) return Conflict(new { error = conflict });
+        }
+        else
+        {
+            var ownActive = await _trips.GetActiveTripAsync(CurrentUserId, ct);
+            if(ownActive is not null)
+                return Conflict(new { error = "Ya tienes un viaje activo. Termínalo antes de negociar otro." });
 
-        var waitingConfirm = await _proposals.GetAcceptedByPassengerForDriverAsync(CurrentUserId, ct);
-        if(waitingConfirm is not null && waitingConfirm.TripId != id)
-            return Conflict(new
-            {
-                error = "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o esperá a que se cancele.",
-                waitingTripId = waitingConfirm.TripId,
-            });
+            var waitingConfirm = await _proposals.GetAcceptedByPassengerForDriverAsync(CurrentUserId, ct);
+            if(waitingConfirm is not null && waitingConfirm.TripId != id)
+                return Conflict(new
+                {
+                    error = "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o esperá a que se cancele.",
+                    waitingTripId = waitingConfirm.TripId,
+                });
+        }
 
         // 1) Marcar como 'superseded' la propuesta pending vigente del conductor (si existe)
         await _proposals.SupersedePendingAsync(id, CurrentUserId, ct);
@@ -237,7 +377,7 @@ public class TripsController : ControllerBase
         }
 
         // 4) Notificar al pasajero que llegó una propuesta nueva.
-        _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, req.ProposedFare);
+        _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, req.ProposedFare, trip.ServiceType);
 
         return Ok(new { message = "Propuesta enviada", proposalId = proposal.Id });
     }
@@ -247,18 +387,45 @@ public class TripsController : ControllerBase
     /// Cada propuesta viene enriquecida con nombre del conductor, datos del vehículo y
     /// tendencia respecto a la propuesta anterior del mismo conductor.
     /// </summary>
+    // Acceso: el pasajero del viaje o un admin ven todas; un conductor solo
+    // ve SUS propuestas en ese viaje; cualquier otro usuario recibe 403.
     [HttpGet("{id:guid}/proposals")]
-    public async Task<IActionResult> GetProposals(Guid id, CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetEnrichedProposalsQuery(id), ct));
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, SkipForNonAdmins = true)]
+    public async Task<IActionResult> GetProposals(Guid id, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+
+        var seesAll = trip.PassengerId == CurrentUserId || User.IsInRole("admin");
+        if(!seesAll && !User.IsInRole("driver")) return Forbid();
+
+        var list = await _mediator.Send(new GetEnrichedProposalsQuery(id), ct);
+        if(!seesAll)
+            list = list.Where(p => p.DriverId == CurrentUserId).ToList();
+        return Ok(list);
+    }
 
     /// <summary>
     /// Histórico completo de propuestas de un conductor en un viaje.
     /// Solo visual (modal informativo). Incluye pending, superseded, accepted, rejected.
     /// </summary>
     [HttpGet("{id:guid}/proposals/history")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, SkipForNonAdmins = true)]
+    // Acceso: el pasajero del viaje o un admin (cualquier driverId); un
+    // conductor solo su propio historial (driverId = su UserId); si no, 403.
     public async Task<IActionResult> GetProposalHistory(
-        Guid id, [FromQuery] Guid driverId, CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetProposalHistoryQuery(id, driverId), ct));
+        Guid id, [FromQuery] Guid driverId, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+
+        var allowed = trip.PassengerId == CurrentUserId
+                      || User.IsInRole("admin")
+                      || driverId == CurrentUserId;
+        if(!allowed) return Forbid();
+
+        return Ok(await _mediator.Send(new GetProposalHistoryQuery(id, driverId), ct));
+    }
 
     /// <summary>
     /// El PASAJERO acepta una propuesta del conductor.
@@ -298,7 +465,7 @@ public class TripsController : ControllerBase
         // Notificar al conductor que su propuesta fue aceptada y que debe
         // confirmar para iniciar el viaje. Es el evento que resolvía el bug
         // de UX: el conductor antes no veía señal hasta volver a la lista.
-        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare);
+        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType);
 
         return Ok(new
         {
@@ -318,6 +485,9 @@ public class TripsController : ControllerBase
     [HttpPut("{id:guid}/confirm-acceptance/{proposalId:guid}")]
     public async Task<IActionResult> ConfirmAcceptance(Guid id, Guid proposalId, CancellationToken ct)
     {
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
         var proposal = await _proposals.GetByIdAsync(proposalId, ct);
         if(proposal is null) return NotFound(new { error = "Propuesta no encontrada." });
         if(proposal.TripId != id) return BadRequest(new { error = "La propuesta no pertenece a este viaje." });
@@ -331,6 +501,10 @@ public class TripsController : ControllerBase
         if(trip.DriverId is not null)
             return Conflict(new { error = "Este viaje ya tiene un conductor asignado." });
 
+        // Programado: no puede chocar con otro programado suyo (margen 1 hora).
+        var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
+        if(conflict is not null) return Conflict(new { error = conflict });
+
         // 1) Marcar la propuesta como aceptada definitiva.
         await _proposals.UpdateStatusAsync(proposalId, "accepted", null, ct);
         // 2) Las otras propuestas DEL MISMO VIAJE pasan a rejected.
@@ -338,7 +512,8 @@ public class TripsController : ControllerBase
         // 3) RECHAZO EN CASCADA: las propuestas del MISMO CONDUCTOR en OTROS
         //    viajes (pending o accepted_by_passenger) se rechazan con motivo
         //    'driver_busy'. El conductor queda libre solo para este viaje.
-        var cascaded = await _proposals.RejectAllOtherPendingByDriverAsync(
+        //    Un programado no ocupa al conductor ahora: sin cascada.
+        var cascaded = trip.IsScheduled ? 0 : await _proposals.RejectAllOtherPendingByDriverAsync(
             CurrentUserId, id, ct);
 
         // 4) Asignar conductor y tarifa.
@@ -349,7 +524,7 @@ public class TripsController : ControllerBase
         await _trips.UpdateAsync(trip, ct);
 
         // 5) Notificar al pasajero que el conductor confirmó. Viaje en curso.
-        _ = _notify.NotifyPassengerDriverConfirmedAsync(trip.PassengerId, id);
+        _ = _notify.NotifyPassengerDriverConfirmedAsync(trip.PassengerId, id, trip.ServiceType);
 
         return Ok(new
         {
@@ -414,49 +589,52 @@ public class TripsController : ControllerBase
         });
     }
 
-    [HttpPut("{id:guid}/accept-fare")]
-    public async Task<IActionResult> AcceptFare(Guid id, CancellationToken ct)
-    {
-        var trip = await _trips.GetByIdAsync(id, ct);
-        if(trip is null) return NotFound();
-        trip.AcceptProposedFare();
-        await _trips.UpdateAsync(trip, ct);
-        return Ok(CreateTripHandler.ToDto(trip));
-    }
-
-    [HttpPut("{id:guid}/reject-fare")]
-    public async Task<IActionResult> RejectFare(Guid id, CancellationToken ct)
-    {
-        var trip = await _trips.GetByIdAsync(id, ct);
-        if(trip is null) return NotFound();
-        trip.RejectProposedFare();
-        await _trips.UpdateAsync(trip, ct);
-        return Ok(CreateTripHandler.ToDto(trip));
-    }
-
     /// <summary>
     /// GET /api/trips/{id} — un viaje (pasajero, conductor del viaje o admin).
     /// Lo usan las pantallas de seguimiento para saber como termino un viaje
     /// que ya no esta activo (completado o cancelado, quien y por que).
     /// </summary>
     [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetOne(Guid id, CancellationToken ct)
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, Perm.ViewComplaints, Perm.ViewSosCenter, Perm.ViewPassengers, Perm.ViewDrivers, Perm.ViewPayments, Perm.ViewCommissions, SkipForNonAdmins = true)]
+    public async Task<IActionResult> GetOne(Guid id, [FromServices] IAuthClient auth, CancellationToken ct)
     {
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
         if(trip.PassengerId != CurrentUserId && trip.DriverId != CurrentUserId && !User.IsInRole("admin"))
             return Forbid();
-        return Ok(CreateTripHandler.ToDto(trip));
+        if(!User.IsInRole("admin")) return Ok(CreateTripHandler.ToDto(trip));
+
+        // Admin: con los nombres del pasajero y del conductor (enlaces del detalle).
+        var ids = new List<Guid> { trip.PassengerId };
+        if(trip.DriverId.HasValue) ids.Add(trip.DriverId.Value);
+        var users = await auth.GetUsersByIdsAsync(ids, ct);
+        return Ok(CreateTripHandler.ToDto(trip,
+            passengerName: users.GetValueOrDefault(trip.PassengerId)?.FullName,
+            driverName: trip.DriverId.HasValue ? users.GetValueOrDefault(trip.DriverId.Value)?.FullName : null));
     }
 
     [HttpPut("{id:guid}/start")]
     public async Task<IActionResult> Start(Guid id, CancellationToken ct)
     {
-        var dto = await _mediator.Send(new StartTripCommand(id), ct);
-        // Notificar al pasajero que el viaje arrancó.
+        // Solo el conductor asignado puede iniciar su viaje.
         var trip = await _trips.GetByIdAsync(id, ct);
-        if(trip is not null)
-            _ = _notify.NotifyPassengerTripStartedAsync(trip.PassengerId, id);
+        if(trip is null) return NotFound();
+        if(trip.DriverId != CurrentUserId) return Forbid();
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
+        TripDto dto;
+        try
+        {
+            dto = await _mediator.Send(new StartTripCommand(id), ct);
+        }
+        catch(InvalidOperationException ex)
+        {
+            // Ej.: envio sin verificar el recojo, o viaje que no esta aceptado.
+            return Conflict(new { error = ex.Message });
+        }
+        // Notificar al pasajero que el viaje arrancó.
+        _ = _notify.NotifyPassengerTripStartedAsync(trip.PassengerId, id, trip.ServiceType);
         return Ok(dto);
     }
 
@@ -471,12 +649,22 @@ public class TripsController : ControllerBase
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
         if(trip.DriverId != CurrentUserId) return Forbid();
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
         if(trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Accepted)
             return Conflict(new { error = "Solo puedes avisar tu llegada con el viaje aceptado y antes de iniciarlo." });
 
-        trip.MarkDriverArrived();
+        try
+        {
+            trip.MarkDriverArrived();
+        }
+        catch(InvalidOperationException ex)
+        {
+            // Ej.: programado y todavia es muy pronto.
+            return Conflict(new { error = ex.Message });
+        }
         await _trips.UpdateAsync(trip, ct);
-        _ = _notify.NotifyPassengerDriverArrivedAsync(trip.PassengerId, id);
+        _ = _notify.NotifyPassengerDriverArrivedAsync(trip.PassengerId, id, trip.ServiceType);
         return Ok(CreateTripHandler.ToDto(trip));
     }
 
@@ -485,10 +673,17 @@ public class TripsController : ControllerBase
     {
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
+        // Solo el conductor asignado puede completar su viaje.
+        if(trip.DriverId != CurrentUserId) return Forbid();
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
 
+        // Se cobra la tarifa acordada del viaje (EstimatedFare se actualiza al
+        // aceptar una oferta). No se toma del cuerpo de la peticion para que
+        // nadie pueda cambiar el monto al cerrar.
         // Si el viaje trae cupon, se cobra la tarifa YA DESCONTADA. El
         // conductor ve ese monto y es lo que recibe en mano.
-        var tarifaBase = req?.FinalFare ?? trip.EstimatedFare;
+        var tarifaBase = trip.EstimatedFare;
         var finalFare  = trip.HasCoupon
             ? Math.Max(0, tarifaBase - (trip.DiscountAmount ?? 0))
             : tarifaBase;
@@ -595,6 +790,7 @@ public class TripsController : ControllerBase
     /// 'cancelled' y se avisa a esos conductores.
     /// </summary>
     [HttpPut("{id:guid}/cancel")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, Perm.ViewSosCenter, SkipForNonAdmins = true)]
     public async Task<IActionResult> Cancel(Guid id, [FromBody] CancelTripRequest? req, CancellationToken ct)
     {
         var trip = await _trips.GetByIdAsync(id, ct);
@@ -612,18 +808,23 @@ public class TripsController : ControllerBase
         if(by == "driver" && trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Accepted)
             return Conflict(new { error = "Solo puedes cancelar un viaje aceptado que todavía no empezó." });
 
-        var dto = await _mediator.Send(new CancelTripCommand(id, by, req?.Reason), ct);
+        // Programado cuyo conductor no llego: el pasajero cancela sin penalidad.
+        var reason = req?.Reason;
+        if(by == "passenger" && string.IsNullOrWhiteSpace(reason) && trip.IsDriverLate(DateTime.UtcNow))
+            reason = "El conductor no llegó a la hora programada.";
+
+        var dto = await _mediator.Send(new CancelTripCommand(id, by, reason), ct);
 
         // Cerrar la negociacion y avisar a los conductores que habian ofertado.
         var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, ct);
         foreach(var driverUserId in proposalDrivers.Where(d => d != trip.DriverId))
-            _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by, dto.CancelReason);
+            _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by, dto.CancelReason, trip.ServiceType);
 
         // Avisar a la contraparte del viaje (con el motivo).
         if(by != "passenger")
-            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by, dto.CancelReason);
+            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by, dto.CancelReason, trip.ServiceType);
         if(by != "driver" && trip.DriverId.HasValue)
-            _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by, dto.CancelReason);
+            _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by, dto.CancelReason, trip.ServiceType);
 
         return Ok(dto);
     }
@@ -652,6 +853,7 @@ public class TripsController : ControllerBase
     /// </summary>
     [HttpGet("live-passengers")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewLiveMap)]
     public async Task<IActionResult> LivePassengers(CancellationToken ct)
     {
         var list = await _trips.GetLivePassengerLocationsAsync(ct);
@@ -699,6 +901,7 @@ public class TripsController : ControllerBase
     /// </summary>
     [HttpGet("{tripId:guid}/waypoints")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, Perm.ViewComplaints, Perm.ViewSosCenter, Perm.ViewPassengers, Perm.ViewDrivers, Perm.ViewPayments, Perm.ViewCommissions)]
     public async Task<IActionResult> GetTripWaypoints(Guid tripId, CancellationToken ct)
     {
         var list = await _trips.GetWaypointsAsync(tripId, ct);

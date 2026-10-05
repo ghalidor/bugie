@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
+import { useEffect, useMemo, useState } from 'react';
 import { API, apiFetch, ApiError } from '../../state/api';
+import {
+  CountUp, EmptyState, Notice, Page, PageLoading, Pagination, SectionCard, StatCard, StatGrid, StatusBadge, Tone, useClientPage,
+} from '../../components/ui';
+import { fmtDateTime, fmtTime, money, payMethod } from '../../components/tripFormat';
 
 interface Payment {
   id: string; tripId: string; amount: number;
@@ -8,23 +11,21 @@ interface Payment {
   createdAt: string; paidAt: string | null;
 }
 
-const METHOD: Record<string, { label: string; icon: string }> = {
-  cash: { label: 'Efectivo', icon: 'fa-money-bill-wave' },
-  yape: { label: 'Yape',     icon: 'fa-mobile-screen'   },
-  plin: { label: 'Plin',     icon: 'fa-mobile-screen'   },
+const STATUS_CFG: Record<string, { label: string; tone: Tone; icon: string }> = {
+  pending:   { label: 'Pendiente',   tone: 'warn', icon: 'fa-clock'        },
+  completed: { label: 'Completado',  tone: 'ok',   icon: 'fa-circle-check' },
+  refunded:  { label: 'Reembolsado', tone: 'info', icon: 'fa-rotate-left'  },
+  failed:    { label: 'Fallido',     tone: 'bad',  icon: 'fa-circle-xmark' },
 };
 
-const STATUS_CFG: Record<string, { label: string; color: string; icon: string }> = {
-  pending:   { label: 'Pendiente',   color: '#f59e0b', icon: 'fa-clock'        },
-  completed: { label: 'Completado',  color: '#34d399', icon: 'fa-circle-check' },
-  refunded:  { label: 'Reembolsado', color: '#38bdf8', icon: 'fa-rotate-left'  },
-  failed:    { label: 'Fallido',     color: '#f87171', icon: 'fa-circle-xmark' },
-};
+type Filter = 'all' | 'completed' | 'pending' | 'other';
+const PAGE_SIZE = 10;
 
 export default function PassengerPayments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
+  const [filter,   setFilter]   = useState<Filter>('all');
 
   useEffect(() => {
     apiFetch<Payment[]>(`${API.payments}/payments/my-payments`)
@@ -33,106 +34,95 @@ export default function PassengerPayments() {
       .finally(() => setLoading(false));
   }, []);
 
-  const completed   = payments.filter(p => p.status === 'completed');
+  const completed    = payments.filter(p => p.status === 'completed');
   const totalGastado = completed.reduce((s, p) => s + p.amount, 0);
-  const pendientes  = payments.filter(p => p.status === 'pending').length;
+  const pendientes   = payments.filter(p => p.status === 'pending').length;
 
-  if (loading) return (
-    <div className="d-flex justify-content-center py-5">
-      <span className="spinner-border" />
-    </div>
-  );
+  const filtered = useMemo(() => payments.filter(p =>
+    filter === 'all' ? true
+      : filter === 'other' ? p.status !== 'completed' && p.status !== 'pending'
+      : p.status === filter), [payments, filter]);
+  const { page, setPage, items } = useClientPage(filtered, PAGE_SIZE, filter);
+
+  if (loading) return <PageLoading />;
+
+  const chips: { key: Filter; label: string; count: number }[] = [
+    { key: 'all',       label: 'Todos',       count: payments.length },
+    { key: 'completed', label: 'Completados', count: completed.length },
+    { key: 'pending',   label: 'Pendientes',  count: pendientes },
+    { key: 'other',     label: 'Otros',       count: payments.length - completed.length - pendientes },
+  ];
 
   return (
-    <>
-      <PageHeader title="Mis pagos" subtitle="Historial de transacciones y pagos." icon="fa-solid fa-credit-card" />
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+    <Page title="Mis pagos" subtitle="Lo que pagaste en cada viaje y su estado." icon="fa-credit-card">
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {/* KPIs */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Total gastado',  value: `S/ ${totalGastado.toFixed(2)}`, color: '#818cf8', icon: 'fa-wallet'       },
-          { label: 'Viajes pagados', value: String(completed.length),        color: '#34d399', icon: 'fa-circle-check' },
-          { label: 'Pendientes',     value: String(pendientes),              color: '#f59e0b', icon: 'fa-clock'        },
-        ].map(k => (
-          <div className="col-4" key={k.label}>
-            <div className="bugie-card p-3 text-center">
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
-                <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
+      <StatGrid min={170}>
+        <StatCard label="Total gastado" value={<CountUp value={totalGastado} format={money} decimals={2} />} icon="fa-wallet" />
+        <StatCard label="Viajes pagados" value={<CountUp value={completed.length} />} icon="fa-circle-check" tone="ok" />
+        <StatCard label="Pendientes" value={<CountUp value={pendientes} />} icon="fa-clock" tone={pendientes > 0 ? 'warn' : 'neutral'} />
+      </StatGrid>
+
+      <SectionCard
+        title="Historial"
+        icon="fa-receipt"
+        description="Los pagos se registran solos cuando completas un viaje."
+        flush
+      >
+        {payments.length === 0 ? (
+          <EmptyState
+            icon="fa-credit-card"
+            title="Sin pagos aún"
+            text="Los pagos se registran automáticamente cuando completas un viaje."
+          />
+        ) : (
+          <>
+            <div className="px-3 pt-3">
+              <div className="bx-chips" role="group" aria-label="Filtrar pagos">
+                {chips.filter(c => c.key === 'all' || c.count > 0).map(c => (
+                  <button key={c.key} type="button" className="bx-chip" aria-pressed={filter === c.key} onClick={() => setFilter(c.key)}>
+                    {c.label} <span className="count">{c.count}</span>
+                  </button>
+                ))}
               </div>
-              <div className="fw-bold fs-5" style={{ color: k.color }}>{k.value}</div>
-              <div className="small bugie-muted">{k.label}</div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {payments.length === 0 ? (
-        <div className="bugie-card p-5 text-center">
-          <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-            <i className="fa-solid fa-credit-card" />
-          </div>
-          <div className="fw-semibold mb-2">Sin pagos aún</div>
-          <div className="small bugie-muted">
-            Los pagos se registran automáticamente cuando completas un viaje.
-          </div>
-        </div>
-      ) : (
-        <div className="d-flex flex-column gap-2">
-          {payments.map(p => {
-            const s   = STATUS_CFG[p.status] ?? { label: p.status, color: '#94a3b8', icon: 'fa-circle' };
-            const pay = METHOD[p.method]     ?? { label: p.method,  icon: 'fa-credit-card' };
-            const date = new Date(p.createdAt);
-
-            return (
-              <div key={p.id} className="bugie-card" style={{ overflow: 'hidden' }}>
-                <div style={{ height: 3, background: s.color }} />
-                <div className="p-3 d-flex align-items-center gap-3">
-
-                  {/* Ícono método */}
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: s.color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <i className={`fa-solid ${pay.icon}`} style={{ color: s.color }} />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-grow-1 min-w-0">
-                    <div className="d-flex align-items-center gap-2 mb-1 flex-wrap">
-                      <span className="badge rounded-pill" style={{ background: s.color + '22', color: s.color, fontSize: '0.72rem' }}>
-                        <i className={`fa-solid ${s.icon} me-1`} style={{ fontSize: '0.65rem' }} />
-                        {s.label}
+            {filtered.length === 0 ? (
+              <EmptyState compact title="No hay pagos con este filtro" />
+            ) : (
+              <ul className="bx-list mt-2">
+                {items.map(p => {
+                  const s   = STATUS_CFG[p.status] ?? { label: p.status, tone: 'neutral' as Tone, icon: 'fa-circle' };
+                  const pay = payMethod(p.method);
+                  return (
+                    <li key={p.id} className="bx-list-item">
+                      <span className={`bx-list-icon bx-tone-${s.tone}`} aria-hidden="true">
+                        <i className={`fa-solid ${pay.icon}`} />
                       </span>
-                      <span className="badge rounded-pill" style={{ background: '#33415522', color: 'var(--bugie-muted)', fontSize: '0.72rem' }}>
-                        <i className={`fa-solid ${pay.icon} me-1`} style={{ fontSize: '0.65rem' }} />
-                        {pay.label}
+                      <span className="bx-list-text">
+                        <span className="bx-list-title">
+                          {pay.label}
+                          <StatusBadge tone={s.tone} icon={s.icon} size="sm">{s.label}</StatusBadge>
+                        </span>
+                        <span className="bx-list-sub d-block">
+                          {fmtDateTime(p.createdAt)}
+                          {p.reference && <> · Ref: <strong>{p.reference}</strong></>}
+                        </span>
                       </span>
-                    </div>
-                    <div className="small bugie-muted">
-                      {date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      {' · '}
-                      {date.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                    {p.reference && (
-                      <div className="small bugie-muted mt-1">
-                        Ref: <span className="fw-semibold">{p.reference}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Monto */}
-                  <div className="text-end flex-shrink-0">
-                    <div className="fw-bold fs-5">S/ {p.amount.toFixed(2)}</div>
-                    {p.paidAt && (
-                      <div className="small bugie-muted" style={{ fontSize: '0.72rem' }}>
-                        Pagado {new Date(p.paidAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </>
+                      <span className="bx-list-end d-block">
+                        <span className="amount d-block">{money(p.amount)}</span>
+                        {p.paidAt && <span className="bx-list-sub d-block">Pagado {fmtTime(p.paidAt)}</span>}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <div className="px-3">
+              <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
+            </div>
+          </>
+        )}
+      </SectionCard>
+    </Page>
   );
 }

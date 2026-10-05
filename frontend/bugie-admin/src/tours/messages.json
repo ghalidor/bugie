@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='msg-stats']",
+      "title": "Tu bandeja de un vistazo",
+      "text": "Cuántos mensajes llegaron y cuántos faltan leer. Toca «Sin leer» para ver solo esos."
+    },
+    {
+      "selector": "[data-tour='msg-filters']",
+      "title": "Filtra la bandeja",
+      "text": "Elige entre todos, sin leer o leídos."
+    },
+    {
+      "selector": "[data-tour='msg-list']",
+      "title": "Abre y responde",
+      "text": "Los mensajes sin leer tienen un punto y van en negrita. Tócalos para leerlos y responder por correo con una plantilla."
+    }
+  ]
+}

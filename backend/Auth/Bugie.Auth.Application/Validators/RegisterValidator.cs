@@ -9,7 +9,12 @@ public class RegisterUserValidator : AbstractValidator<RegisterUserCommand>
 
     public RegisterUserValidator()
     {
-        RuleFor(x => x.FullName).NotEmpty().MaximumLength(120);
+        // FullName ya no se pide: se arma con nombres + apellidos.
+        RuleFor(x => x.FirstNames).NotEmpty().MaximumLength(60);
+        RuleFor(x => x.LastNamePaternal).NotEmpty().MaximumLength(40);
+        RuleFor(x => x.LastNameMaternal).MaximumLength(40);
+        RuleFor(x => x.DocType).NotEmpty();
+        RuleFor(x => x.DocNumber).NotEmpty().MaximumLength(12);
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(200);
         RuleFor(x => x.Password).NotEmpty().MinimumLength(8).MaximumLength(100);
         RuleFor(x => x.Phone).NotEmpty().MaximumLength(20);

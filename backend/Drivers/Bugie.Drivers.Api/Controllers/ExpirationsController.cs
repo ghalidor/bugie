@@ -2,6 +2,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Microsoft.Extensions.Options;
 using Bugie.Drivers.Application.Queries;
 using Bugie.Drivers.Domain.External;
@@ -75,6 +76,7 @@ public class ExpirationsController : ControllerBase
     /// </summary>
     [HttpGet("expiring-soon")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers)]
     public async Task<IActionResult> AdminExpiringSoon([FromQuery] int? days, CancellationToken ct)
     {
         var threshold = days ?? _opt.UpcomingDays;

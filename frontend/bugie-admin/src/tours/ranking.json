@@ -1,0 +1,44 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='ranking-tabs']",
+      "title": "Dos vistas",
+      "text": "«Ranking del mes» muestra el top de un mes; «Análisis de ranking», quiénes se mantienen arriba mes a mes."
+    },
+    {
+      "selector": "[data-tour='ranking-stats']",
+      "title": "El mes en cifras",
+      "text": "Cuántos conductores recibieron calificaciones y el promedio del primer puesto. El promedio y las ganancias de la página suman solo los conductores que ves."
+    },
+    {
+      "selector": "[data-tour='ranking-filters']",
+      "title": "Elige el mes",
+      "text": "Cambia el mes y el año para ver rankings anteriores (no hay meses futuros). «Limpiar filtros» vuelve al mes actual."
+    },
+    {
+      "selector": "[data-tour='ranking-list']",
+      "title": "Top de conductores",
+      "text": "Ordenado por promedio de estrellas. Los tres primeros llevan medalla. Toca el nombre para abrir la ficha del conductor."
+    },
+    {
+      "selector": "[data-tour='analysis-filters']",
+      "title": "Rango del análisis",
+      "text": "Elige cuántos meses mirar hacia atrás y cuántos puestos cuentan como «top» por mes."
+    },
+    {
+      "selector": "[data-tour='analysis-stats']",
+      "title": "Resumen del periodo",
+      "text": "Quién fue más veces 1.º y quién estuvo más veces en el top 3."
+    },
+    {
+      "selector": "[data-tour='analysis-constant']",
+      "title": "Los más constantes",
+      "text": "Ordenados por meses en el primer puesto, luego por meses en el top 3 y puesto promedio."
+    },
+    {
+      "selector": "[data-tour='analysis-matrix']",
+      "title": "Puesto por mes",
+      "text": "El puesto de cada conductor en cada mes. «—» = sin calificaciones ese mes."
+    }
+  ]
+}

@@ -11,13 +11,15 @@ namespace Bugie.Auth.Application.Queries;
 /// - Search: matchea contra FullName o Email.
 /// - Role: 'driver' | 'passenger' | 'admin' | null (todos).
 /// - Verified: true/false para filtrar por IsVerified, null = sin filtro.
+/// - Deleted: false (defecto) = sin eliminadas; true = solo eliminadas; null = todas.
 /// </summary>
 public record GetUsersPagedQuery(
     int Page,
     int PageSize,
     string? Search,
     string? Role,
-    bool? Verified = null) : IRequest<UsersPagedDto>;
+    bool? Verified = null,
+    bool? Deleted = false) : IRequest<UsersPagedDto>;
 
 /// <summary>Respuesta paginada para listas grandes (5000+ usuarios).</summary>
 public record UsersPagedDto(
@@ -35,11 +37,10 @@ public class GetUsersPagedHandler
     public async Task<UsersPagedDto> Handle(GetUsersPagedQuery q, CancellationToken ct)
     {
         var (items, total) = await _users.GetPagedAsync(
-            q.Page, q.PageSize, q.Search, q.Role, q.Verified, ct);
+            q.Page, q.PageSize, q.Search, q.Role, q.Verified, ct, q.Deleted);
 
-        var dtos = items.Select(u => new UserProfileDto(
-            u.Id, u.FullName, u.Email, u.Phone, u.Role, u.IsActive,
-            u.IsVerified, u.ProfilePhotoUrl, u.CreatedAt, u.AdminRoleId)).ToList();
+        // Sin firma (pesa y no se usa en las listas). Incluye documento y estado "Eliminada".
+        var dtos = items.Select(u => UserProfileDto.From(u) with { SignatureImage = null }).ToList();
 
         return new UsersPagedDto(dtos, q.Page, q.PageSize, total);
     }

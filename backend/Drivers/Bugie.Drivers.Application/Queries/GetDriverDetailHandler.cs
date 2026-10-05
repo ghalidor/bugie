@@ -1,6 +1,8 @@
 using MediatR;
 using Bugie.Drivers.Application.Commands;
 using Bugie.Drivers.Application.DTOs;
+using Bugie.Drivers.Application.Services;
+using Bugie.Drivers.Domain.Common;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
 
@@ -17,13 +19,17 @@ public class GetDriverDetailHandler : IRequestHandler<GetDriverDetailQuery, Driv
     private readonly IVehicleRepository _vehicles;
     private readonly IDocumentRepository _docs;
     private readonly IAuthClient _auth;
+    private readonly IDriverReviewRequestRepository _reviews;
+    private readonly IApprovalAuditRepository _audit;
 
     public GetDriverDetailHandler(
         IDriverRepository d,
         IVehicleRepository v,
         IDocumentRepository docs,
-        IAuthClient auth)
-        => (_drivers, _vehicles, _docs, _auth) = (d, v, docs, auth);
+        IAuthClient auth,
+        IDriverReviewRequestRepository reviews,
+        IApprovalAuditRepository audit)
+        => (_drivers, _vehicles, _docs, _auth, _reviews, _audit) = (d, v, docs, auth, reviews, audit);
 
     public async Task<DriverDetailDto?> Handle(GetDriverDetailQuery q, CancellationToken ct)
     {
@@ -60,8 +66,22 @@ public class GetDriverDetailHandler : IRequestHandler<GetDriverDetailQuery, Driv
         // venía vacío de ToDto). Si no encontramos el usuario, fallback.
         var driverDto = RegisterDriverHandler.ToDto(driver) with
         {
-            FullName = userInfo?.FullName ?? "Conductor"
+            FullName = userInfo?.FullName ?? "Conductor",
+            // Documentos obligatorios que faltan (aprobación por excepción)
+            MissingDocuments = RequiredDocuments.GetMissing(
+                docs.Where(x => x.Status != "superseded"),
+                vehicles.FirstOrDefault(v => v.IsActive),
+                driver.ProfilePhotoUrl),
+            // Cuenta eliminada por el conductor (estado "Eliminada" en el admin)
+            DeletedAt = userInfo?.DeletedAt,
+            DeletedReason = userInfo?.DeletedReason,
+            // Solicitud de revisión abierta (rechazado/suspendido)
+            OpenReviewRequest = DriverAccountService.ToDto(await _reviews.GetOpenByDriverAsync(driver.Id, ct)),
         };
+
+        // Último cambio de estado (auditoría)
+        var last = await _audit.GetLastStatusChangeAsync(driver.Id, ct);
+        var lastItem = last is null ? null : GetDriverTimelineHandler.ToItem(last);
 
         return new DriverDetailDto(
             driverDto,
@@ -71,6 +91,8 @@ public class GetDriverDetailHandler : IRequestHandler<GetDriverDetailQuery, Driv
             docs.Select(d => new DocumentDto(
                 d.Id, d.DriverId, d.DocType, d.FileUrl, d.Status, d.ExpiresAt,
                 d.OriginalFileName, d.MimeType, d.RejectionReason)).ToList(),
-            userInfo);
+            userInfo,
+            lastItem?.At,
+            lastItem?.ActorName);
     }
 }

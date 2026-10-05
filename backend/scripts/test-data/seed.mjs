@@ -16,7 +16,7 @@
 // =====================================================================
 import { execFileSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,7 +58,9 @@ async function api(method, url, { token, body, form } = {}) {
   let payload;
   if (form) payload = form;
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
-  const res  = await fetch(url, { method, headers, body: payload });
+  // Limite de 60 s: si una API se cuelga, el seed falla con la URL en vez de quedarse esperando.
+  const res  = await fetch(url, { method, headers, body: payload, signal: AbortSignal.timeout(60000) })
+    .catch(e => { throw new Error(`${method} ${url} no respondió (${e.name === 'TimeoutError' ? 'más de 60 s' : e.message})`); });
   const text = await res.text();
   let data = text;
   try { data = text ? JSON.parse(text) : null; } catch { /* texto plano */ }
@@ -93,10 +95,18 @@ function makePng(w, h, [r, g, b]) {
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
-const COLORS = [[41, 98, 255], [16, 185, 129], [245, 158, 11], [239, 68, 68], [139, 92, 246], [236, 72, 153], [20, 184, 166]];
-let colorIdx = 0;
-function pngBlob(w = 320, h = 200) { return new Blob([makePng(w, h, COLORS[colorIdx++ % COLORS.length])], { type: 'image/png' }); }
 const SIGNATURE = 'data:image/png;base64,' + makePng(120, 40, [30, 30, 30]).toString('base64');
+
+// ------------------------------------------------------------------ imagenes
+// Imagenes reconocibles (avatar con iniciales, DNI, documentos, vehiculo,
+// paquete, recojo, entrega). Las dibuja generar_imagenes.ps1 al inicio.
+const IMG_DIR = join(HERE, 'logs', 'img');
+const COLORS  = ['#2962FF', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#0EA5E9', '#F97316', '#6366F1', '#84CC16'];
+const imgManifest = [];
+function addImg(file, kind, title, extra = {}) { imgManifest.push({ file, kind, title, subtitle: '', initials: '', extra: '', color: '#2962FF', ...extra }); }
+function imgBlob(file) { return new Blob([readFileSync(join(IMG_DIR, file))], { type: 'image/png' }); }
+const initialsOf = name => name.split(' ').filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+const shortName  = name => name.split(' ').slice(0, 2).join(' ');
 function form(fields, files = {}) {
   const f = new FormData();
   for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) f.append(k, String(v));
@@ -147,11 +157,18 @@ function setEmail(userId, email) {
   sql(`UPDATE auth.users SET email = '${email}' WHERE id = '${userId}'`);
 }
 
+// Documento de identidad de prueba: DNI = '4' + ultimos 7 digitos del celular
+// (es el que sale dibujado en las imagenes del DNI). Unico por usuario.
+const dniOf = (phone) => '4' + phone.slice(-7);
+
 async function registerUser(u, role, referralCode) {
   // El registro siempre se hace con el correo real -> llega el correo de bienvenida
+  // Documento y nombres separados son obligatorios (FullName lo arma la API).
   freeRealEmail();
   const r = await post(`${API.auth}/auth/register`, { body: {
-    fullName: u.name, email: REAL_EMAIL, password: PASSWORD, phone: u.phone, role,
+    email: REAL_EMAIL, password: PASSWORD, phone: u.phone, role,
+    docType: 'DNI', docNumber: dniOf(u.phone),
+    firstNames: u.fn, lastNamePaternal: u.regAp ?? u.ap, lastNameMaternal: u.am ?? null,
     acceptedTerms: true, signatureImage: SIGNATURE, referralCode,
   } });
   u.userId = r.userId; u.token = r.token; u.role = role;
@@ -159,20 +176,27 @@ async function registerUser(u, role, referralCode) {
 }
 
 // ------------------------------------------------------------------ data
+// fn = nombres, ap = apellido paterno, am = apellido materno (opcional).
+// name = como queda el FullName ("Nombres Paterno Materno").
 const passengers = [
-  { key: 'P1', name: 'Lucia Mamani Quispe',     phone: '952100101', email: 'lucia.mamani@bugie.test',    status: 'approved' },
-  { key: 'P2', name: 'Carlos Ticona Flores',    phone: '952100102', email: 'carlos.ticona@bugie.test',   status: 'approved', referredBy: 'P1' },
-  { key: 'P3', name: 'Maria Fernanda Choque',   phone: '952100103', email: 'maria.choque@bugie.test',    status: 'approved' },
-  { key: 'P4', name: 'Jorge Luis Apaza',        phone: '952100104', email: 'jorge.apaza@bugie.test',     status: 'approved' },
-  { key: 'P5', name: 'Rosa Elena Condori',      phone: '952100105', email: 'rosa.condori@bugie.test',    status: 'approved' },
-  { key: 'P6', name: 'Diego Huanca Rivera',     phone: '952100106', email: 'diego.huanca@bugie.test',    status: 'rejected' },
-  { key: 'P7', name: 'Ana Paredes Coaquira',    phone: '952100107', email: 'ana.paredes@bugie.test',     status: 'pending' },
+  { key: 'P1', name: 'Lucia Mamani Quispe',     fn: 'Lucia',          ap: 'Mamani',  am: 'Quispe',   phone: '952100101', email: 'lucia.mamani@bugie.test',    status: 'approved' },
+  { key: 'P2', name: 'Carlos Ticona Flores',    fn: 'Carlos',         ap: 'Ticona',  am: 'Flores',   phone: '952100102', email: 'carlos.ticona@bugie.test',   status: 'approved', referredBy: 'P1' },
+  { key: 'P3', name: 'Maria Fernanda Choque',   fn: 'Maria Fernanda', ap: 'Choque',                  phone: '952100103', email: 'maria.choque@bugie.test',    status: 'approved' },
+  { key: 'P4', name: 'Jorge Luis Apaza',        fn: 'Jorge Luis',     ap: 'Apaza',                   phone: '952100104', email: 'jorge.apaza@bugie.test',     status: 'approved' },
+  // regAp: se registra con el apellido mal escrito y el admin lo corrige con motivo
+  { key: 'P5', name: 'Rosa Elena Condori',      fn: 'Rosa Elena',     ap: 'Condori', regAp: 'Condory', phone: '952100105', email: 'rosa.condori@bugie.test',    status: 'approved' },
+  { key: 'P6', name: 'Diego Huanca Rivera',     fn: 'Diego',          ap: 'Huanca',  am: 'Rivera',   phone: '952100106', email: 'diego.huanca@bugie.test',    status: 'rejected' },
+  { key: 'P7', name: 'Ana Paredes Coaquira',    fn: 'Ana',            ap: 'Paredes', am: 'Coaquira', phone: '952100107', email: 'ana.paredes@bugie.test',     status: 'pending' },
+  // Cuenta eliminada por el propio pasajero (estado "Eliminada" en el admin)
+  { key: 'P8', name: 'Sofia Ramos Ticona',      fn: 'Sofia',          ap: 'Ramos',   am: 'Ticona',   phone: '952100108', email: 'sofia.ramos@bugie.test',     status: 'deleted' },
 ];
 const drivers = [
-  { key: 'D1', name: 'Juan Carlos Pari Vargas', phone: '953200201', email: 'juan.pari@bugie.test',    status: 'approved', vehicle: { plate: 'Z1A-101', brand: 'Toyota',  model: 'Yaris',  year: 2019, color: 'Blanco' }, at: PLACES.plaza },
-  { key: 'D2', name: 'Miguel Angel Cutipa',     phone: '953200202', email: 'miguel.cutipa@bugie.test', status: 'approved', vehicle: { plate: 'Z2B-202', brand: 'Hyundai', model: 'Accent', year: 2020, color: 'Plata'  }, at: PLACES.hospital },
-  { key: 'D3', name: 'Pedro Mendoza Calle',     phone: '953200203', email: 'pedro.mendoza@bugie.test', status: 'approved', vehicle: { plate: 'Z3C-303', brand: 'Kia',     model: 'Rio',    year: 2021, color: 'Rojo'   }, at: PLACES.unjbg, referredBy: 'P1' },
-  { key: 'D4', name: 'Raul Ccama Limachi',      phone: '953200204', email: 'raul.ccama@bugie.test',    status: 'pending',  vehicle: { plate: 'Z4D-404', brand: 'Suzuki',  model: 'Swift',  year: 2018, color: 'Azul'   }, at: PLACES.terminal },
+  { key: 'D1', name: 'Juan Carlos Pari Vargas', fn: 'Juan Carlos',  ap: 'Pari',    am: 'Vargas',  phone: '953200201', email: 'juan.pari@bugie.test',    status: 'approved', vehicle: { plate: 'Z1A-101', brand: 'Toyota',  model: 'Yaris',  year: 2019, color: 'Blanco' }, at: PLACES.plaza },
+  { key: 'D2', name: 'Miguel Angel Cutipa',     fn: 'Miguel Angel', ap: 'Cutipa',                 phone: '953200202', email: 'miguel.cutipa@bugie.test', status: 'approved', vehicle: { plate: 'Z2B-202', brand: 'Hyundai', model: 'Accent', year: 2020, color: 'Plata'  }, at: PLACES.hospital },
+  { key: 'D3', name: 'Pedro Mendoza Calle',     fn: 'Pedro',        ap: 'Mendoza', am: 'Calle',   phone: '953200203', email: 'pedro.mendoza@bugie.test', status: 'approved', vehicle: { plate: 'Z3C-303', brand: 'Kia',     model: 'Rio',    year: 2021, color: 'Rojo'   }, at: PLACES.unjbg, referredBy: 'P1' },
+  { key: 'D4', name: 'Raul Ccama Limachi',      fn: 'Raul',         ap: 'Ccama',   am: 'Limachi', phone: '953200204', email: 'raul.ccama@bugie.test',    status: 'pending',  vehicle: { plate: 'Z4D-404', brand: 'Suzuki',  model: 'Swift',  year: 2018, color: 'Azul'   }, at: PLACES.terminal },
+  // Registro completo que el admin RECHAZA al final; luego pide revision (queda ABIERTA)
+  { key: 'D5', name: 'Hugo Flores Quispe',      fn: 'Hugo',         ap: 'Flores',  am: 'Quispe',  phone: '953200205', email: 'hugo.flores@bugie.test',   status: 'rejected', vehicle: { plate: 'Z5E-505', brand: 'Nissan',  model: 'Sentra', year: 2017, color: 'Negro'  }, at: PLACES.ciudadN },
 ];
 const byKey = Object.fromEntries([...passengers, ...drivers].map(u => [u.key, u]));
 let adminToken;
@@ -181,11 +205,65 @@ const DRIVER_DOCS = ['dni_front', 'dni_back', 'license', 'soat', 'tarjeta_propie
 const WITH_EXPIRY = new Set(['license', 'soat', 'revision_tecnica']);
 const inOneYear = () => new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10);
 
+const DOC_TITLE = {
+  dni_front: 'DNI - Frente', dni_back: 'DNI - Reverso', license: 'Licencia de conducir', soat: 'SOAT',
+  tarjeta_propiedad: 'Tarjeta de propiedad', revision_tecnica: 'Revision tecnica', certificado_unico_laboral: 'Certificado Unico Laboral',
+};
+const VEHICLE_COLOR = { Blanco: '#F5F5F5', Plata: '#C0C0C0', Rojo: '#DC2626', Azul: '#2563EB', Negro: '#111827' };
+
+// Arma la lista de imagenes de todos los usuarios y envios, y las dibuja.
+function generarImagenes() {
+  [...passengers, ...drivers].forEach((u, i) => {
+    const color = COLORS[i % COLORS.length];
+    const ini = initialsOf(u.name);
+    const dni = dniOf(u.phone);
+    addImg(`avatar_${u.key}.png`, 'avatar', shortName(u.name), { initials: ini, color });
+    const docs = u.vehicle ? DRIVER_DOCS : ['dni_front', 'dni_back'];
+    for (const doc of docs) {
+      const extra = doc.startsWith('dni') ? dni : (u.vehicle && ['soat', 'tarjeta_propiedad', 'revision_tecnica'].includes(doc) ? u.vehicle.plate : `Q-${dni}`);
+      addImg(`${doc}_${u.key}.png`, 'card', DOC_TITLE[doc], { subtitle: u.name, initials: ini, extra, color });
+    }
+    if (u.vehicle) {
+      const v = u.vehicle;
+      // Tres fotos del vehiculo: frente, costado y placa (obligatorias)
+      const vColor = VEHICLE_COLOR[v.color] ?? '#9CA3AF';
+      addImg(`vehiculo_${u.key}.png`, 'vehicle', `Frente - ${v.brand} ${v.model} ${v.year}`, { subtitle: u.name, extra: v.plate, color: vColor });
+      addImg(`vehiculo_costado_${u.key}.png`, 'vehicle_side', `Costado - ${v.brand} ${v.model}`, { subtitle: u.name, extra: v.plate, color: vColor });
+      addImg(`vehiculo_placa_${u.key}.png`, 'vehicle_plate', 'Placa', { subtitle: `${v.brand} ${v.model}`, extra: v.plate, color: vColor });
+      addImg(`selfie_${u.key}.png`, 'avatar', 'Selfie de conexión', { initials: ini, color });
+    }
+  });
+  [...TRIPS_A, ...TRIPS_B, ...TRIPS_FINAL].filter(s => s.delivery).forEach((s, i) => {
+    s.img = i;
+    const rec = s.recipient ?? 'Recepcion del destino';
+    addImg(`paquete1_${i}.png`, 'package', 'Foto del paquete (1)', { subtitle: s.delivery });
+    addImg(`paquete2_${i}.png`, 'package', 'Foto del paquete (2)', { subtitle: s.delivery });
+    addImg(`recojo_${i}.png`, 'photo', 'Paquete recogido', { subtitle: `${s.delivery} - verificado por el conductor`, color: '#2563EB' });
+    addImg(`recojo2_${i}.png`, 'photo', 'Recojo (foto adicional)', { subtitle: 'Paquete recibido sellado', color: '#0EA5E9' });
+    addImg(`entrega_${i}.png`, 'photo', 'Entrega confirmada', { subtitle: `Recibio: ${rec}`, color: '#10B981' });
+  });
+  mkdirSync(IMG_DIR, { recursive: true });
+  const manifest = join(IMG_DIR, 'manifiesto.json');
+  writeFileSync(manifest, JSON.stringify(imgManifest), 'utf8');
+  execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(HERE, 'generar_imagenes.ps1'), manifest, IMG_DIR], { stdio: 'inherit' });
+  ok('Imagenes', `${imgManifest.length} imagenes de prueba generadas`, IMG_DIR);
+}
+
 // ================================================================== fases
 async function faseAdmin() {
   console.log('\n== Admin');
   adminToken = await login(ADMIN.email);
   ok('Admin', 'login admin@bugie.pe');
+  // El admin principal es una cuenta antigua: completa una vez su documento y
+  // nombres separados (409 = ya estaban completos de una corrida anterior).
+  try {
+    await put(`${API.auth}/auth/me/profile-completion`, { token: adminToken, body: {
+      docType: 'DNI', docNumber: '40000000', firstNames: 'Administrador', lastNamePaternal: 'Bugie', lastNameMaternal: null } });
+    ok('Admin', 'completa documento y nombres del admin principal');
+  } catch (e) {
+    if (e.status === 409) ok('Admin', 'documento y nombres del admin principal ya estaban completos');
+    else fail('Admin', 'completar perfil del admin principal', e);
+  }
   try {
     const cat = await get(`${API.auth}/auth/admin/security/permissions/catalog`, { token: adminToken });
     const all = [...(cat.views ?? []), ...(cat.actions ?? [])].map(p => typeof p === 'string' ? p : (p.key ?? p.code ?? p.id));
@@ -194,7 +272,8 @@ async function faseAdmin() {
       name: 'soporte', description: 'Soporte y monitoreo (prueba)', permissions: perms } });
     ok('Admin', 'crear rol "soporte"', `${perms.length} permisos`);
     await post(`${API.auth}/auth/admin/security/users`, { token: adminToken, body: {
-      fullName: 'Soporte Bugie', email: 'soporte@bugie.test', password: PASSWORD, phone: '951000001', roleId: role.id } });
+      email: 'soporte@bugie.test', password: PASSWORD, phone: '951000001', roleId: role.id,
+      docType: 'DNI', docNumber: dniOf('951000001'), firstNames: 'Soporte', lastNamePaternal: 'Bugie', lastNameMaternal: null } });
     ok('Admin', 'crear admin soporte@bugie.test');
   } catch (e) { fail('Admin', 'rol/usuario soporte', e); }
 }
@@ -242,19 +321,37 @@ async function fasePasajeros() {
       const ref = p.referredBy ? byKey[p.referredBy].referralCode : undefined;
       await registerUser(p, 'passenger', ref);
       for (const docType of ['dni_front', 'dni_back']) {
-        const d = await post(`${API.auth}/auth/passengers/documents`, { token: p.token, form: form({ docType }, { file: [[pngBlob(), `${docType}.png`]] }) });
+        const d = await post(`${API.auth}/auth/passengers/documents`, { token: p.token, form: form({ docType }, { file: [[imgBlob(`${docType}_${p.key}.png`), `${docType}.png`]] }) });
         (p.docs ??= []).push(d.id);
       }
       ok('Pasajero', `${p.key} sube DNI (frente y reverso)`);
+      await post(`${API.auth}/auth/me/profile-photo`, { token: p.token, form: form({}, { file: [[imgBlob(`avatar_${p.key}.png`), 'perfil.png']] }) })
+        .then(() => ok('Pasajero', `${p.key} sube foto de perfil`)).catch(e => fail('Pasajero', `${p.key} foto de perfil`, e));
       const T = { token: adminToken };
       if (p.status === 'approved') {
         for (const id of p.docs) await put(`${API.auth}/auth/passengers/documents/${id}/approve`, T);
         await put(`${API.auth}/auth/admin/passengers/${p.userId}/approve`, T);
         ok('Pasajero', `${p.key} activado por admin`, `correo "cuenta activa" a ${REAL_EMAIL}`);
+        if (p.regAp) {
+          // Correccion de nombres por el admin (queda en la auditoria de la cuenta)
+          try {
+            const r = await put(`${API.auth}/auth/admin/users/${p.userId}/names`, { ...T, body: {
+              firstNames: p.fn, lastNamePaternal: p.ap, lastNameMaternal: p.am ?? null,
+              reason: `El apellido paterno estaba mal escrito (${p.regAp}); se corrige según su DNI.` } });
+            if (r?.fullName === p.name) ok('Cuenta', `admin corrige nombres de ${p.key}`, `${p.fn} ${p.regAp} -> ${r.fullName}`);
+            else fail('Cuenta', `corregir nombres de ${p.key}`, `quedo "${r?.fullName}"`);
+          } catch (e) { fail('Cuenta', `corregir nombres de ${p.key}`, e); }
+        }
       } else if (p.status === 'rejected') {
         await put(`${API.auth}/auth/passengers/documents/${p.docs[0]}/reject`, { ...T, body: { reason: 'La foto del DNI esta borrosa' } });
         await put(`${API.auth}/auth/admin/passengers/${p.userId}/reject`, { ...T, body: { reason: 'DNI ilegible, vuelve a subirlo' } });
         ok('Pasajero', `${p.key} rechazado por admin`, `correo "vuelve a subir documentos" a ${REAL_EMAIL}`);
+      } else if (p.status === 'deleted') {
+        // Elimina su cuenta desde la app (con el correo real -> llega "tu cuenta fue eliminada")
+        await post(`${API.auth}/auth/me/delete-account`, { token: p.token, body: { password: PASSWORD, reason: 'Ya no uso la aplicacion' } });
+        ok('Pasajero', `${p.key} elimina su cuenta`, `correo "cuenta eliminada" a ${REAL_EMAIL}`);
+        setEmail(p.userId, p.email);
+        continue; // una cuenta eliminada ya no puede iniciar sesion
       } else ok('Pasajero', `${p.key} queda pendiente de revision`);
       setEmail(p.userId, p.email);
       p.token = await login(p.email);
@@ -265,6 +362,17 @@ async function fasePasajeros() {
     } catch (e) { fail('Pasajero', `${p.key} ${p.name}`, e); }
   }
 }
+
+// Conexion del conductor: selfie (check-in) y luego "en linea" en su punto de partida.
+async function connectDriver(d, score) {
+  await post(`${API.drivers}/drivers/me/presence/checkin`, { token: d.token, form: form({ faceQualityScore: score }, { file: [[imgBlob(`selfie_${d.key}.png`), 'selfie.png']] }) });
+  await put(`${API.drivers}/drivers/go-online`, { token: d.token, body: d.at });
+}
+
+// Fechas de Peru (UTC-5) en formato yyyy-MM-dd
+const peruToday = () => new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+const addDays   = (s, n) => { const x = new Date(s + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const isWeekend = s => [0, 6].includes(new Date(s + 'T12:00:00Z').getUTCDay());
 
 async function faseConductores() {
   console.log('\n== Conductores: registro -> documentos -> vehiculo -> activacion');
@@ -277,14 +385,20 @@ async function faseConductores() {
       d.docs = {};
       for (const docType of DRIVER_DOCS) {
         const fields = { docType, expiresAt: WITH_EXPIRY.has(docType) ? inOneYear() : undefined };
-        const r = await post(`${API.drivers}/drivers/documents`, { token: d.token, form: form(fields, { file: [[pngBlob(), `${docType}.png`]] }) });
+        const r = await post(`${API.drivers}/drivers/documents`, { token: d.token, form: form(fields, { file: [[imgBlob(`${docType}_${d.key}.png`), `${docType}.png`]] }) });
         d.docs[docType] = r.id;
       }
       ok('Conductor', `${d.key} sube ${DRIVER_DOCS.length} documentos`);
-      await post(`${API.drivers}/drivers/vehicles`, { token: d.token, body: d.vehicle });
-      await post(`${API.drivers}/drivers/vehicles/me/photo`, { token: d.token, form: form({}, { file: [[pngBlob(480, 320), 'vehiculo.png']] }) });
-      await post(`${API.drivers}/drivers/profile/me/photo`, { token: d.token, form: form({}, { file: [[pngBlob(200, 200), 'perfil.png']] }) }).catch(e => fail('Conductor', `${d.key} foto de perfil`, e));
-      ok('Conductor', `${d.key} registra vehiculo ${d.vehicle.brand} ${d.vehicle.model} ${d.vehicle.plate} con foto`);
+      // Alta del vehiculo con sus tres fotos (frente, costado y placa)
+      await post(`${API.drivers}/drivers/vehicles/with-photos`, { token: d.token, form: form(d.vehicle, {
+        photoFront: [[imgBlob(`vehiculo_${d.key}.png`), 'frente.png']],
+        photoSide:  [[imgBlob(`vehiculo_costado_${d.key}.png`), 'costado.png']],
+        photoPlate: [[imgBlob(`vehiculo_placa_${d.key}.png`), 'placa.png']],
+      }) });
+      await post(`${API.drivers}/drivers/profile/me/photo`, { token: d.token, form: form({}, { file: [[imgBlob(`avatar_${d.key}.png`), 'perfil.png']] }) }).catch(e => fail('Conductor', `${d.key} foto de perfil`, e));
+      // La foto de la cuenta (Auth) es la que se muestra en los avatares de web y app
+      await post(`${API.auth}/auth/me/profile-photo`, { token: d.token, form: form({}, { file: [[imgBlob(`avatar_${d.key}.png`), 'perfil.png']] }) }).catch(e => fail('Conductor', `${d.key} foto de cuenta`, e));
+      ok('Conductor', `${d.key} registra vehiculo ${d.vehicle.brand} ${d.vehicle.model} ${d.vehicle.plate} con 3 fotos`);
       try { await put(`${API.drivers}/drivers/submit-review`, { token: d.token }); ok('Conductor', `${d.key} envia a revision`); }
       catch (e) { fail('Conductor', `${d.key} submit-review`, e); }
 
@@ -293,17 +407,29 @@ async function faseConductores() {
         for (const id of Object.values(d.docs)) await put(`${API.drivers}/drivers/documents/${id}/approve`, T);
         await put(`${API.drivers}/drivers/${d.driverId}/approve`, T);
         ok('Conductor', `${d.key} documentos aprobados y conductor activado`, `correo "cuenta activa" a ${REAL_EMAIL}`);
-      } else {
+      } else if (d.status === 'pending') {
         await put(`${API.drivers}/drivers/documents/${d.docs.soat}/reject`, { ...T, body: { reason: 'SOAT vencido en la foto, sube el vigente' } });
         ok('Conductor', `${d.key} queda en revision con SOAT rechazado`);
-      }
+      } else ok('Conductor', `${d.key} queda en revision (el admin lo rechaza al final)`);
       setEmail(d.userId, d.email);
       d.token = await login(d.email);
 
       if (d.status === 'approved') {
-        await post(`${API.drivers}/drivers/me/presence/checkin`, { token: d.token, form: form({ faceQualityScore: '0.93' }, { file: [[pngBlob(240, 240), 'selfie.png']] }) });
-        await put(`${API.drivers}/drivers/go-online`, { token: d.token, body: d.at });
-        ok('Conductor', `${d.key} selfie de presencia + en linea en ${d.at.address}`);
+        // Historial de conexiones: 4 turnos cerrados (selfie -> en linea -> fuera de linea -> cierre).
+        // 03_repartir_fechas.sql los pone en dias con viajes de ese conductor.
+        let turnos = 0;
+        for (let i = 0; i < 4; i++) {
+          try {
+            await connectDriver(d, (0.86 + i * 0.03).toFixed(2));
+            await put(`${API.drivers}/drivers/go-offline`, { token: d.token });
+            await post(`${API.drivers}/drivers/me/presence/checkout`, { token: d.token });
+            turnos++;
+          } catch (e) { fail('Conexion', `${d.key} turno ${i + 1}`, e); break; }
+        }
+        if (turnos) ok('Conexion', `${d.key} ${turnos} conexiones cerradas`, 'selfie + en linea + desconexion');
+        // Conexion actual (queda activa): en linea para recibir viajes
+        await connectDriver(d, '0.93');
+        ok('Conductor', `${d.key} selfie de conexion + en linea en ${d.at.address}`);
       }
     } catch (e) { fail('Conductor', `${d.key} ${d.name}`, e); }
   }
@@ -311,6 +437,13 @@ async function faseConductores() {
 
 // ------------------------------------------------------------------ viajes
 const tripsLog = [];
+// Programados: hora de Peru (UTC-5) de manana a las hh:mm, sin zona
+// (las APIs toman una fecha sin zona como hora de Peru).
+function tomorrowPeru(hh, mm = 0) {
+  const peru = new Date(Date.now() - 5 * 3600 * 1000 + 24 * 3600 * 1000);
+  const p2 = n => String(n).padStart(2, '0');
+  return `${peru.getUTCFullYear()}-${p2(peru.getUTCMonth() + 1)}-${p2(peru.getUTCDate())}T${p2(hh)}:${p2(mm)}:00`;
+}
 async function pingRoute(d, tripId, a, b, n = 10) {
   for (const pt of route(a, b, n)) {
     await put(`${API.drivers}/drivers/location`, { token: d.token, body: { driverId: d.driverId, lat: pt.lat, lng: pt.lng, tripId, speedKmh: 28 + Math.round(Math.random() * 15), heading: 90 } });
@@ -332,10 +465,14 @@ async function runTrip(s) {
       serviceType: s.delivery ? 1 : 0,
       ...(s.delivery ? { packageDescription: s.delivery, packageWeightKg: 2.5, packageIsFragile: !!s.fragile, packageDetails: 'Entregar en recepcion',
         recipientName: s.recipient ?? 'Recepcion del destino', recipientPhone: '952999888' } : {}),
+      ...(s.scheduledHour ? { scheduledAt: tomorrowPeru(s.scheduledHour) } : {}),
     };
-    const t = await post(`${API.trips}/trips`, { ...P, body });
+    // Envio: datos + fotos del paquete en una sola peticion (sin fotos no se crea)
+    const t = s.delivery
+      ? await post(`${API.trips}/trips/delivery`, { ...P, form: form({ data: JSON.stringify(body) },
+          { files: [[imgBlob(`paquete1_${s.img}.png`), 'paquete1.png'], [imgBlob(`paquete2_${s.img}.png`), 'paquete2.png']] }) })
+      : await post(`${API.trips}/trips`, { ...P, body });
     tripId = t.id;
-    if (s.delivery) await post(`${API.trips}/trips/${tripId}/package-photos`, { ...P, form: form({}, { files: [[pngBlob(), 'paquete1.png'], [pngBlob(), 'paquete2.png']] }) });
 
     if (s.cancel === 'pending') {
       await put(`${API.trips}/trips/${tripId}/cancel`, { ...P, body: { reason: 'Ya no necesito el viaje' } });
@@ -374,6 +511,16 @@ async function runTrip(s) {
       await put(`${API.trips}/trips/${tripId}/accept`, D);
     }
 
+    // Programado aceptado para manana: queda asi (no cuenta como viaje activo).
+    if (s.scheduledHour) {
+      const act = await get(`${API.trips}/trips/active`, D).catch(() => null);
+      if (act?.id === tripId) fail('Programado', `${label} cuenta como activo`, 'un programado futuro no deberia bloquear al conductor');
+      const mine = await get(`${API.trips}/trips/scheduled`, D).catch(() => []);
+      if (!(mine ?? []).some(x => x.id === tripId)) fail('Programado', `${label} no aparece en /trips/scheduled`, 'el conductor no lo ve');
+      ok('Programado', label, `aceptado para ${body.scheduledAt} (hora de Peru)`);
+      tripsLog.push({ ...s, tripId, fare, final: 'programado' }); return;
+    }
+
     if (s.cancel === 'accepted') {
       await pingRoute(d, tripId, d.at, from, 3).catch(() => {});
       await put(`${API.trips}/trips/${tripId}/arrived`, D).catch(() => {});
@@ -390,7 +537,10 @@ async function runTrip(s) {
       const act = await get(`${API.trips}/trips/active`, P).catch(() => null);
       if (!act?.driverArrivedAt) fail('Llegada', `${label} driverArrivedAt`, 'el pasajero no ve la llegada');
     }
-    if (s.delivery) await post(`${API.trips}/trips/${tripId}/pickup-verification`, { ...D, form: form({ observation: 'Paquete recibido sellado' }, { main: [[pngBlob(), 'recojo.png']], secondary: [[pngBlob(), 'recojo2.png']] }) });
+    // Envios: los avisos "recogimos tu paquete" y "entregado" (push + correo)
+    // le llegan al remitente. Mientras dura el envio tiene el correo real.
+    if (s.delivery) setEmail(p.userId, REAL_EMAIL);
+    if (s.delivery) await post(`${API.trips}/trips/${tripId}/pickup-verification`,{ ...D, form: form({ observation: 'Paquete recibido sellado' }, { main: [[imgBlob(`recojo_${s.img}.png`), 'recojo.png']], secondary: [[imgBlob(`recojo2_${s.img}.png`), 'recojo2.png']] }) });
 
     let coupon = null;
     if (s.coupon) {
@@ -426,8 +576,10 @@ async function runTrip(s) {
       if (sinConfirmar) fail('Envio', `${label} se completo sin confirmar entrega`, 'deberia rechazarse');
       // Confirmacion en destino: foto + quien recibio
       const rec = s.recipient ?? 'Recepcion del destino';
-      await post(`${API.trips}/trips/${tripId}/delivery-confirmation`, { ...D, form: form({ receivedBy: rec }, { photo: [[pngBlob(), 'entrega.png']] }) });
-      ok('Envio', `${label} entrega confirmada`, `recibio: ${rec}`);
+      await post(`${API.trips}/trips/${tripId}/delivery-confirmation`, { ...D, form: form({ receivedBy: rec }, { photo: [[imgBlob(`entrega_${s.img}.png`), 'entrega.png']] }) });
+      ok('Envio', `${label} entrega confirmada`, `recibio: ${rec} · correos "recogido" y "entregado" a ${REAL_EMAIL}`);
+      await sleep(4000); // el aviso se envia en segundo plano
+      setEmail(p.userId, p.email);
       // Las fotos solo las ven pasajero, conductor del viaje o admin
       const otro = drivers.find(x => x.status === 'approved' && x.key !== s.d);
       const visto = await get(`${API.trips}/trips/${tripId}/photos`, { token: otro.token }).then(() => true).catch(e => e.status !== 403);
@@ -506,6 +658,10 @@ const TRIPS_FINAL = [
   // estados vivos para la demo
   { p: 'P2', d: 'D1', from: 'plaza', to: 'aeropuerto', method: 'yape', mode: R, scenario: 'EN CURSO para mapa', leaveInProgress: true },
   { p: 'P4', d: 'D2', from: 'hospital', to: 'pocollay', method: 'cash', mode: R, scenario: 'PENDIENTE buscando conductor', leavePending: true },
+  // programados aceptados para manana (no bloquean al conductor ni al pasajero)
+  { p: 'P1', d: 'D3', from: 'plaza', to: 'aeropuerto', method: 'cash', mode: R, scenario: 'PROGRAMADO viaje manana 10:00', scheduledHour: 10 },
+  { p: 'P3', d: 'D2', from: 'hospital', to: 'terminal', method: 'yape', mode: 'driverAccept', scenario: 'PROGRAMADO envio manana 15:00', scheduledHour: 15,
+    delivery: 'Caja con repuestos de celular', recipient: 'Jorge Mamani', fragile: true },
 ];
 
 async function faseCanjes() {
@@ -648,6 +804,8 @@ async function faseAdminFinal(raffles) {
       ok('Pagos recibidos', `${d.key} ve ${r.total} pago(s)`, `S/ ${r.totalAmount}`);
       const v = await get(`${API.drivers}/drivers/vehicles/me`, { token: d.token });
       if (v?.isActive !== true) fail('Vehiculo', `${d.key} isActive`, JSON.stringify(v).slice(0, 120));
+      const fotos = await get(`${API.drivers}/drivers/vehicles/${v.id}/photos`, { token: d.token });
+      if ((fotos ?? []).length !== 3 || !v.photoUrl) fail('Vehiculo', `${d.key} 3 fotos`, JSON.stringify(fotos).slice(0, 160));
     } catch (e) { fail('Pagos recibidos', d.key, e); }
   }
   // hora de cancelacion guardada
@@ -687,9 +845,206 @@ async function faseAdminFinal(raffles) {
   }
 }
 
+// ------------------------------------------------------------------ estados del conductor
+async function faseEstadosConductor() {
+  console.log('\n== Estados del conductor: suspension, revision, rechazo');
+  const A = { token: adminToken };
+  // Miguel (D2): suspendido con fecha -> pide revision -> se mantiene -> pide de nuevo -> reactivado
+  const m = byKey.D2;
+  if (m.driverId && m.token) {
+    try {
+      await put(`${API.drivers}/drivers/go-offline`, { token: m.token }).catch(() => {});
+      await post(`${API.drivers}/drivers/me/presence/checkout`, { token: m.token }).catch(() => {});
+      const until = addDays(peruToday(), 3);
+      const s = await post(`${API.drivers}/drivers/admin/${m.driverId}/suspend`, { ...A, body: {
+        reason: 'Queja de un pasajero por trato descortés; se investiga el caso.', until } });
+      ok('Estado conductor', `D2 suspendido hasta ${until}`, `estado ${s?.status}`);
+      await post(`${API.drivers}/drivers/me/review-request`, { token: m.token, body: { message: 'Fue un malentendido con el pasajero. Tengo el audio del viaje como prueba.' } });
+      ok('Estado conductor', 'D2 solicita revision');
+      await post(`${API.drivers}/drivers/admin/${m.driverId}/review-request/keep`, { ...A, body: { reason: 'Se mantiene la suspensión hasta revisar el audio del viaje.' } });
+      ok('Estado conductor', 'admin mantiene la suspension de D2');
+      await post(`${API.drivers}/drivers/me/review-request`, { token: m.token, body: { message: 'Envié el audio al correo de soporte, por favor revisen mi caso.' } });
+      ok('Estado conductor', 'D2 solicita revision de nuevo');
+      const r = await post(`${API.drivers}/drivers/admin/${m.driverId}/reactivate`, { ...A, body: { reason: 'Se revisó el audio: no hubo falta. Se levanta la suspensión.' } });
+      if (r?.status === 3) ok('Estado conductor', 'admin reactiva a D2', 'queda aprobado');
+      else fail('Estado conductor', 'reactivar D2', `quedo en estado ${r?.status}`);
+      await connectDriver(m, '0.95');
+      ok('Conexion', 'D2 vuelve a conectarse (selfie + en linea)');
+      const tl = await get(`${API.drivers}/drivers/admin/${m.driverId}/timeline`, A);
+      ok('Estado conductor', 'linea de tiempo de D2', (tl ?? []).map(x => x.action).reverse().join(' > '));
+    } catch (e) { fail('Estado conductor', 'flujo de suspension de D2', e); }
+  }
+  // Hugo (D5): el admin rechaza su registro y el pide revision (queda ABIERTA)
+  const h = byKey.D5;
+  if (h?.driverId && h.token) {
+    try {
+      setEmail(h.userId, REAL_EMAIL);
+      try {
+        const r = await post(`${API.drivers}/drivers/admin/${h.driverId}/reject`, { ...A, body: {
+          reason: 'La licencia de conducir no tiene la categoría requerida (A-IIa) para taxi.' } });
+        ok('Estado conductor', 'admin rechaza el registro de D5', `estado ${r?.status} · correo "registro no aceptado" a ${REAL_EMAIL}`);
+        await sleep(8000); // push + correo en segundo plano
+      } finally { setEmail(h.userId, h.email); }
+      // Puede seguir subiendo documentos estando rechazado
+      await post(`${API.drivers}/drivers/documents`, { token: h.token, form: form({ docType: 'license', expiresAt: inOneYear() }, { file: [[imgBlob(`license_${h.key}.png`), 'license.png']] }) })
+        .then(() => ok('Estado conductor', 'D5 sube su licencia recategorizada'))
+        .catch(e => fail('Estado conductor', 'D5 sube licencia', e));
+      await post(`${API.drivers}/drivers/me/review-request`, { token: h.token, body: {
+        message: 'Ya tramité la recategorización de mi licencia a A-IIa y subí la nueva licencia. Pido que revisen mi registro.' } });
+      const me = await get(`${API.drivers}/drivers/me`, { token: h.token });
+      if (me?.openReviewRequest) ok('Estado conductor', 'D5 envia solicitud de revision', 'queda ABIERTA para el admin');
+      else fail('Estado conductor', 'D5 solicitud abierta', JSON.stringify(me).slice(0, 160));
+    } catch (e) { fail('Estado conductor', 'rechazo de D5', e); }
+  }
+}
+
+// ------------------------------------------------------------------ feriado + libro de reclamaciones
+async function faseLibro() {
+  console.log('\n== Feriado extra y Libro de Reclamaciones');
+  const A = { token: adminToken };
+  // Feriado extra en un dia habil cercano (la fecha limite de las hojas lo salta)
+  try {
+    let date = addDays(peruToday(), 6);
+    const taken = new Set();
+    for (const y of new Set([date.slice(0, 4), addDays(date, 14).slice(0, 4)]))
+      for (const x of await get(`${API.landing}/landing/admin/holidays/year/${y}`, A)) taken.add(x.date);
+    while (isWeekend(date) || taken.has(date)) date = addDays(date, 1);
+    await post(`${API.landing}/landing/admin/holidays`, { ...A, body: { name: 'Feriado de prueba (decreto)', kind: 'extra', date } })
+      .then(() => ok('Feriado', `feriado extra "Feriado de prueba (decreto)"`, date))
+      .catch(e => e.status === 409 ? ok('Feriado', 'feriado extra ya existia', date) : fail('Feriado', 'feriado extra', e));
+  } catch (e) { fail('Feriado', 'feriado extra', e); }
+
+  // Busca la hoja en el admin (los posibles bots no salen en la lista por defecto)
+  async function hoja(code) {
+    for (const st of ['', '&status=posible_bot', '&status=descartada']) {
+      const r = await get(`${API.landing}/landing/admin/complaints?page=1&pageSize=50&search=${encodeURIComponent(code)}${st}`, A);
+      const it = (r?.items ?? []).find(x => x.code === code);
+      if (it) return it;
+    }
+    throw new Error(`hoja ${code} no aparece en el admin`);
+  }
+  const base = x => ({ consumerAddress: 'Av. Bolognesi 850, Tacna', docType: 'DNI', goodType: 'servicio',
+    goodDescription: 'Servicio de taxi Bugie', ...x, emailConfirm: x.email });
+  const registrar = (body, token) => post(`${API.landing}/landing/complaints`, { token, body: base(body) });
+
+  // 1) Reclamo PENDIENTE de Carlos, enlazado a su viaje por codigo corto
+  const p2 = byKey.P2;
+  const viaje = tripsLog.find(t => t.p === 'P2' && t.final === 'completado' && t.tripId);
+  try {
+    const c = await registrar({ consumerName: p2.name, docNumber: dniOf(p2.phone), phone: p2.phone, email: p2.email,
+      complaintType: 'reclamo', claimedAmount: 6.5, tripCode: viaje?.tripId.slice(0, 8), reference: 'Cobro mayor a la tarifa acordada',
+      detail: 'Acordé la tarifa con el conductor, pero al terminar el viaje la app me cobró más de lo pactado.',
+      request: 'Que me devuelvan la diferencia cobrada.' }, p2.token);
+    const it = await hoja(c.code);
+    ok('Libro', `reclamo pendiente ${c.code}`, `enlazado al viaje ${it.tripId ? 'OK' : 'NO'} · vence ${c.dueDate}`);
+    if (viaje && it.tripId !== viaje.tripId) fail('Libro', 'reclamo enlazado al viaje', `tripId ${it.tripId}`);
+  } catch (e) { fail('Libro', 'reclamo pendiente con viaje', e); }
+
+  // 2) Queja PENDIENTE de una persona sin cuenta
+  try {
+    const c = await registrar({ consumerName: 'Patricia Vargas Lazo', docNumber: '45879632', phone: '952456789', email: 'patricia.vargas@bugie.test',
+      complaintType: 'queja', goodDescription: 'Atención del centro de soporte', reference: 'Objeto olvidado en un viaje',
+      detail: 'Llamé dos veces a soporte por un objeto olvidado en el auto y nadie me devolvió la llamada.',
+      request: 'Que mejoren la atención telefónica y me ayuden a recuperar mi objeto.' });
+    ok('Libro', `queja pendiente ${c.code}`, `vence ${c.dueDate}`);
+  } catch (e) { fail('Libro', 'queja pendiente', e); }
+
+  // 3) Queja RESPONDIDA (correo real: confirmacion + respuesta)
+  try {
+    const c = await registrar({ consumerName: 'Usuario de prueba Bugie', docNumber: '45123456', phone: '952123456', email: REAL_EMAIL,
+      complaintType: 'queja', reference: 'Demora en el recojo',
+      detail: 'El conductor llegó 15 minutos tarde al punto de recojo y no avisó por la app.',
+      request: 'Que los conductores avisen cuando se van a demorar.' });
+    const it = await hoja(c.code);
+    await post(`${API.landing}/landing/admin/complaints/${it.id}/reply`, { ...A, body: { response:
+      'Hola, lamentamos la demora. Hablamos con el conductor y reforzamos el aviso de llegada en la app. Te abonamos S/ 5.00 para tu próximo viaje.' } });
+    ok('Libro', `queja respondida ${c.code}`, `correos de confirmacion y respuesta a ${REAL_EMAIL}`);
+  } catch (e) { fail('Libro', 'queja respondida', e); }
+
+  // 4) Hoja ANULADA con motivo
+  try {
+    const c = await registrar({ consumerName: 'Martin Quispe Huaman', docNumber: '45667788', phone: '952778899', email: 'martin.quispe@bugie.test',
+      complaintType: 'queja', reference: 'Conductor no llegó',
+      detail: 'Solicité un taxi y el conductor nunca llegó al punto de recojo.', request: 'Que revisen lo ocurrido.' });
+    const it = await hoja(c.code);
+    await post(`${API.landing}/landing/admin/complaints/${it.id}/void`, { ...A, body: { reason: 'Hoja duplicada: el mismo caso se registró dos veces y se atiende en la otra hoja.' } });
+    ok('Libro', `hoja anulada ${c.code}`, 'con motivo');
+  } catch (e) { fail('Libro', 'hoja anulada', e); }
+
+  // 5) Posible bot (campo trampa lleno) DESCARTADO con motivo
+  try {
+    const c = await registrar({ consumerName: 'Promo Ganadora', docNumber: '41111111', phone: '999111222', email: 'promo.ganadora@bugie.test',
+      complaintType: 'queja', reference: 'Oferta', detail: 'Gana dinero desde casa, visita nuestro sitio y registrate hoy.',
+      request: 'Visita nuestro sitio.', website: 'http://spam.example' });
+    const it = await hoja(c.code);
+    await post(`${API.landing}/landing/admin/complaints/${it.id}/discard`, { ...A, body: { reason: 'Envío automático detectado por el campo trampa (publicidad).' } });
+    ok('Libro', `posible bot descartado ${c.code}`, 'con motivo');
+  } catch (e) { fail('Libro', 'bot descartado', e); }
+
+  // 6) Posible bot SIN RESOLVER
+  try {
+    const c = await registrar({ consumerName: 'Juan Perez', docNumber: '42222222', phone: '999333444', email: 'jperez.seo@bugie.test',
+      complaintType: 'reclamo', claimedAmount: 1, reference: 'SEO', detail: 'Ofrecemos posicionamiento SEO para su web a precio especial.',
+      request: 'Contáctenos.', website: 'https://seo-rapido.example' });
+    const it = await hoja(c.code);
+    ok('Libro', `posible bot sin resolver ${c.code}`, it.isBot ? 'marcado como posible bot' : 'NO quedo como bot');
+  } catch (e) { fail('Libro', 'bot sin resolver', e); }
+}
+
+// ------------------------------------------------------------------ cuenta
+async function faseCuentas() {
+  console.log('\n== Cuenta: contrasena y cuenta eliminada');
+  // Maria (P3) cambia su contrasena y luego vuelve a 10203040 (todos deben quedar con 10203040)
+  const p3 = byKey.P3, OTRA = 'Tacna2026Bugie';
+  try {
+    await post(`${API.auth}/auth/me/change-password`, { token: p3.token, body: { currentPassword: PASSWORD, newPassword: OTRA } });
+    try {
+      const t2 = (await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: OTRA } })).token;
+      ok('Cuenta', 'P3 cambia su contrasena', 'inicia sesion con la nueva');
+      await post(`${API.auth}/auth/me/change-password`, { token: t2, body: { currentPassword: OTRA, newPassword: PASSWORD } });
+    } finally {
+      // si algo fallo, igual se intenta dejar 10203040
+      await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: PASSWORD } }).catch(async () => {
+        const t = (await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: OTRA } })).token;
+        await post(`${API.auth}/auth/me/change-password`, { token: t, body: { currentPassword: OTRA, newPassword: PASSWORD } });
+      });
+    }
+    p3.token = await login(p3.email);
+    ok('Cuenta', 'P3 vuelve a la contrasena 10203040');
+  } catch (e) { fail('Cuenta', 'cambio de contrasena de P3', e); }
+  // Sofia (P8) elimino su cuenta: no puede iniciar sesion y el admin la ve eliminada (no se restaura)
+  const p8 = byKey.P8;
+  try {
+    const bloqueada = await login(p8.email).then(() => false).catch(e => e.status === 401);
+    const u = await get(`${API.auth}/auth/admin/users/${p8.userId}`, { token: adminToken });
+    if (bloqueada && u?.deletedAt) ok('Cuenta', 'P8 sigue eliminada', `desde ${u.deletedAt} · motivo: ${u.deletedReason ?? '-'}`);
+    else fail('Cuenta', 'P8 eliminada', `login bloqueado=${bloqueada} deletedAt=${u?.deletedAt}`);
+  } catch (e) { fail('Cuenta', 'verificar P8', e); }
+}
+
+// ------------------------------------------------------------------ bandeja de notificaciones
+// Los push de los flujos ya quedan guardados en la bandeja. Aqui se marcan como
+// leidos los mas antiguos (~la mitad) de algunos usuarios, para ver leidos y no leidos.
+async function faseBandeja() {
+  console.log('\n== Bandeja de notificaciones');
+  await sleep(4000); // los ultimos avisos se guardan en segundo plano
+  for (const k of ['P1', 'P2', 'P3', 'D1', 'D3']) {
+    const u = byKey[k];
+    try {
+      const r = await get(`${API.trips}/trips/notifications/me?page=1&pageSize=100`, { token: u.token });
+      const items = r?.items ?? [];
+      const viejos = items.slice(Math.ceil(items.length / 2)); // vienen del mas reciente al mas antiguo
+      for (const n of viejos) await post(`${API.trips}/trips/notifications/${n.id}/read`, { token: u.token });
+      const c = await get(`${API.trips}/trips/notifications/me/unread-count`, { token: u.token });
+      ok('Bandeja', `${k} tiene ${r?.total ?? items.length} avisos`, `${viejos.length} marcados leidos, ${c?.unread ?? '?'} sin leer`);
+    } catch (e) { fail('Bandeja', k, e); }
+  }
+}
+
 // ================================================================== main
 const t0 = Date.now();
 try {
+  generarImagenes();
   await faseAdmin();
   const raffles = await faseRewardsConfig();
   await fasePasajeros();
@@ -701,8 +1056,12 @@ try {
   for (const s of TRIPS_B) await runTrip(s);
   await sleep(8000);
   await faseAdminFinal(raffles);
+  await faseEstadosConductor();
+  await faseLibro();
+  await faseCuentas();
   console.log('\n== Estados finales para la demo');
   for (const s of TRIPS_FINAL) await runTrip(s);
+  await faseBandeja();
 } catch (e) { fail('General', 'error no controlado', e); }
 
 const out = join(HERE, 'logs'); mkdirSync(out, { recursive: true });

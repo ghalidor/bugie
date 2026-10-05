@@ -20,6 +20,18 @@ public class RewardLevel
     public int     MonthlyFreeTrips     { get; set; }
     public int     WeeklyRaffleTickets  { get; set; }
     public int     MonthlyRaffleTickets { get; set; }
+
+    /// <summary>
+    /// Solo pasajero: cuantos cupones de DiscountPercentage puede reclamar al mes.
+    /// Lo no reclamado no se acumula.
+    /// </summary>
+    public int     MonthlyDiscountCoupons { get; set; }
+
+    /// <summary>
+    /// Solo pasajero: tope en soles de cada viaje gratis del mes
+    /// (MonthlyFreeTrips). Null = sin viajes gratis.
+    /// </summary>
+    public decimal? FreeTripMaxAmount   { get; set; }
     public bool    IsActive             { get; set; } = true;
     public DateTime CreatedAt           { get; set; }
     public DateTime UpdatedAt           { get; set; }

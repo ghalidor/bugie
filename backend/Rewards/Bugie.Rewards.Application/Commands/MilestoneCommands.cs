@@ -30,17 +30,20 @@ public class EvaluateMilestonesHandler
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IMediator                 _mediator;
 
     public EvaluateMilestonesHandler(
         IMilestoneRepository milestones,
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _milestones = milestones;
         _profiles   = profiles;
         _levels     = levels;
         _settings   = settings;
+        _mediator   = mediator;
     }
 
     public async Task<List<AwardedMilestone>> Handle(
@@ -133,6 +136,7 @@ public class EvaluateMilestonesHandler
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
 
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -146,6 +150,7 @@ public class EvaluateMilestonesHandler
             expiryDate:    profile.PointsExpiryDate,
             notes:         nota);
 
-        await _profiles.ApplyEarnAsync(profile, movement, ct);
+        if (await _profiles.ApplyEarnAsync(profile, movement, ct))
+            await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
     }
 }

@@ -1,108 +1,89 @@
 import { useEffect, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
-import { API, apiFetch, ApiError } from '../../state/api';
-import { getUser, saveSession, getToken } from '../../state/session';
-
-interface UserProfile {
-  id: string; fullName: string; email: string;
-  phone: string; role: string; isActive: boolean; createdAt: string;
-}
+import { Link } from 'react-router-dom';
+import EmergencyContactForm from '../../components/EmergencyContactForm';
+import ChangePasswordCard from '../../components/ChangePasswordCard';
+import { identityInfoItems } from '../../components/IdentityFields';
+import { initials } from '../../components/Sidebar';
+import { API, apiFetch } from '../../state/api';
+import { MeProfile } from '../../state/identity';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
+import { InfoList, Notice, Page, PageLoading, SectionCard } from '../../components/ui';
 
 export default function PassengerProfile() {
-  const session = getUser();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { supportEmail } = usePlatformConfig();
+  const [profile, setProfile] = useState<MeProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [form, setForm] = useState({ fullName: '', phone: '' });
 
   useEffect(() => {
-    apiFetch<UserProfile>(`${API.auth}/auth/me`)
-      .then(d => { setProfile(d); setForm({ fullName: d.fullName, phone: d.phone }); })
+    apiFetch<MeProfile>(`${API.auth}/auth/me`)
+      .then(setProfile)
       .catch(() => setError('No se pudo cargar el perfil.'))
       .finally(() => setLoading(false));
   }, []);
 
-  const set = (f: keyof typeof form) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => setForm(p => ({ ...p, [f]: e.target.value }));
+  if (loading) return <PageLoading />;
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true); setError(null); setSuccess(false);
-    try {
-      // Actualizar sesión local
-      const token = getToken();
-      if (session && token) {
-        saveSession(token, { ...session, fullName: form.fullName });
-      }
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
+  const since = profile
+    ? new Date(profile.createdAt).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
 
   return (
-    <>
-      <PageHeader title="Mi perfil" subtitle="Datos personales de tu cuenta Bugie." icon="fa-solid fa-user" />
-      {error   && <div className="alert alert-danger  small mb-3"><i className="fa-solid fa-circle-exclamation me-2" />{error}</div>}
-      {success && <div className="alert alert-success small mb-3"><i className="fa-solid fa-check me-2" />Nombre actualizado correctamente.</div>}
+    <Page title="Mi perfil" subtitle="Tus datos, tu contacto de emergencia y tu seguridad." icon="fa-user">
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      <div className="bugie-card mb-3">
-        <div className="bugie-card-header">Información personal</div>
-        <div className="bugie-card-body">
-          <form onSubmit={save} className="row g-3">
-            <div className="col-md-6">
-              <label className="form-label">Nombre completo</label>
-              <input className="form-control" value={form.fullName} onChange={set('fullName')} required />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label">Teléfono</label>
-              <input className="form-control" value={form.phone} onChange={set('phone')} placeholder="+51 999 999 999" />
-            </div>
-            <div className="col-12">
-              <label className="form-label">Correo electrónico</label>
-              <input className="form-control" value={profile?.email ?? ''} disabled />
-              <div className="form-text">El correo no se puede modificar.</div>
-            </div>
-            <div className="col-12">
-              <label className="form-label">Miembro desde</label>
-              <input
-                className="form-control"
-                value={profile ? new Date(profile.createdAt).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
-                disabled
-              />
-            </div>
-            <div className="col-12">
-              <button className="btn btn-bugie text-white" type="submit" disabled={saving}>
-                {saving
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                  : <><i className="fa-solid fa-floppy-disk me-2" />Guardar cambios</>
-                }
-              </button>
-            </div>
-          </form>
+      <SectionCard>
+        <div className="bx-media-row">
+          <span className="bx-avatar" style={{ width: 64, height: 64, fontSize: '1.3rem' }} aria-hidden="true">
+            {initials(profile?.fullName)}
+          </span>
+          <div className="grow">
+            <div className="fw-bold fs-5 text-break">{profile?.fullName}</div>
+            <div className="bx-muted small text-break">{profile?.email}</div>
+            {since && <div className="bx-muted small">Pasajero desde el {since}</div>}
+          </div>
         </div>
-      </div>
+      </SectionCard>
 
-      <div className="bugie-card">
-        <div className="bugie-card-header">Seguridad</div>
-        <div className="bugie-card-body">
-          <a className="bugie-list-item text-decoration-none" href="/app/pasajero/sos">
-            <div className="bugie-mini-icon"><i className="fa-solid fa-shield-halved" /></div>
-            <div className="flex-grow-1">
-              <div className="fw-semibold">Configurar SOS</div>
-              <div className="small bugie-muted">Botón de emergencia y contactos de confianza</div>
-            </div>
-            <i className="fa-solid fa-chevron-right bugie-muted" />
-          </a>
+      <SectionCard title="Datos personales" icon="fa-id-card" description="Así te verán los conductores.">
+        <div className="bx-stack">
+          <InfoList items={[
+            ...identityInfoItems(profile),
+            { label: 'Teléfono', value: profile?.phone || '—' },
+            { label: 'Correo electrónico', value: profile?.email || '—' },
+            { label: 'Verificación', value: profile?.isVerified ? 'Cuenta verificada' : 'Pendiente de verificación' },
+          ]} />
+          <p className="small bx-muted mb-0">
+            <i className="fa-solid fa-circle-info me-1" aria-hidden="true" />
+            Para corregirlos contacta a soporte{supportEmail ? ` (${supportEmail})` : ''}.
+          </p>
         </div>
-      </div>
-    </>
+      </SectionCard>
+
+      <EmergencyContactForm />
+
+      <ChangePasswordCard />
+
+      <SectionCard title="Accesos rápidos" icon="fa-bolt" flush>
+        <div className="bx-list">
+          <Link className="bx-list-item" to="/app/pasajero/verificacion">
+            <span className="bx-list-icon" aria-hidden="true"><i className="fa-solid fa-id-card" /></span>
+            <span className="bx-list-text">
+              <span className="bx-list-title">Verificación de identidad</span>
+              <span className="bx-list-sub d-block">Sube o revisa tu DNI y tu foto de perfil</span>
+            </span>
+            <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+          </Link>
+          <Link className="bx-list-item" to="/app/pasajero/sos">
+            <span className="bx-list-icon bx-tone-bad" aria-hidden="true"><i className="fa-solid fa-shield-halved" /></span>
+            <span className="bx-list-text">
+              <span className="bx-list-title">SOS / Emergencia</span>
+              <span className="bx-list-sub d-block">Cómo funciona el botón de emergencia en ruta</span>
+            </span>
+            <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+          </Link>
+        </div>
+      </SectionCard>
+    </Page>
   );
 }

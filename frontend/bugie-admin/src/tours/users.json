@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='users-filters']",
+      "title": "Todas las cuentas en un solo lugar",
+      "text": "Filtra por tipo de cuenta o busca por nombre o correo."
+    },
+    {
+      "selector": "[data-tour='users-list']",
+      "title": "Acciones de cada cuenta",
+      "text": "Usa el menú «⋯» de cada fila para ver la ficha del pasajero o del conductor, desactivar una cuenta o, si eres super administrador, asignar el rol de un admin."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Nuevo admin",
+      "text": "Si eres super administrador, con «Nuevo admin» creas la cuenta de otra persona del equipo y eliges su rol (qué secciones puede ver)."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

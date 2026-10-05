@@ -1,23 +1,20 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, API, ApiError } from '../../state/api';
+import { apiFetch, ApiError } from '../../state/api';
+import { LOGIN_AT_KEY } from '../../state/adminNotify';
+import { resetNavSections } from '../../components/Sidebar';
+import { Field, storage } from '../../components/ui';
+import { takeLogoutMessage } from '../../state/session';
 
 const AUTH_API = `${import.meta.env.VITE_API_AUTH}/auth/login`;
-
-
-interface AuthResponse {
-  token:    string;
-  role:     string;
-  fullName: string;
-  userId:   string;
-}
 
 export default function Login() {
   const navigate = useNavigate();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
+  // Si la sesion se cerro desde el backend (sesiones cerradas, cuenta desactivada...), se muestra el motivo.
+  const [error,    setError]    = useState<string | null>(() => takeLogoutMessage());
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,17 +42,25 @@ export default function Login() {
         role:     data.role,
       }));
 
+      // Menu: todas las secciones plegadas (se abre sola la de la pagina actual).
+      resetNavSections();
+      // Centro de avisos: marca el inicio de sesion para los recordatorios
+      // configurados "al iniciar sesion".
+      storage.set(LOGIN_AT_KEY, String(Date.now()));
+
       navigate('/admin/dashboard', { replace: true });
 
     } catch (err) {
       // Antes cualquier error decia "no se pudo conectar", incluso con la
       // contrasena mal. Ahora se distingue cada caso.
       if (err instanceof ApiError && err.status === 401) {
-        setError('Correo o contraseña incorrectos.');
+        // Cuenta desactivada o eliminada: el backend explica el motivo.
+        const generic = !err.message || err.message === 'Credenciales inválidas.';
+        setError(generic ? 'Correo o contraseña incorrectos.' : err.message);
       } else if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('No se pudo conectar con el servidor. ¿Está corriendo Auth.Api?');
+        setError('No pudimos conectar con Bugie. Revisa tu conexión a internet y vuelve a intentarlo en unos minutos.');
       }
     } finally {
       setLoading(false);
@@ -83,9 +88,8 @@ export default function Login() {
         </div>
       )}
 
-      <form onSubmit={onSubmit} className="d-grid gap-3">
-        <div>
-          <label className="form-label">Correo</label>
+      <form onSubmit={onSubmit} className="bx-form">
+        <Field label="Correo">
           <input
             className="form-control"
             type="email"
@@ -95,9 +99,8 @@ export default function Login() {
             required
             autoComplete="email"
           />
-        </div>
-        <div>
-          <label className="form-label">Contraseña</label>
+        </Field>
+        <Field label="Contraseña">
           <input
             className="form-control"
             type="password"
@@ -107,7 +110,7 @@ export default function Login() {
             required
             autoComplete="current-password"
           />
-        </div>
+        </Field>
         <button className="btn btn-bugie text-white w-100" type="submit" disabled={loading}>
           {loading
             ? <><span className="spinner-border spinner-border-sm me-2" />Ingresando…</>

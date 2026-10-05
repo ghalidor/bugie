@@ -54,4 +54,28 @@ public class DriversClient : IDriversClient
             return false;
         }
     }
+
+    public async Task<bool> NotifyAccountDeletedAsync(Guid userId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "api/drivers/internal/account-deleted");
+            req.Headers.Add("X-Internal-Token", _opt.InternalToken);
+            req.Content = JsonContent.Create(new { userId });
+
+            using var res = await _http.SendAsync(req, ct);
+            if(!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct);
+                _log.LogError("Drivers /internal/account-deleted devolvió {Status}: {Body}", res.StatusCode, body);
+                return false;
+            }
+            return true;
+        }
+        catch(Exception ex)
+        {
+            _log.LogError(ex, "Error llamando a Drivers /internal/account-deleted para userId {UserId}", userId);
+            return false;
+        }
+    }
 }

@@ -16,4 +16,11 @@ public interface ILandingClient
     /// el fallback que se le pase (típicamente lo del appsettings.json).
     /// </summary>
     Task<int> GetMaxRadiusMetersAsync(int fallbackMeters, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lee el valor de un setting por su key (ej. `deviation_threshold_m`).
+    /// Usa un caché corto en memoria (30 s) porque se consulta en cada GPS.
+    /// Devuelve null si no existe o falla la lectura.
+    /// </summary>
+    Task<string?> GetSettingAsync(string key, CancellationToken ct = default);
 }

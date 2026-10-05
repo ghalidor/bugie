@@ -2,11 +2,14 @@ using System.Linq;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
 using Bugie.Drivers.Application.Commands;
 using Bugie.Drivers.Application.DTOs;
 using Bugie.Drivers.Application.Queries;
 using Bugie.Drivers.Domain.Enums;
+using Bugie.Drivers.Domain.External;
+using Bugie.Drivers.Api.Security;
 
 namespace Bugie.Drivers.Api.Controllers;
 
@@ -16,9 +19,26 @@ namespace Bugie.Drivers.Api.Controllers;
 public class DriversController : ControllerBase
 {
     private readonly IMediator _mediator;
-    public DriversController(IMediator mediator) => _mediator = mediator;
+    private readonly IAdminEventsPublisher _adminEvents;
+    private readonly ITripsClient _trips;
+    private readonly IConfiguration _cfg;
+    public DriversController(IMediator mediator, IAdminEventsPublisher adminEvents,
+        ITripsClient trips, IConfiguration cfg)
+    {
+        _mediator = mediator;
+        _adminEvents = adminEvents;
+        _trips = trips;
+        _cfg = cfg;
+    }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    // Llamada de otro modulo (Trips) con X-Internal-Token valido: ese modulo
+    // ya hizo su propia autorizacion del usuario.
+    private bool IsInternalCall =>
+        InternalTokenCheck.Matches(Request.Headers["X-Internal-Token"].ToString(), _cfg["InternalToken"]);
+
+    private bool IsAdmin => User.IsInRole("admin");
 
     // ── Conductor ───────────────────────────────────────────────────────────
 
@@ -30,13 +50,34 @@ public class DriversController : ControllerBase
     public async Task<IActionResult> Me(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetMyDriverProfileQuery(CurrentUserId), ct));
 
+    // Detalle completo (documentos, datos del usuario): solo admin, el propio
+    // conductor o un modulo interno. Para cualquier otro usuario, 403.
     [HttpGet("{id:guid}/detail")]
-    public async Task<IActionResult> Detail(Guid id, CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetDriverDetailQuery(id), ct));
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification, SkipForNonAdmins = true)]
+    [AllowAnonymous] // se valida abajo: JWT o X-Internal-Token
+    public async Task<IActionResult> Detail(Guid id, CancellationToken ct)
+    {
+        if(!IsInternalCall && User.Identity?.IsAuthenticated != true) return Unauthorized();
+        var detail = await _mediator.Send(new GetDriverDetailQuery(id), ct);
+        if(IsInternalCall || IsAdmin) return Ok(detail);
+        if(detail is null) return Forbid();
+        return detail.Driver.UserId == CurrentUserId ? Ok(detail) : Forbid();
+    }
 
     [HttpPut("submit-review")]
-    public async Task<IActionResult> SubmitReview(CancellationToken ct) =>
-        Ok(await _mediator.Send(new SubmitForReviewCommand(CurrentUserId), ct));
+    public async Task<IActionResult> SubmitReview(CancellationToken ct)
+    {
+        DriverDto dto;
+        try { dto = await _mediator.Send(new SubmitForReviewCommand(CurrentUserId), ct); }
+        catch(KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch(InvalidOperationException ex) { return Conflict(new { error = ex.Message }); }
+        // Aviso en vivo al panel admin (Centro de avisos). Fire-and-forget.
+        _adminEvents.Publish("driver_review",
+            "Conductor por revisar",
+            "Un conductor envió sus documentos a revisión.",
+            "/admin/verificacion", "view:verification");
+        return Ok(dto);
+    }
 
     [HttpPut("go-online")]
     public async Task<IActionResult> GoOnline([FromBody] GoOnlineRequest req, CancellationToken ct)
@@ -63,7 +104,7 @@ public class DriversController : ControllerBase
             // Cualquier otro error (SQL, columna faltante, etc.) antes era 500 mudo.
             Console.WriteLine($"[GoOnline] ERROR INESPERADO: {ex.GetType().Name}: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
-            return StatusCode(500, new { error = "Error al conectar.", detail = ex.Message });
+            return StatusCode(500, new { error = "Error al conectar. Intenta de nuevo." });
         }
     }
 
@@ -123,13 +164,21 @@ public class DriversController : ControllerBase
     // GET /api/drivers/by-user/{userId}/location
     // Devuelve la última posición conocida del conductor por su userId.
     // Lo usa el pasajero (vía Trips.Api) durante el viaje para ver dónde
-    // está su conductor. No requiere rol admin: cualquier usuario autenticado
-    // puede consultar (el [Authorize] de la clase ya cubre eso).
+    // está su conductor. Solo pueden verla: admin, el propio conductor, un
+    // modulo interno (X-Internal-Token) o el pasajero que tiene AHORA un viaje
+    // activo con ese conductor (se pregunta a Trips). Resto: 403.
     // Si el conductor no tiene posición reportada, devuelve 204 No Content.
     // ─────────────────────────────────────────────────────────────────────────
     [HttpGet("by-user/{userId:guid}/location")]
+    [RequirePermission(Perm.ViewLiveMap, Perm.ViewSosCenter, Perm.ViewTrips, Perm.ViewDrivers, SkipForNonAdmins = true)]
+    [AllowAnonymous] // se valida abajo: JWT o X-Internal-Token
     public async Task<IActionResult> LocationByUserId(Guid userId, CancellationToken ct)
     {
+        if(!IsInternalCall && User.Identity?.IsAuthenticated != true) return Unauthorized();
+        if(!IsInternalCall && !IsAdmin && userId != CurrentUserId
+            && !await _trips.HasActiveTripWithAsync(CurrentUserId, userId, ct))
+            return Forbid();
+
         var driver = await _mediator.Send(new GetMyDriverProfileQuery(userId), ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
 
@@ -169,27 +218,42 @@ public class DriversController : ControllerBase
         Ok(await _mediator.Send(new SwitchActiveVehicleCommand(CurrentUserId, vehicleId), ct));
 
     [HttpGet("bulk-vehicles")]
+    [RequirePermission(Perm.ViewLiveMap, Perm.ViewTrips, Perm.ViewDrivers, SkipForNonAdmins = true)]
     public async Task<IActionResult> BulkVehicles(
         [FromQuery(Name = "ids")] Guid[] ids, CancellationToken ct) =>
         Ok(await _mediator.Send(new GetBulkVehiclesQuery(ids ?? Array.Empty<Guid>()), ct));
 
-    // ── Calificaciones ───────────────────────────────────────────────────────
-
-    [HttpPost("reviews")]
-    public async Task<IActionResult> AddReview([FromBody] AddReviewRequest req, CancellationToken ct)
-    {
-        await _mediator.Send(new AddReviewCommand(
-            req.DriverId, req.PassengerId, req.TripId, req.Rating, req.Comment), ct);
-        return Ok(new { message = "Calificación registrada." });
-    }
-
+    // Conductores online cerca de un punto.
+    //  - Modulo interno (Trips, X-Internal-Token) o admin: respuesta completa.
+    //  - Otro usuario autenticado: solo posiciones redondeadas (~100 m), sin
+    //    ids ni placa.
+    //  - Anonimo: 401.
+    // radiusKm y maxResults se limitan para que no se pueda barrer la ciudad.
     [HttpGet("nearby")]
     [AllowAnonymous]
     public async Task<IActionResult> Nearby(
         [FromQuery] double lat, [FromQuery] double lng,
         [FromQuery] double radiusKm = 5, [FromQuery] int maxResults = 10,
-        CancellationToken ct = default) =>
-        Ok(await _mediator.Send(new GetNearbyDriversQuery(lat, lng, radiusKm, maxResults), ct));
+        CancellationToken ct = default)
+    {
+        var full = IsInternalCall || (User.Identity?.IsAuthenticated == true && IsAdmin);
+        if(!full && User.Identity?.IsAuthenticated != true)
+            return Unauthorized(new { error = "Autenticación requerida." });
+
+        if(double.IsNaN(radiusKm) || radiusKm <= 0) radiusKm = 5;
+        radiusKm = Math.Min(radiusKm, full ? 30 : 10);
+        maxResults = Math.Clamp(maxResults, 1, full ? 50 : 20);
+
+        var list = await _mediator.Send(new GetNearbyDriversQuery(lat, lng, radiusKm, maxResults), ct);
+        if(full) return Ok(list);
+
+        return Ok(list.Select(d => new
+        {
+            lat = Math.Round(d.Lat, 3),
+            lng = Math.Round(d.Lng, 3),
+            distanceKm = Math.Round(d.DistanceKm, 1),
+        }));
+    }
 
     // ── Admin ────────────────────────────────────────────────────────────────
 
@@ -199,6 +263,7 @@ public class DriversController : ControllerBase
     /// </summary>
     [HttpGet("pending")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewVerification, Perm.ViewDrivers)]
     public async Task<IActionResult> Pending(CancellationToken ct)
     {
         var pendingDocs = await _mediator.Send(new GetDriversByStatusQuery(DriverStatus.PendingDocs), ct);
@@ -218,6 +283,7 @@ public class DriversController : ControllerBase
     /// </summary>
     [HttpGet("pending/paged")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewVerification, Perm.ViewDrivers)]
     public async Task<IActionResult> PendingPaged(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
@@ -226,20 +292,41 @@ public class DriversController : ControllerBase
         Ok(await _mediator.Send(
             new GetPendingDriversPagedQuery(page, pageSize, search), ct));
 
+    /// <summary>
+    /// Aprobar conductor. Body opcional: { "reason": "..." }.
+    /// - Documentos completos: aprueba sin más.
+    /// - Incompletos: exige motivo (aprobación por excepción, plazo de 3 días).
+    /// - 409 si tiene faltas (solo puede aprobarse con documentos completos).
+    /// Quién aprobó (id y nombre) sale del token y queda en la auditoría.
+    /// </summary>
+    public record ApproveDriverRequest(string? Reason);
+
     [HttpPut("{id:guid}/approve")]
     [Authorize(Roles = "admin")]
-    public async Task<IActionResult> Approve(Guid id, CancellationToken ct) =>
-        Ok(await _mediator.Send(new ApproveDriverCommand(id), ct));
+    [RequirePermission(Perm.ViewVerification, Perm.ViewDrivers)]
+    [RequirePermission(Perm.ActionApproveDriver)]
+    public async Task<IActionResult> Approve(
+        Guid id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)]
+        ApproveDriverRequest? body,
+        CancellationToken ct)
+    {
+        try
+        {
+            var adminName = User.FindFirstValue("fullName") ?? User.FindFirstValue(ClaimTypes.Email);
+            return Ok(await _mediator.Send(
+                new ApproveDriverCommand(id, body?.Reason, CurrentUserId, adminName), ct));
+        }
+        catch(KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+        catch(ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+        catch(InvalidOperationException ex) { return Conflict(new { error = ex.Message }); }
+    }
 
     [HttpGet("online")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewLiveMap)]
     public async Task<IActionResult> Online(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetOnlineDriversQuery(), ct));
-
-    [HttpGet]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> GetAll(CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetAllDriversQuery(), ct));
 
     /// <summary>
     /// Lista paginada de conductores con filtros opcionales.
@@ -247,18 +334,22 @@ public class DriversController : ControllerBase
     /// - status: 1-6 (DriverStatus). Omitir = todos.
     /// - online: true/false. Omitir = sin filtro.
     /// - search: nombre o email.
+    /// - openReview: true = solo con solicitud de revisión abierta; false = sin ella. Omitir = sin filtro.
     /// </summary>
     [HttpGet("paged")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewDriverPayouts)]
     public async Task<IActionResult> Paged(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] int? status = null,
         [FromQuery] bool? online = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? openReview = null,
+        [FromQuery] bool? deleted = false,
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
-            new GetDriversPagedQuery(page, pageSize, status, online, search), ct));
+            new GetDriversPagedQuery(page, pageSize, status, online, search, openReview, deleted), ct));
 
     /// <summary>
     /// KPIs de conductores. Respeta los mismos filtros que /paged.
@@ -266,11 +357,14 @@ public class DriversController : ControllerBase
     /// </summary>
     [HttpGet("stats")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers)]
     public async Task<IActionResult> Stats(
         [FromQuery] int? status = null,
         [FromQuery] bool? online = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? openReview = null,
+        [FromQuery] bool? deleted = false,
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
-            new GetDriversStatsQuery(status, online, search), ct));
+            new GetDriversStatsQuery(status, online, search, openReview, deleted), ct));
 }

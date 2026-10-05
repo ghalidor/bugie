@@ -1,31 +1,42 @@
-import { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useTheme from '../hooks/useTheme';
 import ThemeToggle from './ThemeToggle';
+import NotificationBell from './NotificationBell';
+import { findNavItem } from './navConfig';
+import { PERMS, usePermissions } from '../state/permissions';
+import { useClickOutside, useLayer } from './ui';
 
 interface Props {
-  onMenuClick?:             () => void;     // toggle móvil (offcanvas)
-  desktopHidden?:           boolean;        // estado del sidebar desktop
-  onToggleDesktopSidebar?:  () => void;     // toggle desktop
+  /** Unico boton de menu: en escritorio colapsa/expande, en movil abre/cierra el cajon. */
+  onMenuClick: () => void;
+  /** Si el menu esta expandido (escritorio) o abierto (movil). */
+  menuExpanded: boolean;
+  isDesktop: boolean;
 }
 
-export default function TopNav({ onMenuClick, desktopHidden = false, onToggleDesktopSidebar }: Props) {
+/// Barra superior: boton de menu, logo, "Seccion › Pagina", tema y usuario.
+/// La campana muestra el historial de avisos (NotificationBell).
+export default function TopNav({ onMenuClick, menuExpanded, isDesktop }: Props) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { has } = usePermissions();
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useClickOutside([ref], open, () => setOpen(false));
+  useLayer(open, () => setOpen(false));
 
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  let user: { fullName?: string; role?: string } | null = null;
+  try {
+    const stored = localStorage.getItem('bugie_admin_user');
+    user = stored ? JSON.parse(stored) : null;
+  } catch { user = null; }
 
-  const stored = localStorage.getItem('bugie_admin_user');
-  const user   = stored ? JSON.parse(stored) : null;
+  const current = findNavItem(location.pathname);
+  // "Configuración" solo con su permiso (como en el menú lateral).
+  const canSettings = has(PERMS.ViewSettings);
 
   function logout() {
     localStorage.removeItem('bugie_token');
@@ -33,112 +44,81 @@ export default function TopNav({ onMenuClick, desktopHidden = false, onToggleDes
     navigate('/auth/login', { replace: true });
   }
 
+  const menuLabel = isDesktop
+    ? (menuExpanded ? 'Contraer menú' : 'Expandir menú')
+    : (menuExpanded ? 'Cerrar menú' : 'Abrir menú');
+
   return (
-    <nav className="navbar bugie-navbar navbar-light sticky-top">
-      <div className="bugie-admin-frame py-2 gap-3 d-flex align-items-center">
+    <nav className="navbar bugie-navbar" aria-label="Barra superior">
+      <div className="bx-topnav w-100">
+        <button
+          className="bx-icon-btn"
+          type="button"
+          onClick={onMenuClick}
+          aria-label={menuLabel}
+          title={menuLabel}
+          aria-expanded={menuExpanded}
+          aria-controls="bugie-sidebar"
+        >
+          <i className={`fa-solid ${!isDesktop && menuExpanded ? 'fa-xmark' : 'fa-bars'}`} aria-hidden="true" />
+        </button>
 
-        {/* Botones de menú */}
-        <div className="d-flex align-items-center gap-2">
-          {/* Hamburger móvil */}
-          <button
-            className="btn btn-sm btn-outline-secondary bugie-icon-btn d-inline-flex d-lg-none"
-            type="button"
-            onClick={onMenuClick}
-            title="Abrir menú"
-          >
-            <i className="fa-solid fa-bars" />
-          </button>
+        <Link className="bx-topnav-brand" to="/admin/dashboard" aria-label="Ir al inicio">
+          <img src="/bugie.png" alt="Bugie" />
+          <span className="badge rounded-pill badge-bugie">Admin</span>
+        </Link>
 
-          {/* Toggle desktop */}
-          {onToggleDesktopSidebar && (
-            <button
-              className="btn btn-sm btn-outline-secondary bugie-icon-btn d-none d-lg-inline-flex"
-              type="button"
-              onClick={onToggleDesktopSidebar}
-              title={desktopHidden ? 'Mostrar menú' : 'Ocultar menú'}
-            >
-              <i className={`fa-solid ${desktopHidden ? 'fa-bars' : 'fa-angles-left'}`} />
-            </button>
-          )}
-
-          <Link className="navbar-brand d-flex align-items-center gap-2 mb-0" to="/admin/dashboard">
-            <img src="/bugie.png" alt="Bugie" style={{ height: 32, width: "auto", objectFit: "contain" }} />
-            <span className="badge rounded-pill badge-bugie">Admin</span>
-          </Link>
-        </div>
-
-        {/* Buscador */}
-        <form className="bugie-topnav-search d-none d-md-flex flex-grow-1 justify-content-center" role="search">
-          <div className="input-group bugie-topnav-searchbox">
-            <span className="input-group-text">
-              <i className="fa-solid fa-magnifying-glass" />
-            </span>
-            <input className="form-control" placeholder="Buscar usuarios, viajes, conductores…" />
+        {current && (
+          <div className="bx-topnav-crumb" aria-label="Ubicación actual">
+            {current.section.title && (
+              <>
+                <span className="sec">{current.section.title}</span>
+                <i className="fa-solid fa-chevron-right sep bugie-muted" style={{ fontSize: '.6rem' }} aria-hidden="true" />
+              </>
+            )}
+            <span className="page">{current.item.label}</span>
           </div>
-        </form>
+        )}
 
-        {/* Acciones derecha */}
-        <div className="d-flex align-items-center gap-2 ms-auto">
+        <div className="bx-topnav-right">
+          <NotificationBell />
           <ThemeToggle theme={theme} onToggle={toggle} />
-
-          <button className="btn btn-sm btn-outline-secondary bugie-icon-btn" type="button" title="Notificaciones">
-            <i className="fa-solid fa-bell" />
-          </button>
 
           <div className="position-relative" ref={ref}>
             <button
-              className="btn btn-sm d-flex align-items-center gap-2 rounded-pill px-3"
-              style={{ border: '1px solid var(--bugie-border)', background: 'var(--bugie-surface)' }}
+              className="bx-user-btn"
               onClick={() => setOpen(o => !o)}
               type="button"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="Menú de usuario"
             >
-              <i className="fa-solid fa-circle-user" style={{ color: 'var(--bugie-primary)' }} />
-              <span className="small fw-semibold d-none d-sm-inline" style={{ color: 'var(--bugie-text)' }}>
-                {user?.fullName ?? 'Admin'}
-              </span>
-              <i className="fa-solid fa-chevron-down small" style={{ color: 'var(--bugie-muted)', fontSize: '0.65rem' }} />
+              <i className="fa-solid fa-circle-user" style={{ color: 'var(--bugie-primary)' }} aria-hidden="true" />
+              <span className="small fw-semibold d-none d-md-inline name">{user?.fullName ?? 'Admin'}</span>
+              <i className="fa-solid fa-chevron-down bugie-muted" style={{ fontSize: '0.65rem' }} aria-hidden="true" />
             </button>
 
             {open && (
               <div
-                className="position-absolute end-0 mt-2 rounded-3 shadow py-1"
-                style={{
-                  minWidth: 220,
-                  background: 'var(--bugie-surface)',
-                  border: '1px solid var(--bugie-border)',
-                  zIndex: 1050,
-                }}
+                role="menu"
+                className="bx-menu-list"
+                style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', left: 'auto' }}
               >
-                <div className="px-3 py-2 border-bottom" style={{ borderColor: 'var(--bugie-border) !important' }}>
-                  <div className="small fw-semibold" style={{ color: 'var(--bugie-text)' }}>
-                    {user?.fullName ?? 'Administrador'}
-                  </div>
-                  <div className="small" style={{ color: 'var(--bugie-muted)' }}>
-                    {user?.role === 'admin' ? 'Administrador' : user?.role}
-                  </div>
+                <div className="px-2 py-2 border-bottom mb-1" style={{ borderColor: 'var(--bugie-border)' }}>
+                  <div className="small fw-semibold">{user?.fullName ?? 'Administrador'}</div>
+                  <div className="small bugie-muted">{user?.role === 'admin' ? 'Administrador' : user?.role}</div>
                 </div>
-
-                <div className="py-1">
-                  <button
-                    className="dropdown-item d-flex align-items-center gap-2 px-3 py-2 w-100 text-start"
-                    style={{ background: 'transparent', border: 'none', color: 'var(--bugie-text)' }}
-                    onClick={() => { setOpen(false); navigate('/admin/configuracion'); }}
-                  >
-                    <i className="fa-solid fa-gear" style={{ width: 16, color: 'var(--bugie-muted)' }} />
-                    <span className="small">Configuración</span>
-                  </button>
-
-                  <hr className="my-1" style={{ borderColor: 'var(--bugie-border)' }} />
-
-                  <button
-                    className="dropdown-item d-flex align-items-center gap-2 px-3 py-2 w-100 text-start"
-                    style={{ background: 'transparent', border: 'none', color: 'var(--bugie-danger)' }}
-                    onClick={logout}
-                  >
-                    <i className="fa-solid fa-arrow-right-from-bracket" style={{ width: 16 }} />
-                    <span className="small">Cerrar sesión</span>
-                  </button>
-                </div>
+                {canSettings && (
+                  <>
+                    <button role="menuitem" type="button" className="bx-menu-item" onClick={() => { setOpen(false); navigate('/admin/configuracion'); }}>
+                      <i className="fa-solid fa-gear" aria-hidden="true" />Configuración
+                    </button>
+                    <div className="bx-menu-sep" role="separator" />
+                  </>
+                )}
+                <button role="menuitem" type="button" className="bx-menu-item danger" onClick={logout}>
+                  <i className="fa-solid fa-arrow-right-from-bracket" aria-hidden="true" />Cerrar sesión
+                </button>
               </div>
             )}
           </div>

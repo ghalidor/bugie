@@ -1,12 +1,5 @@
 namespace Bugie.Landing.Application.DTOs;
 
-public record LandingSectionDto(
-    Guid   Id,
-    string SectionKey,
-    int    SortOrder,
-    bool   IsVisible,
-    DateTime UpdatedAt);
-
 public record SectionContentDto(
     Guid   Id,
     Guid   SectionId,
@@ -27,9 +20,3 @@ public record SectionWithContentDto(
     string SectionKey,
     int    SortOrder,
     string ContentJson);
-
-// Petición para actualizar el contenido de una sección
-public record UpdateSectionContentRequest(
-    string SectionKey,
-    string Lang,          // es | en | pt
-    string ContentJson);  // JSON con los campos editables

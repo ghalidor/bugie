@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
+using Bugie.Auth.Application.Common;
 using Bugie.Auth.Domain.Constants;
 using Bugie.Auth.Domain.Entities;
 using Bugie.Auth.Domain.Interfaces;
@@ -48,6 +50,7 @@ public class AdminSecurityController : ControllerBase
 
     // ── Listar roles ────────────────────────────────────────────────────
     [HttpGet("roles")]
+    [RequirePermission(Perm.ViewSecurity, Perm.ViewUsers)]
     public async Task<IActionResult> List(CancellationToken ct)
     {
         var list = await _roles.GetAllAsync(ct);
@@ -79,6 +82,7 @@ public class AdminSecurityController : ControllerBase
     /// de "asignar permisos a un rol".
     /// </summary>
     [HttpGet("permissions/catalog")]
+    [RequirePermission(Perm.ViewSecurity)]
     public IActionResult Catalog() =>
         Ok(new
         {
@@ -90,6 +94,7 @@ public class AdminSecurityController : ControllerBase
     public record CreateRoleRequest(string Name, string? Description, List<string>? Permissions);
 
     [HttpPost("roles")]
+    [RequirePermission(Perm.ViewSecurity)]
     public async Task<IActionResult> Create([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
         if(!await IsSuperAdminAsync(ct))
@@ -134,6 +139,7 @@ public class AdminSecurityController : ControllerBase
     public record UpdateRoleRequest(string Name, string? Description);
 
     [HttpPut("roles/{id:guid}")]
+    [RequirePermission(Perm.ViewSecurity)]
     public async Task<IActionResult> Update(
         Guid id, [FromBody] UpdateRoleRequest req, CancellationToken ct)
     {
@@ -158,6 +164,7 @@ public class AdminSecurityController : ControllerBase
     public record SetPermissionsRequest(List<string> Permissions);
 
     [HttpPut("roles/{id:guid}/permissions")]
+    [RequirePermission(Perm.ViewSecurity)]
     public async Task<IActionResult> SetPermissions(
         Guid id, [FromBody] SetPermissionsRequest req, CancellationToken ct)
     {
@@ -181,6 +188,7 @@ public class AdminSecurityController : ControllerBase
 
     // ── Borrar rol ─────────────────────────────────────────────────────
     [HttpDelete("roles/{id:guid}")]
+    [RequirePermission(Perm.ViewSecurity)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         if(!await IsSuperAdminAsync(ct)) return Forbid();
@@ -204,12 +212,23 @@ public class AdminSecurityController : ControllerBase
     }
 
     // ── Crear usuario admin con rol ─────────────────────────────────────
+    /// <param name="FullName">Ya no se usa (se arma con nombres + apellidos). Se acepta y se ignora.</param>
+    /// <param name="DocType">OBLIGATORIO: 'DNI' | 'CE' | 'PASAPORTE'.</param>
+    /// <param name="DocNumber">OBLIGATORIO.</param>
+    /// <param name="FirstNames">OBLIGATORIO.</param>
+    /// <param name="LastNamePaternal">OBLIGATORIO.</param>
+    /// <param name="LastNameMaternal">Opcional.</param>
     public record CreateAdminRequest(
-        string FullName,
+        string? FullName,
         string Email,
         string Password,
         string Phone,
-        Guid RoleId);
+        Guid RoleId,
+        string? DocType = null,
+        string? DocNumber = null,
+        string? FirstNames = null,
+        string? LastNamePaternal = null,
+        string? LastNameMaternal = null);
 
     /// <summary>
     /// Crea un usuario con role='admin' y le asigna el rol administrativo indicado.
@@ -217,14 +236,16 @@ public class AdminSecurityController : ControllerBase
     /// POST /api/auth/admin/security/users
     /// </summary>
     [HttpPost("users")]
+    [RequirePermission(Perm.ViewUsers, Perm.ViewSecurity)]
     public async Task<IActionResult> CreateAdmin(
         [FromBody] CreateAdminRequest req, CancellationToken ct)
     {
         if(!await IsSuperAdminAsync(ct)) return Forbid();
 
-        // Validaciones básicas
-        if(string.IsNullOrWhiteSpace(req.FullName))
-            return BadRequest(new { error = "El nombre es obligatorio." });
+        // Validaciones básicas (documento y nombres: 400 si el formato es inválido)
+        var (docType, docNumber) = IdentityRules.NormalizeDocument(req.DocType, req.DocNumber);
+        var (firstNames, paternal, maternal) = IdentityRules.NormalizeNames(
+            req.FirstNames, req.LastNamePaternal, req.LastNameMaternal);
         if(string.IsNullOrWhiteSpace(req.Email))
             return BadRequest(new { error = "El correo es obligatorio." });
         if(string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 6)
@@ -249,12 +270,16 @@ public class AdminSecurityController : ControllerBase
         if(await _users.EmailExistsAsync(req.Email, ct))
             return Conflict(new { error = "Ya existe un usuario con ese correo." });
 
+        // Una sola cuenta NO eliminada por documento
+        if(await _users.GetActiveByDocumentAsync(docType, docNumber, null, ct) is not null)
+            return Conflict(new { error = IdentityRules.DocumentInUseMessage });
+
         // Crear el usuario admin. User.Create() con role='admin' lo deja activo y verificado.
         // NOTA: usamos el nombre completo del namespace porque dentro de un Controller
         // hay una propiedad heredada `User` (ClaimsPrincipal) que oculta a nuestra entidad.
         var user = Bugie.Auth.Domain.Entities.User.Create(
             req.Email, _hasher.Hash(req.Password), "admin",
-            req.FullName.Trim(), req.Phone.Trim());
+            firstNames, paternal, maternal, req.Phone.Trim(), docType, docNumber);
         await _users.AddAsync(user, ct);
 
         // Asignar el rol administrativo
@@ -265,6 +290,11 @@ public class AdminSecurityController : ControllerBase
         {
             id = user.Id,
             fullName = user.FullName,
+            firstNames = user.FirstNames,
+            lastNamePaternal = user.LastNamePaternal,
+            lastNameMaternal = user.LastNameMaternal,
+            docType = user.DocType,
+            docNumber = user.DocNumber,
             email = user.Email,
             phone = user.Phone,
             role = user.Role,
@@ -277,6 +307,7 @@ public class AdminSecurityController : ControllerBase
     public record AssignRoleRequest(Guid UserId, Guid? RoleId);
 
     [HttpPut("users/assign-role")]
+    [RequirePermission(Perm.ViewUsers, Perm.ViewSecurity)]
     public async Task<IActionResult> AssignRole(
         [FromBody] AssignRoleRequest req, CancellationToken ct)
     {

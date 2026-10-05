@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-raffle-list']",
+      "title": "Tus sorteos",
+      "text": "Filtra por estado. El contador con el regalo indica cuántos premios ya se entregaron."
+    },
+    {
+      "title": "Detalle de cada sorteo",
+      "text": "Toca un sorteo para ver ganadores con su código de premio (PZ-…), registrar la entrega y comprobar el resultado con la semilla. Al ganador le llega push y correo."
+    },
+    {
+      "title": "Sortear y borrar",
+      "text": "Son acciones que no se deshacen: te pediremos escribir una palabra para confirmar."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

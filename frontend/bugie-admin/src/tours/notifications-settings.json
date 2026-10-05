@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='nset-live']",
+      "title": "Avisos en vivo",
+      "text": "Aparecen al momento (SOS, desvíos, reclamaciones…). Elige si se muestran, su color y cuántos segundos quedan en pantalla. Escribe los segundos y sal del campo para aplicarlos."
+    },
+    {
+      "selector": "[data-tour='nset-reminders']",
+      "title": "Recordatorios",
+      "text": "Avisos de cuántos casos hay pendientes: al iniciar sesión, cada cierto número de horas o a horas fijas."
+    },
+    {
+      "selector": "[data-tour='nset-docs']",
+      "title": "Vencimiento de documentos",
+      "text": "Días antes del vencimiento en que se avisa al conductor y al admin. 0 = el mismo día."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Historial",
+      "text": "«Ver historial» abre todos los avisos que recibiste, para revisarlos o marcarlos como leídos."
+    }
+  ]
+}

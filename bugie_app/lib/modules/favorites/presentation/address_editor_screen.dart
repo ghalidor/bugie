@@ -233,6 +233,8 @@ class _AddressEditorScreenState extends State<AddressEditorScreen> {
                             ]
                           : const [],
                       onMapTap: _onMapTap,
+                      // "Centrar mapa" encuadra solo el pin elegido.
+                      fitIncludesMyLocation: false,
                       controlsBottomOffset:
                           MediaQuery.of(context).size.height * 0.40 + 16,
                     ),

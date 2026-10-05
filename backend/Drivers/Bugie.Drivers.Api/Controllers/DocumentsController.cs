@@ -1,4 +1,5 @@
-﻿using Bugie.Drivers.Domain.Common;
+﻿using Bugie.Drivers.Application.Services;
+using Bugie.Drivers.Domain.Common;
 using System.Security.Claims;
 using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
@@ -6,6 +7,7 @@ using Bugie.Drivers.Domain.Interfaces;
 using Bugie.Drivers.Infrastructure.BackgroundServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Microsoft.Extensions.Options;
 
 namespace Bugie.Drivers.Api.Controllers;
@@ -19,6 +21,8 @@ public class DocumentsController : ControllerBase
     private readonly IDriverRepository _drivers;
     private readonly IDriveStorageService _storage;
     private readonly DocumentExpirationOptions _expirationOpt;
+    private readonly DriverDocumentsDeadlineService _deadline;
+    private readonly ITripsNotifyClient _push;
     private readonly ILogger<DocumentsController> _log;
 
     // Tipos de documento permitidos
@@ -45,12 +49,16 @@ public class DocumentsController : ControllerBase
         IDriverRepository drivers,
         IDriveStorageService storage,
         IOptions<DocumentExpirationOptions> expirationOpt,
+        DriverDocumentsDeadlineService deadline,
+        ITripsNotifyClient push,
         ILogger<DocumentsController> log)
     {
         _docs = docs;
         _drivers = drivers;
         _storage = storage;
         _expirationOpt = expirationOpt.Value;
+        _deadline = deadline;
+        _push = push;
         _log = log;
     }
 
@@ -77,6 +85,7 @@ public class DocumentsController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("by-driver/{driverId:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
     public async Task<IActionResult> GetByDriver(Guid driverId, CancellationToken ct)
     {
         var docs = await _docs.GetActiveByDriverAsync(driverId, ct);
@@ -89,6 +98,7 @@ public class DocumentsController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("by-driver/{driverId:guid}/history")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
     public async Task<IActionResult> GetHistory(Guid driverId, CancellationToken ct)
     {
         var docs = await _docs.GetByDriverAsync(driverId, ct);
@@ -127,6 +137,9 @@ public class DocumentsController : ControllerBase
 
         if(!AllowedMimeTypes.Contains(file.ContentType))
             return BadRequest(new { error = $"Tipo de archivo no permitido: {file.ContentType}" });
+
+        if(Bugie.Drivers.Api.Security.UploadCheck.Error(file, allowPdf: true) is { } fileError)
+            return BadRequest(new { error = fileError });
 
         // La fecha llega del formulario: sin zona = hora de Peru. Se guarda en UTC.
         if(expiresAt is not null)
@@ -184,7 +197,7 @@ public class DocumentsController : ControllerBase
             var stored = await _storage.UploadAsync(
                 stream, file.FileName, file.ContentType,
                 folderPath: $"drivers/{driver.Id}",
-                ct);
+                ct, allowPdf: true);
 
             // Si había uno (aprobado vencido, rechazado o pending), marcarlo como histórico
             if(existing is not null)
@@ -212,9 +225,13 @@ public class DocumentsController : ControllerBase
             //
             // - Otros estados (PendingDocs, UnderReview, Suspended, Rejected) no
             //   se tocan: el flujo natural ya los maneja.
+            //
+            // - Aprobado por excepción (tiene plazo de documentos): sigue aprobado
+            //   mientras completa; el admin revisa el documento desde el detalle.
             var st = driver.Status;
+            var hasDeadline = driver.DocumentsDeadline is not null;
             if(st == Bugie.Drivers.Domain.Enums.DriverStatus.ExpiredDocs ||
-               st == Bugie.Drivers.Domain.Enums.DriverStatus.Approved)
+               (st == Bugie.Drivers.Domain.Enums.DriverStatus.Approved && !hasDeadline))
             {
                 driver.BackToReview();
                 await _drivers.UpdateAsync(driver, ct);
@@ -234,6 +251,7 @@ public class DocumentsController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────
     [HttpGet("{id:guid}/download")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
     public async Task<IActionResult> Download(Guid id, CancellationToken ct)
     {
         var doc = await _docs.GetByIdAsync(id, ct);
@@ -249,6 +267,8 @@ public class DocumentsController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────
     [HttpPut("{id:guid}/approve")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
+    [RequirePermission(Perm.ActionApproveDriver)]
     public async Task<IActionResult> Approve(Guid id, CancellationToken ct)
     {
         var adminId = GetUserId();
@@ -259,6 +279,13 @@ public class DocumentsController : ControllerBase
 
         doc.Approve(adminId.Value);
         await _docs.UpdateAsync(doc, ct);
+
+        // Si el conductor estaba aprobado por excepción y con este documento
+        // ya completa todo, se cierra el plazo (queda en la auditoría).
+        var driver = await _drivers.GetByIdAsync(doc.DriverId, ct);
+        if(driver is not null)
+            await _deadline.CloseDeadlineIfCompleteAsync(driver, ct);
+
         return Ok(ToDto(doc));
     }
 
@@ -269,6 +296,8 @@ public class DocumentsController : ControllerBase
 
     [HttpPut("{id:guid}/reject")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
+    [RequirePermission(Perm.ActionApproveDriver)]
     public async Task<IActionResult> Reject(Guid id, [FromBody] DocumentRejectRequest body, CancellationToken ct)
     {
         var adminId = GetUserId();
@@ -279,6 +308,21 @@ public class DocumentsController : ControllerBase
 
         doc.Reject(adminId.Value, body.Reason);
         await _docs.UpdateAsync(doc, ct);
+
+        // Push al conductor: "Tu documento X fue rechazado: motivo".
+        var driver = await _drivers.GetByIdAsync(doc.DriverId, ct);
+        if(driver is not null)
+        {
+            var label = RequiredDocuments.Label(doc.DocType);
+            var reason = string.IsNullOrWhiteSpace(body.Reason) ? null : body.Reason.Trim();
+            await _push.SendPushAsync(driver.UserId,
+                "Documento rechazado",
+                reason is null
+                    ? $"Tu documento {label} fue rechazado. Vuelve a subirlo."
+                    : $"Tu documento {label} fue rechazado: {reason}",
+                DriverPush.Data(DriverPush.DocumentRejected, DriverPush.RouteDocuments), ct);
+        }
+
         return Ok(ToDto(doc));
     }
 
@@ -287,6 +331,7 @@ public class DocumentsController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────
     [HttpDelete("{id:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers, Perm.ViewVerification)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var doc = await _docs.GetByIdAsync(id, ct);

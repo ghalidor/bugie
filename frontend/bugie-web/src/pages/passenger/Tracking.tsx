@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import TripTimeline from '../../components/TripTimeline';
 import ApplyCouponModal, { CouponApplied } from './ApplyCouponModal';
-import { useNavigate } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
+import LevelCouponHint from './LevelCouponHint';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BugieMap from '../../components/BugieMap';
+import ServiceIcon from '../../components/ServiceIcon';
+import FromBadge from '../../components/FromBadge';
+import TripPhotos from '../../components/TripPhotos';
 import { API, apiFetch, ApiError } from '../../state/api';
+import {
+  CountUp, EmptyState, FlashOnChange, IconButton, InfoList, Modal, Notice, Page, PageLoading, SectionCard, Skeleton, StatusBadge, Tone,
+  useConfirm, useFlip, usePresenceList, useToast,
+} from '../../components/ui';
+import { money } from '../../components/tripFormat';
 
 interface Waypoint {
   id: string; address: string;
@@ -54,6 +63,40 @@ interface Trip {
   // Si se cancelo: quien y por que
   cancelledBy?: string | null;
   cancelReason?: string | null;
+
+  // Envio de paquete (serviceType 1). En un viaje normal vienen en null.
+  serviceType?: number;
+  packageDescription?: string | null;
+  packageWeightKg?: number | null;
+  packageIsFragile?: boolean | null;
+  packageDetails?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  pickupVerified?: boolean | null;
+  pickupObservation?: string | null;
+  deliveryReceivedBy?: string | null;
+  deliveryConfirmedAt?: string | null;
+
+  // Última posición conocida del conductor (la API la manda con el viaje
+  // aceptado / en curso / SOS). Se usa para el marcador en vivo del mapa.
+  driverCurrentLat?: number | null;
+  driverCurrentLng?: number | null;
+
+  // Programado: hora de Perú (sin zona). null = viaje "ahora".
+  scheduledAt?: string | null;
+  // Ya cuenta como viaje activo (faltan 30 min o menos, o el conductor llegó)
+  scheduledActive?: boolean;
+  // El conductor no llegó (15 min después de la hora): cancelar o republicar
+  driverLate?: boolean;
+}
+
+/** "sáb 04 oct, 10:30" de una fecha de la API (hora de Perú sin zona). */
+function fmtScheduled(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  if (!m) return iso;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])).toLocaleString('es-PE', {
+    timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 const STATUS_MSG: Record<number, string> = {
@@ -66,9 +109,31 @@ const STATUS_MSG: Record<number, string> = {
   7: 'Conductores proponen tarifa',
 };
 
-const STATUS_COLOR: Record<number, string> = {
-  1: 'warning', 2: 'info', 3: 'success',
-  4: 'success', 5: 'secondary', 6: 'danger', 7: 'primary',
+// En un envio algunos estados se nombran distinto
+const STATUS_MSG_DELIVERY: Record<number, string> = {
+  2: 'Conductor en camino a recoger',
+  3: 'Envío en camino',
+  4: 'Entregado',
+};
+
+function statusMsg(status: number, delivery: boolean): string {
+  return (delivery ? STATUS_MSG_DELIVERY[status] : undefined) ?? STATUS_MSG[status] ?? 'Procesando…';
+}
+
+function hourOf(iso: string): string {
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+}
+
+const STATUS_TONE: Record<number, Tone> = {
+  1: 'warn', 2: 'info', 3: 'ok',
+  4: 'ok', 5: 'neutral', 6: 'bad', 7: 'primary',
+};
+
+const HISTORY_LABEL: Record<string, { label: string; tone: Tone }> = {
+  pending:    { label: 'Actual',     tone: 'primary' },
+  superseded: { label: 'Modificada', tone: 'neutral' },
+  accepted:   { label: 'Aceptada',   tone: 'ok' },
+  rejected:   { label: 'Rechazada',  tone: 'bad' },
 };
 
 /** Devuelve un texto relativo amigable: "hace 30s", "hace 2 min", etc. */
@@ -86,17 +151,27 @@ function timeAgo(iso: string): string {
 
 export default function PassengerTracking() {
   const navigate   = useNavigate();
+  const toast      = useToast();
+  const confirm    = useConfirm();
+  // ?trip=<id>: seguir un viaje en particular (ej. un programado que todavía
+  // no es el viaje activo). Sin parámetro: el viaje activo.
+  const [params]   = useSearchParams();
+  const tripParam  = params.get('trip');
   const [trip,      setTrip]      = useState<Trip | null>(null);
+  // Programados (para la pantalla vacía)
+  const [scheduled, setScheduled] = useState<Trip[]>([]);
+  const [republishing, setRepublishing] = useState(false);
   // Aviso "tu conductor llego": se muestra una vez por viaje al detectarlo
   const [arrivedOpen, setArrivedOpen] = useState(false);
   const arrivedShownFor = useRef<string | null>(null);
   // El conductor (o Bugie) cancelo el viaje: aviso con el motivo
-  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null } | null>(null);
+  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null; delivery: boolean } | null>(null);
   const lastTripId = useRef<string | null>(null);
   const [cuponAbierto, setCuponAbierto] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   // Estado del modal de histórico
   const [historyOpen,    setHistoryOpen]    = useState(false);
@@ -118,12 +193,22 @@ export default function PassengerTracking() {
 
   // IDs de propuestas que el usuario ocultó manualmente (con la X).
   // No se persiste — al recargar la pantalla, vuelven a aparecer si siguen rejected.
-  // Si llega una propuesta NUEVA (pending) del mismo conductor, no se ve afectado.
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+
+  // Propuestas visibles (sin las ocultadas a mano), con entrada/salida animada.
+  const visible     = proposals.filter(p => !hiddenIds.has(p.id));
+  const offerEntries = usePresenceList(visible, p => p.id);
+  const offersRef   = useRef<HTMLDivElement>(null);
+  useFlip(offersRef, offerEntries);
 
   useEffect(() => {
     const load = () =>
-      apiFetch<Trip | null>(`${API.trips}/trips/active`)
+      (tripParam
+        ? apiFetch<Trip>(`${API.trips}/trips/${tripParam}/tracking`)
+            // Terminado o cancelado: se trata como "sin viaje" (con el aviso si aplica)
+            .then(t => (t && (t.status === 4 || t.status === 5) ? null : t))
+            .catch(err => { if (err instanceof ApiError && err.status === 404) return null; throw err; })
+        : apiFetch<Trip | null>(`${API.trips}/trips/active`))
         .then(async d => {
           // El viaje ya no esta activo: si lo cancelo el conductor, avisar con el motivo.
           if (!d && lastTripId.current) {
@@ -131,10 +216,11 @@ export default function PassengerTracking() {
             lastTripId.current = null;
             const t = await apiFetch<Trip>(`${API.trips}/trips/${gone}`).catch(() => null);
             if (t?.status === 5 && t.cancelledBy && t.cancelledBy !== 'passenger')
-              setCancelledInfo({ by: t.cancelledBy, reason: t.cancelReason ?? null });
+              setCancelledInfo({ by: t.cancelledBy, reason: t.cancelReason ?? null, delivery: t.serviceType === 1 });
           }
           if (d) lastTripId.current = d.id;
           setTrip(d);
+          setError(null);
           if (d && d.status === 2 && d.driverArrivedAt && arrivedShownFor.current !== d.id) {
             arrivedShownFor.current = d.id;
             setArrivedOpen(true);
@@ -147,25 +233,33 @@ export default function PassengerTracking() {
           } else {
             setProposals([]);
           }
+          // Sin viaje: mostrar los programados que tenga
+          if (!d) {
+            const list = await apiFetch<Trip[]>(`${API.trips}/trips/scheduled`).catch(() => []);
+            setScheduled(list ?? []);
+          }
         })
-        .catch(() => setError('No se pudo cargar el seguimiento.'))
+        .catch(() => setError('No se pudo cargar el seguimiento. Reintentamos cada 3 segundos.'))
         .finally(() => setLoading(false));
     load();
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
-  }, []);
+  }, [tripParam]);
 
-  async function acceptProposal(proposalId: string, fare: number) {
+  function fail(err: unknown, fallback: string) {
+    toast.error(err instanceof ApiError ? err.message : fallback);
+  }
+
+  async function acceptProposal(proposalId: string) {
     if (!trip) return;
     try {
       await apiFetch(`${API.trips}/trips/${trip.id}/accept-proposal/${proposalId}`, { method: 'PUT' });
       // FLUJO NUEVO: aceptar una propuesta ya NO asigna conductor automáticamente.
       // Solo marca la propuesta como 'accepted_by_passenger' en BD; el viaje
       // sigue en Pending/Negotiating hasta que el conductor confirme.
-      // No tocamos el estado local: el próximo poll (3s) traerá el nuevo
-      // estado de la propuesta y el banner amarillo aparecerá solo.
-      setError(null);
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Error al aceptar propuesta.'); }
+      // El próximo poll (3s) traerá el nuevo estado y aparecerá el aviso.
+      toast.info('Aceptaste la propuesta. Esperamos la confirmación del conductor.');
+    } catch (err) { fail(err, 'Error al aceptar propuesta.'); }
   }
 
   /**
@@ -175,15 +269,17 @@ export default function PassengerTracking() {
    */
   async function cancelAcceptance(proposalId: string) {
     if (!trip) return;
-    const ok = window.confirm(
-      '¿Cambiar de opinión?\n\n' +
-      'La propuesta volverá a estar pendiente y podrás aceptar otra. ' +
-      'El conductor todavía podría confirmar si lo hace antes que aceptes a otro.');
+    const ok = await confirm({
+      title: '¿Cambiar de opinión?',
+      message: 'La propuesta volverá a estar pendiente y podrás aceptar otra. El conductor todavía podría confirmar si lo hace antes que aceptes a otro.',
+      confirmText: 'Sí, cambiar de opinión',
+      cancelText: 'Seguir esperando',
+      tone: 'warning',
+    });
     if (!ok) return;
     try {
       await apiFetch(`${API.trips}/trips/${trip.id}/cancel-acceptance/${proposalId}`, { method: 'PUT' });
-      setError(null);
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'No se pudo cambiar de opinión.'); }
+    } catch (err) { fail(err, 'No se pudo cambiar de opinión.'); }
   }
 
   /**
@@ -198,7 +294,7 @@ export default function PassengerTracking() {
         { method: 'PUT' });
       setProposals(prev => prev.filter(p => p.id !== proposalId));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al rechazar.');
+      fail(err, 'Error al rechazar.');
     }
   }
 
@@ -208,7 +304,13 @@ export default function PassengerTracking() {
    */
   async function rejectAllProposals() {
     if (!trip) return;
-    if (!confirm('¿Rechazar todas las propuestas? Los conductores recibirán el aviso.')) return;
+    const ok = await confirm({
+      title: '¿Rechazar todas las propuestas?',
+      message: 'Los conductores recibirán el aviso. Podrás seguir recibiendo propuestas nuevas.',
+      confirmText: 'Rechazar todas',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await apiFetch(
         `${API.trips}/trips/${trip.id}/proposals/reject-all`,
@@ -218,7 +320,7 @@ export default function PassengerTracking() {
           ? { ...p, status: 'rejected', rejectedBy: 'passenger' }
           : p));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al rechazar todas.');
+      fail(err, 'Error al rechazar todas.');
     }
   }
 
@@ -229,7 +331,7 @@ export default function PassengerTracking() {
   async function counterPropose(driverId: string, fare: number) {
     if (!trip) return;
     if (fare <= 0) {
-      setError('El monto debe ser mayor a 0.');
+      toast.warning('El monto debe ser mayor a 0.');
       return;
     }
     try {
@@ -238,19 +340,58 @@ export default function PassengerTracking() {
         body: JSON.stringify({ driverId, fare }),
       });
       // La nueva propuesta llegará en el próximo poll (intervalo 3s)
-      setError(null);
+      toast.success('Contrapropuesta enviada.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al enviar contrapropuesta.');
+      fail(err, 'Error al enviar contrapropuesta.');
     }
   }
 
   async function cancel() {
     if (!trip) return;
+    const delivery = trip.serviceType === 1;
+    const ok = await confirm({
+      title: delivery ? '¿Cancelar el envío?' : '¿Cancelar el viaje?',
+      message: trip.driverLate
+        ? 'Tu conductor no llegó a la hora programada: puedes cancelar sin penalidad.'
+        : trip.driverId
+          ? 'Avisaremos a tu conductor que cancelaste.'
+          : 'Dejarás de recibir propuestas de conductores.',
+      confirmText: delivery ? 'Cancelar envío' : 'Cancelar viaje',
+      cancelText: 'No, seguir',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setCancelling(true);
     try {
       lastTripId.current = null; // lo cancela el propio pasajero: sin aviso
       await apiFetch(`${API.trips}/trips/${trip.id}/cancel`, { method: 'PUT' });
       navigate('/app/pasajero/inicio');
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Error al cancelar.'); }
+    } catch (err) { fail(err, 'Error al cancelar.'); }
+    finally { setCancelling(false); }
+  }
+
+  /**
+   * Programado cuyo conductor no llegó: vuelve a pendiente para otros
+   * conductores (se quita al conductor y se le avisa).
+   */
+  async function republish() {
+    if (!trip) return;
+    const delivery = trip.serviceType === 1;
+    const ok = await confirm({
+      title: delivery ? '¿Republicar el envío?' : '¿Republicar el viaje?',
+      message: 'Quitaremos a tu conductor y otros conductores podrán enviarte propuestas de nuevo.',
+      confirmText: 'Sí, republicar',
+      cancelText: 'No, esperar',
+      tone: 'warning',
+    });
+    if (!ok) return;
+    setRepublishing(true);
+    try {
+      const t = await apiFetch<Trip>(`${API.trips}/trips/${trip.id}/republish`, { method: 'PUT' });
+      setTrip(t);
+      toast.success(delivery ? 'Republicamos tu envío.' : 'Republicamos tu viaje.');
+    } catch (err) { fail(err, 'No se pudo republicar.'); }
+    finally { setRepublishing(false); }
   }
 
   async function openHistory(driverId: string, driverName: string) {
@@ -275,553 +416,545 @@ export default function PassengerTracking() {
     setHistoryEntries([]);
   }
 
-  if (loading) return (
-    <div className="d-flex justify-content-center py-5">
-      <span className="spinner-border" />
-    </div>
-  );
+  if (loading) return <PageLoading />;
 
   if (!trip) return (
-    <>
-      <PageHeader title="Seguimiento" subtitle="Estado de tu viaje en curso." icon="fa-solid fa-location-dot" />
-      {cancelledInfo && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1060,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-        }}>
-          <div className="bugie-card text-center" role="alertdialog" aria-labelledby="cancel-title" style={{ maxWidth: 380, width: '100%' }}>
-            <div className="bugie-card-body p-4">
-              <i className="fa-solid fa-circle-xmark fa-3x text-danger mb-3 d-block" />
-              <h2 id="cancel-title" className="h5 fw-bold mb-2">
-                {cancelledInfo.by === 'driver' ? 'Tu conductor canceló el viaje' : 'Bugie canceló tu viaje'}
-              </h2>
-              {cancelledInfo.reason && <p className="bugie-muted mb-2">Motivo: {cancelledInfo.reason}</p>}
-              <p className="bugie-muted mb-3">Puedes solicitar otro viaje cuando quieras.</p>
-              <div className="d-grid gap-2">
-                <button className="btn btn-bugie text-white rounded-pill"
-                        onClick={() => { setCancelledInfo(null); navigate('/app/pasajero/solicitar'); }}>
-                  Solicitar otro viaje
-                </button>
-                <button className="btn btn-bugie-outline rounded-pill" onClick={() => setCancelledInfo(null)}>
-                  Cerrar
-                </button>
-              </div>
-            </div>
+    <Page title="Seguimiento" subtitle="Estado de tu viaje o envío en curso." icon="fa-location-dot">
+      {error && <Notice tone="bad">{error}</Notice>}
+      <SectionCard>
+        <EmptyState
+          icon="fa-car-side"
+          title="No tienes viajes ni envíos activos"
+          text="Cuando pidas un viaje o un envío podrás seguirlo aquí en tiempo real."
+          action={
+            <button type="button" className="btn btn-bugie" onClick={() => navigate('/app/pasajero/solicitar')}>
+              <i className="fa-solid fa-map-pin" aria-hidden="true" />Pedir viaje o envío
+            </button>
+          }
+        />
+      </SectionCard>
+
+      {/* Programados que todavía no empiezan */}
+      {scheduled.length > 0 && (
+        <SectionCard title="Tus programados" icon="fa-calendar-days"
+          description="Puedes negociar, ver o cancelar cada uno antes de su hora.">
+          <div className="bx-list">
+            {scheduled.map(s => (
+              <Link key={s.id} to={`/app/pasajero/seguimiento?trip=${s.id}`} className="bx-list-item">
+                <span className={`bx-list-icon bx-tone-${s.driverId ? 'ok' : 'warn'}`} aria-hidden="true">
+                  <i className={`fa-solid ${s.serviceType === 1 ? 'fa-box' : 'fa-car'}`} />
+                </span>
+                <span className="bx-list-text">
+                  <span className="bx-list-title">{s.scheduledAt ? fmtScheduled(s.scheduledAt) : ''}</span>
+                  <span className="bx-list-sub d-block text-truncate">{s.originAddress} → {s.destAddress}</span>
+                  <span className={`bx-list-sub d-block ${s.driverId ? 'bx-text-ok' : 'bx-text-warn'}`}>
+                    {s.driverId ? 'Conductor asignado' : s.status === 7 ? 'Recibiendo propuestas' : 'Buscando conductor'}
+                  </span>
+                </span>
+                <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+              </Link>
+            ))}
           </div>
-        </div>
+        </SectionCard>
       )}
-      <div className="bugie-card p-5 text-center">
-        <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-          <i className="fa-solid fa-car-side" />
-        </div>
-        <div className="fw-semibold mb-2">No tienes viajes activos</div>
-        <div className="small bugie-muted mb-4">Cuando solicites un viaje podrás ver el seguimiento aquí.</div>
-        <button className="btn btn-bugie text-white rounded-pill px-4"
-          onClick={() => navigate('/app/pasajero/solicitar')}>
-          <i className="fa-solid fa-map-pin me-2" />Solicitar viaje
-        </button>
-      </div>
-    </>
+
+      {/* El conductor o Bugie cancelaron */}
+      <Modal
+        open={!!cancelledInfo}
+        onClose={() => setCancelledInfo(null)}
+        size="sm"
+        footer={cancelledInfo && (
+          <>
+            <button type="button" className="btn btn-bugie-outline" onClick={() => setCancelledInfo(null)}>Cerrar</button>
+            <button type="button" className="btn btn-bugie" data-autofocus
+                    onClick={() => { setCancelledInfo(null); navigate('/app/pasajero/solicitar'); }}>
+              {cancelledInfo.delivery ? 'Pedir otro envío' : 'Pedir otro viaje'}
+            </button>
+          </>
+        )}
+      >
+        {cancelledInfo && (
+          <div className="bx-hero-state bx-tone-bad" role="alertdialog" aria-labelledby="cancel-title">
+            <span className="ico" aria-hidden="true"><i className="fa-solid fa-circle-xmark" /></span>
+            <div className="d-flex justify-content-center gap-2 flex-wrap">
+              <FromBadge by={cancelledInfo.by} />
+              <ServiceIcon delivery={cancelledInfo.delivery} />
+            </div>
+            <h2 id="cancel-title">
+              {cancelledInfo.by === 'driver'
+                ? `Tu conductor canceló ${cancelledInfo.delivery ? 'el envío' : 'el viaje'}`
+                : `Bugie canceló ${cancelledInfo.delivery ? 'tu envío' : 'tu viaje'}`}
+            </h2>
+            {cancelledInfo.reason && <p>Motivo: {cancelledInfo.reason}</p>}
+            <p>Puedes pedir {cancelledInfo.delivery ? 'otro envío' : 'otro viaje'} cuando quieras.</p>
+          </div>
+        )}
+      </Modal>
+    </Page>
   );
 
-  const msg        = STATUS_MSG[trip.status]   ?? 'Procesando…';
-  const badgeColor = STATUS_COLOR[trip.status] ?? 'info';
+  const delivery   = trip.serviceType === 1;
+  // Programado aceptado que aun no llega su hora: no esta "en camino"
+  const msg        = trip.scheduledAt && !trip.scheduledActive && trip.status === 2
+    ? 'Programado · conductor asignado'
+    : trip.driverLate ? 'El conductor no llegó' : statusMsg(trip.status, delivery);
+  const tone       = STATUS_TONE[trip.status] ?? 'info';
   const hasCoords  = trip.originLat && trip.originLng && trip.destLat && trip.destLng;
   const sortedWp   = [...(trip.waypoints ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
   const wpCoords   = sortedWp.map(w => ({ lat: w.lat, lng: w.lng }));
+  // Programado que todavía no llega su hora (no es el viaje activo)
+  const isScheduled   = !!trip.scheduledAt;
+  const futureSched   = isScheduled && !trip.scheduledActive;
+  // Un programado aceptado se puede cancelar antes de que el conductor llegue
+  const canCancel  = trip.status === 1 || trip.status === 7
+    || (isScheduled && trip.status === 2 && !trip.driverArrivedAt);
+  const canSos     = [1, 2, 3].includes(trip.status) && !futureSched;
+  const toPay      = trip.discountAmount
+    ? (trip.fareBeforeDiscount ?? trip.estimatedFare) - trip.discountAmount
+    : trip.estimatedFare;
+
+  // ¿Ya aceptó una? Entonces se bloquean las demás y se muestra el aviso.
+  const waiting    = visible.find(p => p.status === 'accepted_by_passenger');
+  const hasWaiting = !!waiting;
+  const pendingFromDrivers = visible.filter(p => p.status === 'pending' && p.proposedByRole !== 'passenger').length;
 
   return (
-    <>
-      <PageHeader title="Seguimiento" subtitle={msg} icon="fa-solid fa-location-dot" />
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+    <Page
+      title={delivery ? 'Seguimiento del envío' : 'Seguimiento del viaje'}
+      subtitle={<span className="d-inline-flex align-items-center gap-2 flex-wrap"><StatusBadge tone={tone} dot>{msg}</StatusBadge><ServiceIcon delivery={delivery} /></span>}
+      icon={delivery ? 'fa-box' : 'fa-car'}
+      actions={[{
+        label: 'SOS', icon: 'fa-triangle-exclamation', variant: 'danger',
+        to: '/app/pasajero/sos', hidden: !canSos,
+        title: 'Solo en caso de emergencia real',
+      }]}
+    >
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {trip.status === 2 && trip.driverArrivedAt && (
-        <div className="alert alert-success small d-flex align-items-center gap-2 mb-3">
-          <i className="fa-solid fa-location-dot" />
-          Tu conductor ya está en el punto de recojo (avisó a las{' '}
-          {new Date(trip.driverArrivedAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}).
-        </div>
+      {isScheduled && !trip.driverLate && (
+        <Notice tone={futureSched ? 'info' : 'ok'} icon="fa-calendar-check"
+                title={`Programado para el ${fmtScheduled(trip.scheduledAt!)}`}>
+          {trip.status === 2
+            ? (futureSched
+                ? 'Tu conductor ya está asignado. Te recordaremos 30 y 10 minutos antes.'
+                : 'Ya casi es la hora: tu conductor se prepara para ir al punto de recojo.')
+            : 'Los conductores pueden enviarte propuestas desde ahora.'}
+        </Notice>
       )}
 
-      {/* Info del viaje */}
-      <div className="bugie-card mb-3">
-        <div className="bugie-card-header d-flex justify-content-between">
-          <span>Estado</span>
-          <span className={`badge rounded-pill text-bg-${badgeColor}`}>{msg}</span>
-        </div>
-        <div className="bugie-card-body">
-          <div className="small mb-3">
-            <div className="d-flex align-items-start gap-2 mb-1">
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#7C6AF7', display: 'inline-block', marginTop: 4, flexShrink: 0 }} />
-              <span><span className="bugie-muted">Origen: </span><strong>{trip.originAddress}</strong></span>
+      {trip.driverLate && (
+        <Notice
+          tone="bad"
+          icon="fa-clock"
+          title="Tu conductor no llegó a la hora programada"
+          action={
+            <div className="d-flex gap-2 flex-wrap">
+              <button type="button" className="btn btn-sm btn-outline-danger" onClick={cancel} disabled={cancelling || republishing}>
+                <i className="fa-solid fa-xmark" aria-hidden="true" />Cancelar sin penalidad
+              </button>
+              <button type="button" className="btn btn-sm btn-bugie" onClick={republish} disabled={cancelling || republishing}>
+                {republishing
+                  ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+                  : <i className="fa-solid fa-rotate" aria-hidden="true" />}
+                Republicar
+              </button>
             </div>
-            {sortedWp.map((wp, i) => (
-              <div key={wp.id} className="d-flex align-items-start gap-2 mb-1">
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', display: 'inline-block', marginTop: 4, flexShrink: 0 }} />
-                <span><span className="bugie-muted">Parada {i + 1}: </span><strong>{wp.address}</strong></span>
-              </div>
-            ))}
-            <div className="d-flex align-items-start gap-2">
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#C060C0', display: 'inline-block', marginTop: 4, flexShrink: 0 }} />
-              <span><span className="bugie-muted">Destino: </span><strong>{trip.destAddress}</strong></span>
-            </div>
-          </div>
+          }
+        >
+          Era para el {fmtScheduled(trip.scheduledAt!)}. Puedes cancelar sin penalidad o republicarlo para que lo tome otro conductor.
+        </Notice>
+      )}
 
-          <div className="d-flex gap-3">
-            <div className="bugie-kpi flex-grow-1" style={{ minHeight: 'auto', padding: '0.8rem' }}>
-              <div className="label small">
-                {trip.discountAmount ? 'Pagas' : 'Tarifa'}
+      {trip.status === 2 && trip.driverArrivedAt && (
+        <Notice tone="ok" icon="fa-location-dot" title="Tu conductor ya está en el punto de recojo">
+          Avisó a las {hourOf(trip.driverArrivedAt)}.
+        </Notice>
+      )}
+
+      {hasWaiting && (
+        <Notice
+          tone="warn"
+          icon="fa-hourglass-half"
+          title="Esperando confirmación del conductor"
+          action={
+            <button type="button" className="btn btn-sm btn-outline-warning" onClick={() => cancelAcceptance(waiting!.id)}>
+              <i className="fa-solid fa-rotate-left" aria-hidden="true" />Cambiar de opinión
+            </button>
+          }
+        >
+          Aceptaste a <strong>{waiting!.driverName}</strong>. En cuanto confirme, empieza el viaje.
+          Si tarda demasiado, puedes cambiar de opinión.
+        </Notice>
+      )}
+
+      <div className="bx-track">
+        <div className="bx-stack">
+          {/* Estado y recorrido */}
+          <SectionCard
+            title="Tu recorrido"
+            icon="fa-route"
+            footer={canCancel && (
+              <div className="bx-actions end">
+                <button type="button" className="btn btn-sm btn-outline-danger" onClick={cancel} disabled={cancelling}>
+                  {cancelling
+                    ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+                    : <i className="fa-solid fa-xmark" aria-hidden="true" />}
+                  {delivery ? 'Cancelar envío' : 'Cancelar viaje'}
+                </button>
               </div>
-              <div className="value" style={{ fontSize: '1.3rem' }}>
-                S/ {(trip.discountAmount
-                      ? (trip.fareBeforeDiscount ?? trip.estimatedFare) - trip.discountAmount
-                      : trip.estimatedFare).toFixed(2)}
-              </div>
-              {trip.discountAmount ? (
-                <div className="small bugie-muted" style={{ textDecoration: 'line-through' }}>
-                  S/ {(trip.fareBeforeDiscount ?? trip.estimatedFare).toFixed(2)}
+            )}
+          >
+            <div className="bx-stack">
+              <TripTimeline
+                status={trip.status}
+                delivery={delivery}
+                arrived={!!trip.driverArrivedAt}
+                pickedUp={!!trip.pickupVerified}
+                delivered={!!trip.deliveryConfirmedAt}
+                scheduledWaiting={futureSched && trip.status === 2}
+              />
+
+              <ol className="bx-stops">
+                <li><span className="lbl">Origen</span><span className="addr">{trip.originAddress}</span></li>
+                {sortedWp.map((wp, i) => (
+                  <li key={wp.id} className="stop"><span className="lbl">Parada {i + 1}</span><span className="addr">{wp.address}</span></li>
+                ))}
+                <li className="dest"><span className="lbl">Destino</span><span className="addr">{trip.destAddress}</span></li>
+              </ol>
+
+              <div className="bx-mini-stats">
+                <div className="bx-box">
+                  <div className="l">{trip.discountAmount ? 'Pagas' : 'Tarifa'}</div>
+                  <div className="v"><CountUp value={toPay} format={money} decimals={2} duration={700} /></div>
+                  {trip.discountAmount ? (
+                    <div className="small bx-muted text-decoration-line-through">
+                      S/ {(trip.fareBeforeDiscount ?? trip.estimatedFare).toFixed(2)}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+                <div className="bx-box">
+                  <div className="l">Conductor</div>
+                  <div className="v">
+                    {trip.driverId
+                      ? <span className="bx-text-ok"><i className="fa-solid fa-check me-1" aria-hidden="true" />Asignado</span>
+                      : <span className="bx-muted">Buscando…</span>}
+                  </div>
+                </div>
+                {sortedWp.length > 0 && (
+                  <div className="bx-box">
+                    <div className="l">Paradas</div>
+                    <div className="v">{sortedWp.length}</div>
+                  </div>
+                )}
+              </div>
 
               {/* Cupon: solo con el viaje aceptado o en curso. Antes no hay
                   precio que descontar; despues ya se cobro. */}
-              {(trip.status === 2 || trip.status === 3) ? (
+              {(trip.status === 2 || trip.status === 3) && (
                 trip.discountAmount ? (
-                  <div className="small mt-2" style={{ color: '#0d6e4a' }}>
-                    <i className="fa-solid fa-tag me-1" />
-                    Cupón {trip.couponCode} · −S/ {trip.discountAmount.toFixed(2)}
-                  </div>
+                  <Notice tone="ok" icon="fa-tag">
+                    Cupón <strong>{trip.couponCode}</strong> aplicado · −S/ {trip.discountAmount.toFixed(2)}
+                  </Notice>
                 ) : (
-                  <button type="button"
-                          className="btn btn-sm btn-bugie-outline rounded-pill mt-2"
-                          onClick={() => setCuponAbierto(true)}>
-                    <i className="fa-solid fa-tag me-1" />Usar un cupón
-                  </button>
+                  <>
+                    <LevelCouponHint tripId={trip.id} onApply={() => setCuponAbierto(true)} />
+                    <div>
+                      <button type="button" className="btn btn-sm btn-bugie-outline" onClick={() => setCuponAbierto(true)}>
+                        <i className="fa-solid fa-tag" aria-hidden="true" />Usar un cupón
+                      </button>
+                    </div>
+                  </>
                 )
-              ) : null}
+              )}
             </div>
-            <div className="bugie-kpi flex-grow-1" style={{ minHeight: 'auto', padding: '0.8rem' }}>
-              <div className="label small">Conductor</div>
-              <div className="fw-bold">
-                {trip.driverId
-                  ? <><i className="fa-solid fa-check text-success me-1" />Asignado</>
-                  : 'Buscando…'}
-              </div>
-            </div>
-            {sortedWp.length > 0 && (
-              <div className="bugie-kpi flex-grow-1" style={{ minHeight: 'auto', padding: '0.8rem' }}>
-                <div className="label small">Paradas</div>
-                <div className="fw-bold">{sortedWp.length}</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+          </SectionCard>
 
-      {/* Propuestas de conductores */}
-      {(() => {
-        // Filtramos las ocultadas manualmente. Las pending nunca se ocultan
-        // (porque "Rechazar" del pasajero ya las marca rejected y muestra feedback,
-        // y la X solo aparece en cards rejected/declinadas).
-        const visible = proposals.filter(p => !hiddenIds.has(p.id));
-        if (visible.length === 0) return null;
-
-        // ¿Hay alguna propuesta en estado 'accepted_by_passenger'?
-        // Si sí: bloqueamos el botón "Aceptar" de TODAS las demás cards (ya
-        // aceptó una, no puede aceptar otra) y mostramos un banner amarillo.
-        const waiting = visible.find(p => p.status === 'accepted_by_passenger');
-        const hasWaiting = !!waiting;
-
-        return (
-        <>
-          {hasWaiting && (
-            <div className="bugie-card mb-3" style={{
-              border: '2px solid #f59e0b',
-              background: 'rgba(245,158,11,0.08)',
-            }}>
-              <div className="bugie-card-body">
-                <div className="d-flex gap-3 align-items-start">
-                  <i className="fa-solid fa-hourglass-half"
-                     style={{ color: '#f59e0b', fontSize: '1.4rem', marginTop: 2 }} />
-                  <div className="flex-grow-1">
-                    <div className="fw-bold mb-1" style={{ color: '#f59e0b' }}>
-                      Esperando confirmación del conductor
-                    </div>
-                    <div className="small bugie-muted">
-                      Aceptaste a <strong>{waiting!.driverName}</strong>.
-                      En cuanto confirme, empieza el viaje.
-                      Si tarda demasiado, puedes cambiar de opinión.
-                    </div>
-                  </div>
+          {/* Propuestas de conductores */}
+          {offerEntries.length > 0 && (
+            <SectionCard
+              title={`${Math.max(visible.length, 1)} conductor${visible.length > 1 ? 'es proponen' : ' propone'} una tarifa`}
+              icon="fa-tag"
+              description="Acepta, contrapropón o rechaza. Se actualiza solo."
+              footer={pendingFromDrivers > 1 && (
+                <div className="text-center">
+                  <button type="button" className="btn btn-sm btn-link text-danger" onClick={rejectAllProposals}>
+                    <i className="fa-solid fa-xmark" aria-hidden="true" />Rechazar todas las propuestas
+                  </button>
                 </div>
-                {/* Botón cambiar de opinión: vuelve la propuesta a pending
-                    y queda registrado en BD. */}
-                <button
-                  type="button"
-                  className="btn btn-outline-warning rounded-pill mt-3 w-100"
-                  onClick={() => cancelAcceptance(waiting!.id)}>
-                  <i className="fa-solid fa-rotate-left me-2" />
-                  Cambiar de opinión
-                </button>
-              </div>
-            </div>
-          )}
-
-        <div className="bugie-card mb-3">
-          <div className="bugie-card-header">
-            <i className="fa-solid fa-tag me-2 text-bugie-accent" />
-            {visible.length} conductor{visible.length > 1 ? 'es proponen' : ' propone'} una tarifa
-          </div>
-          <div className="bugie-card-body d-flex flex-column gap-2">
-            {visible.map(p => {
-              const trendIcon = p.trend === 'down' ? 'fa-arrow-down'
-                              : p.trend === 'up'   ? 'fa-arrow-up'
-                                                   : null;
-              const trendColor = p.trend === 'down' ? '#16a34a'
-                               : p.trend === 'up'   ? '#dc2626'
-                                                    : '#94a3b8';
-              const trendLabel = p.trend === 'down' ? 'Bajó'
-                               : p.trend === 'up'   ? 'Subió'
-                                                    : null;
-              const isMine     = p.proposedByRole === 'passenger';
-              const isOpen     = counteringId === p.id;
-              // Declinada por el conductor (lo que el pasajero ve después de que jacinto declina)
-              const isDeclined = p.status === 'rejected' && p.rejectedBy === 'driver';
-              // Esta propuesta es la que el pasajero ya aceptó (esperando confirm).
-              // Se ve con borde amarillo y SIN botones (ya decidió).
-              const isAcceptedByMe = p.status === 'accepted_by_passenger';
-              return (
-                <div key={p.id}
-                  className={`p-3 rounded-3 position-relative ${isAcceptedByMe ? 'border border-warning' : isMine ? 'border border-warning border-opacity-50' : isDeclined ? 'border border-danger border-opacity-50' : ''}`}
-                  style={{
-                    background: isAcceptedByMe ? 'rgba(245,158,11,0.12)' : 'var(--bugie-bg-2)',
-                    opacity: isDeclined ? 0.85 : 1,
-                  }}>
-
-                  {/* Chip "Aceptaste a este" cuando esta es la propuesta elegida */}
-                  {isAcceptedByMe && (
-                    <span className="badge mb-2" style={{
-                      background: '#f59e0b', color: 'white', fontWeight: 600,
-                    }}>
-                      <i className="fa-solid fa-hourglass-half me-1" />
-                      Esperando confirmación del conductor
-                    </span>
-                  )}
-
-                  {/* Botón X para ocultar (solo si está declinada por el conductor) */}
-                  {isDeclined && (
-                    <button type="button"
-                      className="btn-close position-absolute"
-                      aria-label="Ocultar"
-                      title="Ocultar esta propuesta"
-                      style={{ top: 8, right: 8, fontSize: '0.7rem', filter: 'invert(0.7)' }}
-                      onClick={() => setHiddenIds(prev => new Set(prev).add(p.id))}
-                    />
-                  )}
-
-                  <div className="d-flex align-items-center gap-3 flex-wrap">
-
-                    {/* Avatar */}
-                    <div className={`d-flex align-items-center justify-content-center rounded-circle flex-shrink-0 ${isDeclined ? 'bg-danger bg-opacity-25' : isMine ? 'bg-warning bg-opacity-25' : 'bg-primary bg-opacity-25'}`}
-                         style={{ width: 44, height: 44 }}>
-                      <i className={`fa-solid fa-car-side ${isDeclined ? 'text-danger' : isMine ? 'text-warning' : 'text-primary'}`} />
-                    </div>
-
-                    {/* Info conductor */}
-                    <div className="flex-grow-1" style={{ minWidth: 180 }}>
-                      <div className="fw-semibold text-truncate">
-                        {p.driverName}
-                        {p.vehiclePlate && (
-                          <span className="bugie-muted ms-2 small">· {p.vehiclePlate}</span>
-                        )}
-                      </div>
-                      {(p.vehicleBrand || p.vehicleModel || p.vehicleColor) && (
-                        <div className="small bugie-muted text-truncate">
-                          {[p.vehicleBrand, p.vehicleModel, p.vehicleColor]
-                            .filter(Boolean).join(' · ')}
-                        </div>
+              )}
+            >
+              <div className="bx-stack-sm" ref={offersRef}>
+                {offerEntries.map(({ item: p, state: anim }) => {
+                  const isMine     = p.proposedByRole === 'passenger';
+                  const isOpen     = counteringId === p.id;
+                  // Declinada por el conductor
+                  const isDeclined = p.status === 'rejected' && p.rejectedBy === 'driver';
+                  // La propuesta que el pasajero ya aceptó (esperando confirmación): sin botones.
+                  const isAcceptedByMe = p.status === 'accepted_by_passenger';
+                  const cls = isAcceptedByMe ? 'is-chosen' : isDeclined ? 'is-declined' : isMine ? 'is-mine' : '';
+                  // Animación: nueva entra con slide + resaltado; la que se va sale colapsando.
+                  const animCls = anim === 'enter' ? 'is-entering' : anim === 'exit' ? 'is-leaving' : '';
+                  return (
+                    <article key={p.id} data-flip-key={p.id} className={`bx-offer ${cls} ${animCls}`}
+                             aria-hidden={anim === 'exit' || undefined}>
+                      {isAcceptedByMe && (
+                        <StatusBadge tone="warn" icon="fa-hourglass-half">Esperando confirmación del conductor</StatusBadge>
                       )}
-                      <div className="small bugie-muted">
-                        {timeAgo(p.createdAt)}
-                        {isMine && !isDeclined && (
-                          <span className="ms-2 text-warning">· Esperando respuesta</span>
-                        )}
-                        {isDeclined && (
-                          <span className="ms-2 text-danger fw-semibold">
-                            <i className="fa-solid fa-ban me-1" />
-                            El conductor declinó
-                          </span>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Precio + tendencia */}
-                    <div className="text-end flex-shrink-0">
-                      <div className={`fw-bold fs-4 lh-1 ${isDeclined ? 'text-danger text-decoration-line-through' : isMine ? 'text-warning' : 'text-primary'}`}>
-                        S/ {p.fare.toFixed(2)}
-                      </div>
-                      {trendIcon && !isDeclined && (
-                        <div className={`small mt-1 ${p.trend === 'down' ? 'text-success' : p.trend === 'up' ? 'text-danger' : 'text-secondary'}`}>
-                          <i className={`fa-solid ${trendIcon} me-1`} />
-                          {trendLabel}
-                          {p.previousFare != null && (
-                            <span className="ms-1 bugie-muted">
-                              (antes S/ {p.previousFare.toFixed(2)})
-                            </span>
+                      <div className="bx-offer-head">
+                        <span className={`bx-list-icon bx-tone-${isDeclined ? 'bad' : isMine ? 'warn' : 'primary'}`} aria-hidden="true">
+                          <i className="fa-solid fa-car-side" />
+                        </span>
+                        <div className="bx-offer-who">
+                          <div className="n">
+                            {p.driverName}
+                            {p.vehiclePlate && <span className="bx-muted small fw-normal"> · {p.vehiclePlate}</span>}
+                          </div>
+                          {(p.vehicleBrand || p.vehicleModel || p.vehicleColor) && (
+                            <div className="s">{[p.vehicleBrand, p.vehicleModel, p.vehicleColor].filter(Boolean).join(' · ')}</div>
+                          )}
+                          <div className="s">
+                            {timeAgo(p.createdAt)}
+                            {isMine && !isDeclined && <span className="bx-text-warn"> · Tu contrapropuesta, esperando respuesta</span>}
+                            {isDeclined && (
+                              <span className="bx-text-bad fw-semibold"> · <i className="fa-solid fa-ban" aria-hidden="true" /> El conductor declinó</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="bx-offer-price">
+                          {/* Destello al cambiar el monto: verde si baja (bueno para el pasajero), ámbar si sube */}
+                          <FlashOnChange value={p.fare} good={(a, b) => b < a}>
+                            <div className="v">S/ {p.fare.toFixed(2)}</div>
+                          </FlashOnChange>
+                          {p.trend !== 'new' && !isDeclined && (
+                            <div className={`t ${p.trend}`}>
+                              <i className={`fa-solid ${p.trend === 'down' ? 'fa-arrow-down' : 'fa-arrow-up'} me-1`} aria-hidden="true" />
+                              {p.trend === 'down' ? 'Bajó' : 'Subió'}
+                              {p.previousFare != null && <span className="bx-muted fw-normal"> (antes S/ {p.previousFare.toFixed(2)})</span>}
+                            </div>
                           )}
                         </div>
+                        {isDeclined && (
+                          <IconButton icon="fa-xmark" label="Ocultar esta propuesta" size="sm" variant="ghost"
+                                      onClick={() => setHiddenIds(prev => new Set(prev).add(p.id))} />
+                        )}
+                      </div>
+
+                      {/* Acciones: no si está declinada, si es mi contrapropuesta, si está
+                          abierto el campo o si es la que YA acepté. */}
+                      {!isMine && !isOpen && !isDeclined && !isAcceptedByMe && (
+                        <div className="bx-offer-actions">
+                          <button type="button" className="btn btn-sm btn-bugie-outline bx-icon-only"
+                                  title="Ver propuestas anteriores" aria-label={`Ver propuestas anteriores de ${p.driverName}`}
+                                  onClick={() => openHistory(p.driverId, p.driverName)}>
+                            <i className="fa-solid fa-clock-rotate-left" aria-hidden="true" />
+                          </button>
+                          <button type="button" className="btn btn-sm btn-outline-danger"
+                                  disabled={hasWaiting} onClick={() => rejectOne(p.id)}>
+                            <i className="fa-solid fa-xmark" aria-hidden="true" />Rechazar
+                          </button>
+                          <button type="button" className="btn btn-sm btn-bugie-outline"
+                                  disabled={hasWaiting}
+                                  onClick={() => {
+                                    setCounteringId(p.id);
+                                    setCounterFare(prev => ({ ...prev, [p.id]: p.fare.toFixed(2) }));
+                                  }}>
+                            <i className="fa-solid fa-arrow-right-arrow-left" aria-hidden="true" />Contraproponer
+                          </button>
+                          <button type="button" className="btn btn-sm btn-success"
+                                  disabled={hasWaiting}
+                                  title={hasWaiting ? 'Ya aceptaste otra propuesta. Espera la confirmación del conductor.' : undefined}
+                                  onClick={() => acceptProposal(p.id)}>
+                            <i className="fa-solid fa-check" aria-hidden="true" />
+                            {hasWaiting ? 'Esperando otro conductor' : `Aceptar S/ ${p.fare.toFixed(2)}`}
+                          </button>
+                        </div>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Acciones (solo si NO está declinada, NO es mi contrapropuesta vigente,
-                      NO está abierto input, NO es la propuesta que YA acepté). */}
-                  {!isMine && !isOpen && !isDeclined && !isAcceptedByMe && (
-                    <div className="d-flex align-items-center justify-content-end gap-2 mt-3 flex-wrap">
-                      <button type="button"
-                        className="btn btn-sm btn-outline-secondary rounded-pill"
-                        title="Ver propuestas anteriores"
-                        onClick={() => openHistory(p.driverId, p.driverName)}>
-                        <i className="fa-solid fa-clock-rotate-left" />
-                      </button>
-
-                      <button type="button"
-                        className="btn btn-sm btn-outline-danger rounded-pill"
-                        title="Rechazar"
-                        disabled={hasWaiting}
-                        onClick={() => rejectOne(p.id)}>
-                        <i className="fa-solid fa-xmark" />
-                      </button>
-
-                      <button type="button"
-                        className="btn btn-sm btn-bugie-outline rounded-pill"
-                        disabled={hasWaiting}
-                        onClick={() => {
-                          setCounteringId(p.id);
-                          setCounterFare(prev => ({ ...prev, [p.id]: p.fare.toFixed(2) }));
-                        }}>
-                        <i className="fa-solid fa-arrow-right-arrow-left me-1" />
-                        Contraproponer
-                      </button>
-
-                      <button type="button"
-                        className="btn btn-sm btn-success rounded-pill px-3"
-                        disabled={hasWaiting}
-                        title={hasWaiting ? 'Ya aceptaste otra propuesta. Espera la confirmación del conductor.' : ''}
-                        onClick={() => acceptProposal(p.id, p.fare)}>
-                        <i className="fa-solid fa-check me-2" />
-                        {hasWaiting ? 'Esperando otro conductor' : `Aceptar S/ ${p.fare.toFixed(2)}`}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Input de contrapropuesta abierto */}
-                  {isOpen && (
-                    <div className="mt-3 p-3 rounded-3"
-                         style={{ background: 'var(--bugie-surface)' }}>
-                      <label className="form-label small bugie-muted mb-1">
-                        Tu monto propuesto (S/)
-                      </label>
-                      <div className="input-group input-group-sm">
-                        <span className="input-group-text">S/</span>
-                        <input
-                          type="number" min={1} step={0.5}
-                          className="form-control"
-                          value={counterFare[p.id] ?? ''}
-                          onChange={e => setCounterFare(prev =>
-                            ({ ...prev, [p.id]: e.target.value }))}
-                          disabled={counterSending}
-                        />
-                        <button type="button"
-                          className="btn btn-outline-secondary"
-                          disabled={counterSending}
-                          onClick={() => setCounteringId(null)}>
-                          Cancelar
-                        </button>
-                        <button type="button"
-                          className="btn btn-bugie text-white"
-                          disabled={counterSending}
-                          onClick={async () => {
+                      {/* Contrapropuesta */}
+                      {isOpen && (
+                        <form
+                          className="bx-box"
+                          onSubmit={async e => {
+                            e.preventDefault();
                             const fare = parseFloat(counterFare[p.id] ?? '0');
                             if (isNaN(fare) || fare <= 0) {
-                              setError('Ingresa un monto válido.');
+                              toast.warning('Ingresa un monto válido.');
                               return;
                             }
                             setCounterSending(true);
                             await counterPropose(p.driverId, fare);
                             setCounterSending(false);
                             setCounteringId(null);
-                          }}>
-                          {counterSending
-                            ? <span className="spinner-border spinner-border-sm" />
-                            : <><i className="fa-solid fa-paper-plane me-1" />Enviar</>}
-                        </button>
-                      </div>
-                    </div>
+                          }}
+                        >
+                          <label className="bx-field-label mb-1" htmlFor={`counter-${p.id}`}>Tu monto propuesto</label>
+                          <div className="input-group">
+                            <span className="input-group-text">S/</span>
+                            <input
+                              id={`counter-${p.id}`}
+                              type="number" min={1} step={0.5} inputMode="decimal"
+                              className="form-control"
+                              value={counterFare[p.id] ?? ''}
+                              onChange={e => setCounterFare(prev => ({ ...prev, [p.id]: e.target.value }))}
+                              disabled={counterSending}
+                              autoFocus
+                            />
+                          </div>
+                          <div className="bx-actions end mt-2">
+                            <button type="button" className="btn btn-sm btn-bugie-outline" disabled={counterSending}
+                                    onClick={() => setCounteringId(null)}>
+                              Cancelar
+                            </button>
+                            <button type="submit" className="btn btn-sm btn-bugie" disabled={counterSending}>
+                              {counterSending
+                                ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+                                : <i className="fa-solid fa-paper-plane" aria-hidden="true" />}
+                              Enviar
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Datos del envío: paquete, destinatario, estado y fotos */}
+          {delivery && (
+            <SectionCard
+              title="Tu envío"
+              icon="fa-box"
+              actions={trip.deliveryConfirmedAt
+                ? <StatusBadge tone="ok">Entregado</StatusBadge>
+                : trip.pickupVerified
+                  ? <StatusBadge tone="info">Paquete recogido</StatusBadge>
+                  : <StatusBadge tone="warn">Esperando recojo</StatusBadge>}
+            >
+              <div className="bx-stack">
+                <InfoList items={[
+                  { label: 'Paquete', value: trip.packageDescription || '—', wide: true },
+                  { label: 'Peso', value: `${trip.packageWeightKg} kg`, hidden: trip.packageWeightKg == null },
+                  { label: 'Frágil', value: trip.packageIsFragile
+                      ? <span className="bx-text-bad"><i className="fa-solid fa-triangle-exclamation me-1" aria-hidden="true" />Sí</span>
+                      : 'No' },
+                  { label: 'Detalles', value: trip.packageDetails, wide: true, hidden: !trip.packageDetails },
+                  { label: 'Recibe', value: trip.recipientName || '—' },
+                  { label: 'Teléfono', value: trip.recipientPhone
+                      ? <a href={`tel:${trip.recipientPhone}`}>{trip.recipientPhone}</a> : '—' },
+                ]} />
+
+                <div className="bx-box small">
+                  {trip.deliveryConfirmedAt ? (
+                    <><i className="fa-solid fa-circle-check bx-text-ok me-2" aria-hidden="true" />
+                      Entregado a <strong>{trip.deliveryReceivedBy || 'destinatario'}</strong>, a las {hourOf(trip.deliveryConfirmedAt)}</>
+                  ) : trip.pickupVerified ? (
+                    <><i className="fa-solid fa-box-open me-2" aria-hidden="true" />Paquete recogido y verificado</>
+                  ) : (
+                    <><i className="fa-solid fa-hourglass-half bx-text-warn me-2" aria-hidden="true" />Esperando recojo</>
                   )}
+                  {trip.pickupObservation && (
+                    <div className="bx-muted mt-1">Observación del conductor: {trip.pickupObservation}</div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="bx-box-title"><i className="fa-solid fa-images" aria-hidden="true" />Fotos</div>
+                  <TripPhotos tripId={trip.id}
+                    refreshKey={`${trip.pickupVerified ? 1 : 0}-${trip.deliveryConfirmedAt ?? ''}`} />
+                </div>
+              </div>
+            </SectionCard>
+          )}
+        </div>
+
+        {/* Mapa */}
+        <div className="bx-track-side">
+          <SectionCard flush>
+            {hasCoords ? (
+              <div className="p-2 bx-map">
+                <BugieMap
+                  height="clamp(260px, 45vh, 460px)"
+                  showRoute
+                  origin={{ lat: trip.originLat, lng: trip.originLng }}
+                  destination={{ lat: trip.destLat, lng: trip.destLng }}
+                  waypoints={wpCoords}
+                  driver={trip.driverCurrentLat != null && trip.driverCurrentLng != null
+                    ? { lat: trip.driverCurrentLat, lng: trip.driverCurrentLng } : null}
+                />
+              </div>
+            ) : (
+              <EmptyState compact icon="fa-map" title="Mapa no disponible" />
+            )}
+          </SectionCard>
+        </div>
+      </div>
+
+      {/* Aviso: el conductor llegó al punto de recojo */}
+      <Modal
+        open={arrivedOpen}
+        onClose={() => setArrivedOpen(false)}
+        size="sm"
+
+        footer={
+          <button type="button" className="btn btn-bugie w-100" data-autofocus onClick={() => setArrivedOpen(false)}>
+            Entendido
+          </button>
+        }
+      >
+        <div className="bx-hero-state bx-tone-ok" role="alertdialog" aria-labelledby="arrived-title">
+          <span className="ico" aria-hidden="true"><i className="fa-solid fa-location-dot" /></span>
+          <div className="d-flex justify-content-center gap-2 flex-wrap">
+            <FromBadge by="driver" />
+            <ServiceIcon delivery={delivery} />
+          </div>
+          <h2 id="arrived-title">Tu conductor llegó</h2>
+          <p>
+            {delivery
+              ? 'Tu conductor ya está en el punto de recojo. Entrégale el paquete.'
+              : 'Tu conductor ya está en el punto de recojo. Sal a su encuentro.'}
+          </p>
+        </div>
+      </Modal>
+
+      {/* Histórico de propuestas de un conductor (solo visual) */}
+      <Modal
+        open={historyOpen && !!historyDriver}
+        onClose={closeHistory}
+        size="sm"
+        title={historyDriver ? `Propuestas de ${historyDriver.name}` : 'Propuestas'}
+        description={`Lo que te propuso para tu ${delivery ? 'envío' : 'viaje'}. Solo visual.`}
+        footer={<button type="button" className="btn btn-bugie-outline" onClick={closeHistory}>Cerrar</button>}
+      >
+        {historyLoading ? (
+          <Skeleton height={48} count={3} />
+        ) : historyEntries.length === 0 ? (
+          <EmptyState compact title="No hay registros" />
+        ) : (
+          <div className="bx-stack-sm">
+            {historyEntries.map(h => {
+              const cfg = HISTORY_LABEL[h.status] ?? { label: h.status, tone: 'neutral' as Tone };
+              return (
+                <div key={h.id} className="bx-box d-flex justify-content-between align-items-center gap-2 m-0"
+                     style={{ opacity: h.status === 'pending' ? 1 : 0.8 }}>
+                  <div>
+                    <div className="fw-bold">S/ {h.fare.toFixed(2)}</div>
+                    <div className="small bx-muted">{timeAgo(h.createdAt)}</div>
+                  </div>
+                  <StatusBadge tone={cfg.tone}>{cfg.label}</StatusBadge>
                 </div>
               );
             })}
-
-            {/* Botón "Rechazar todas" — solo si hay 2+ propuestas pending */}
-            {visible.filter(p => p.status === 'pending' && p.proposedByRole !== 'passenger').length > 1 && (
-              <div className="text-center mt-2">
-                <button type="button"
-                  className="btn btn-sm btn-link text-danger"
-                  onClick={rejectAllProposals}>
-                  <i className="fa-solid fa-xmark me-1" />
-                  Rechazar todas las propuestas
-                </button>
-              </div>
-            )}
           </div>
-        </div>
-        </>
-        );
-      })()}
+        )}
+        <p className="small bx-muted mt-3 mb-0">
+          <i className="fa-solid fa-circle-info me-1" aria-hidden="true" />
+          Solo puedes aceptar la propuesta vigente. Para volver a un precio anterior, pide al conductor que la envíe de nuevo.
+        </p>
+      </Modal>
 
-      {/* Mapa */}
-      {hasCoords ? (
-        <div className="bugie-card mb-3 p-2">
-          <BugieMap
-            height={340}
-            showRoute
-            origin={{ lat: trip.originLat, lng: trip.originLng }}
-            destination={{ lat: trip.destLat, lng: trip.destLng }}
-            waypoints={wpCoords}
-          />
-        </div>
-      ) : (
-        <div className="bugie-card mb-3 p-3 text-center bugie-muted small">
-          <i className="fa-solid fa-map fa-2x mb-2 d-block" />Mapa no disponible.
-        </div>
-      )}
-
-      {/* Cancelar */}
-      {trip.status === 1 && (
-        <button className="btn btn-outline-secondary rounded-pill w-100 mb-3" onClick={cancel}>
-          <i className="fa-solid fa-xmark me-2" />Cancelar viaje
-        </button>
-      )}
-
-      {/* SOS */}
-      {[1, 2, 3].includes(trip.status) && (
-        <div className="mt-2">
-          <div className="small bugie-muted text-center mb-2">Solo en caso de emergencia real</div>
-          <a className="btn btn-danger rounded-pill fw-bold w-100" href="/app/pasajero/sos">
-            <i className="fa-solid fa-triangle-exclamation me-2" />SOS — Emergencia
-          </a>
-        </div>
-      )}
-
-      {/* Aviso: el conductor llego al punto de recojo */}
-      {arrivedOpen && (
-        <div
-          className="modal-backdrop-bugie"
-          onClick={() => setArrivedOpen(false)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1060, padding: 16,
-          }}>
-          <div className="bugie-card text-center" onClick={e => e.stopPropagation()}
-               role="alertdialog" aria-labelledby="arrived-title"
-               style={{ maxWidth: 380, width: '100%' }}>
-            <div className="bugie-card-body p-4">
-              <i className="fa-solid fa-location-dot fa-3x text-success mb-3 d-block" />
-              <h2 id="arrived-title" className="h5 fw-bold mb-2">Tu conductor llegó</h2>
-              <p className="bugie-muted mb-3">Tu conductor ya está en el punto de recojo. Sal a su encuentro.</p>
-              <button className="btn btn-bugie text-white rounded-pill w-100" onClick={() => setArrivedOpen(false)}>
-                Entendido
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de histórico de propuestas (solo visual) */}
-      {historyOpen && historyDriver && (
-        <div
-          className="modal-backdrop-bugie"
-          onClick={closeHistory}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1050, padding: 16,
-          }}>
-          <div
-            className="bugie-card"
-            onClick={e => e.stopPropagation()}
-            style={{ maxWidth: 420, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <div className="bugie-card-header d-flex justify-content-between align-items-center">
-              <span>
-                <i className="fa-solid fa-clock-rotate-left me-2" />
-                Historial — {historyDriver.name}
-              </span>
-              <button className="btn btn-sm btn-link p-0" onClick={closeHistory}>
-                <i className="fa-solid fa-xmark" />
-              </button>
-            </div>
-            <div className="bugie-card-body">
-              <div className="small bugie-muted mb-2">
-                Propuestas anteriores de este conductor para tu viaje. Solo visual.
-              </div>
-              {historyLoading ? (
-                <div className="text-center py-3">
-                  <span className="spinner-border spinner-border-sm" />
-                </div>
-              ) : historyEntries.length === 0 ? (
-                <div className="text-center py-3 small bugie-muted">
-                  No hay registros.
-                </div>
-              ) : (
-                <div className="d-flex flex-column gap-2">
-                  {historyEntries.map((h, idx) => {
-                    const isCurrent = h.status === 'pending';
-                    const labelMap: Record<string, string> = {
-                      pending:    'Actual',
-                      superseded: 'Modificada',
-                      accepted:   'Aceptada',
-                      rejected:   'Rechazada',
-                    };
-                    const colorMap: Record<string, string> = {
-                      pending:    '#818cf8',
-                      superseded: '#94a3b8',
-                      accepted:   '#16a34a',
-                      rejected:   '#dc2626',
-                    };
-                    return (
-                      <div key={h.id}
-                        className="d-flex justify-content-between align-items-center p-2"
-                        style={{
-                          background: 'var(--bugie-bg-2)',
-                          borderRadius: 10,
-                          opacity: isCurrent ? 1 : 0.75,
-                        }}>
-                        <div>
-                          <div className="fw-bold" style={{ color: colorMap[h.status] }}>
-                            S/ {h.fare.toFixed(2)}
-                          </div>
-                          <div className="small bugie-muted">{timeAgo(h.createdAt)}</div>
-                        </div>
-                        <span className="badge rounded-pill"
-                          style={{ background: colorMap[h.status], color: '#fff' }}>
-                          {labelMap[h.status] ?? h.status}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="small bugie-muted mt-3">
-                <i className="fa-solid fa-circle-info me-1" />
-                Solo puedes aceptar la propuesta vigente. Para volver a un precio anterior,
-                pide al conductor que la envíe de nuevo.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {cuponAbierto && trip ? (
         <ApplyCouponModal
           tripId={trip.id}
@@ -829,6 +962,7 @@ export default function PassengerTracking() {
           onClose={() => setCuponAbierto(false)}
           onApplied={(r: CouponApplied) => {
             setCuponAbierto(false);
+            toast.success(`Cupón ${r.code} aplicado.`);
             // Se refleja de inmediato sin esperar al siguiente sondeo.
             setTrip(t => t ? {
               ...t,
@@ -839,7 +973,6 @@ export default function PassengerTracking() {
           }}
         />
       ) : null}
-
-    </>
+    </Page>
   );
 }

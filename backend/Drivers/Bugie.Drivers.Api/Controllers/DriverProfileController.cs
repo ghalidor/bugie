@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Drivers.Application.Services;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
 
@@ -18,13 +19,16 @@ public class DriverProfileController : ControllerBase
 {
     private readonly IDriverRepository _drivers;
     private readonly IDriveStorageService _storage;
+    private readonly DriverDocumentsDeadlineService _deadline;
 
     public DriverProfileController(
         IDriverRepository drivers,
-        IDriveStorageService storage)
+        IDriveStorageService storage,
+        DriverDocumentsDeadlineService deadline)
     {
         _drivers = drivers;
         _storage = storage;
+        _deadline = deadline;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -46,6 +50,9 @@ public class DriverProfileController : ControllerBase
         if(file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "La imagen no puede pesar más de 5 MB." });
 
+        if(Bugie.Drivers.Api.Security.UploadCheck.Error(file) is { } fileError)
+            return BadRequest(new { error = fileError });
+
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
 
@@ -59,6 +66,11 @@ public class DriverProfileController : ControllerBase
 
         driver.SetProfilePhoto(stored.PreviewUrl);
         await _drivers.UpdateAsync(driver, ct);
+
+        // La foto de perfil es un requisito: si era lo último que faltaba en
+        // una aprobación por excepción, se cierra el plazo.
+        try { await _deadline.CloseDeadlineIfCompleteAsync(driver, ct); }
+        catch { /* el plazo se revisa también al aprobar documentos y en el job */ }
 
         return Ok(new { profilePhotoUrl = stored.PreviewUrl });
     }

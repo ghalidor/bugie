@@ -13,4 +13,9 @@ public record UpdateLevelCommand(
     int     MonthlyFreeTrips,
     int     WeeklyRaffleTickets,
     int     MonthlyRaffleTickets,
-    bool    IsActive) : IRequest<RewardLevelDto>;
+    bool    IsActive,
+    // Null = no se envio: se conserva lo que tenia (compatibilidad con el admin anterior).
+    int?     MonthlyDiscountCoupons = null,
+    // Null con MonthlyFreeTrips > 0 = se conserva el tope actual.
+    // Null con MonthlyFreeTrips = 0 = sin tope (no hay viajes gratis).
+    decimal? FreeTripMaxAmount      = null) : IRequest<RewardLevelDto>;

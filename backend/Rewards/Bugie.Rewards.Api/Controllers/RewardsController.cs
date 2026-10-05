@@ -169,14 +169,59 @@ public class RewardsController : ControllerBase
     public async Task<IActionResult> Raffles(CancellationToken ct) =>
         Ok(await _mediator.Send(new GetUserRafflesQuery(CurrentUserId, CurrentUserType), ct));
 
+    public record UseTicketCouponRequest(Guid? RedemptionId);
+
     /// <summary>
-    /// GET /api/rewards/me/raffles
-    /// Solo aquellos donde ya tengo tickets. Se mantiene por compatibilidad;
-    /// para la pantalla conviene /raffles, que además muestra los que vienen.
+    /// POST /api/rewards/raffles/{raffleId}/use-ticket-coupon
+    /// Usa un cupón de ticket de sorteo (canjeado en el catálogo) en este
+    /// sorteo: crea los tickets (tantos como diga el cupón) y marca el cupón
+    /// como usado. Body: { "redemptionId": "..." }; si se omite, usa el cupón
+    /// de ticket que vence primero. El sorteo debe estar abierto y el usuario
+    /// cumplir sus requisitos (tipo de cuenta, nivel, antigüedad).
     /// </summary>
-    [HttpGet("me/raffles")]
-    public async Task<IActionResult> MyRaffles(CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetMyRafflesQuery(CurrentUserId), ct));
+    [HttpPost("raffles/{raffleId:guid}/use-ticket-coupon")]
+    public async Task<IActionResult> UseTicketCoupon(
+        Guid raffleId, [FromBody] UseTicketCouponRequest? body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _mediator.Send(new UseRaffleTicketCouponCommand(
+                CurrentUserId, CurrentUserType, raffleId, body?.RedemptionId), ct));
+        }
+        catch (KeyNotFoundException ex)      { return NotFound(new { error = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    /// <summary>
+    /// GET /api/rewards/me/level-benefits
+    /// Beneficios de mi nivel en el mes (solo pasajero): cupones de descuento
+    /// y viajes gratis del mes (total, usados, disponibles), tope del viaje
+    /// gratis, fin de mes y si los cupones se aplican a la tarifa.
+    /// </summary>
+    [HttpGet("me/level-benefits")]
+    public async Task<IActionResult> MyLevelBenefits(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetMyLevelBenefitsQuery(CurrentUserId, CurrentUserType), ct));
+
+    public record ClaimLevelBenefitRequest(string Type);
+
+    /// <summary>
+    /// POST /api/rewards/me/level-benefits/claim
+    /// Reclama un cupón de mi nivel (solo pasajero). Body: { "type": "discount" | "free_trip" }.
+    /// No cuesta puntos; el cupón (código BG-) vence al terminar el mes y
+    /// aparece en Mis cupones. Lo no reclamado en el mes no se acumula.
+    /// </summary>
+    [HttpPost("me/level-benefits/claim")]
+    public async Task<IActionResult> ClaimLevelBenefit(
+        [FromBody] ClaimLevelBenefitRequest body, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _mediator.Send(
+                new ClaimLevelBenefitCommand(CurrentUserId, CurrentUserType, body?.Type ?? ""), ct));
+        }
+        catch (ArgumentException ex)         { return BadRequest(new { error = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
 
     /// <summary>
     /// GET /api/rewards/levels

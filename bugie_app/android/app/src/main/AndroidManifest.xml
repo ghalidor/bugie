@@ -47,6 +47,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Firebase Cloud Messaging: valores por defecto de las notificaciones
+             que muestra el sistema con la app en segundo plano o cerrada.
+             - Ícono monocromo (si no, sale el ícono de la app como cuadrado).
+             - Canal de alta prioridad: Rewards no manda ChannelId en el push,
+               sin esto caería en el canal genérico "Miscellaneous". -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_bugie" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/bugie_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="bugie_high_priority" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -62,6 +76,16 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher: abrir enlaces web (Libro de Reclamaciones) en el
+             navegador externo. Android 11+ exige declararlo. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
         </intent>
     </queries>
 </manifest>

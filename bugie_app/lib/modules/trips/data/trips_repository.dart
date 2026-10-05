@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:latlong2/latlong.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_config.dart';
@@ -6,6 +7,8 @@ import '../domain/proposal_model.dart';
 import '../domain/rating_model.dart';
 import '../domain/route_model.dart';
 import '../domain/trip_model.dart';
+import '../domain/trip_photo_model.dart';
+import '../../../core/widgets/schedule_picker.dart';
 
 /// Repositorio de viajes (puerto 5002).
 /// Lo usan tanto el módulo passenger como driver.
@@ -15,7 +18,8 @@ class TripsRepository {
 
   // ── Pasajero ─────────────────────────────────────────────────────────────
 
-  /// POST /api/trips
+  /// POST /api/trips — crea un VIAJE (serviceType 0). Los envíos usan
+  /// [createDelivery] (POST /api/trips/delivery).
   Future<Trip> create({
     required String originAddress,
     required double originLat,
@@ -26,16 +30,11 @@ class TripsRepository {
     required double estimatedFare,
     required String paymentMethod, // 'cash' | 'yape' | 'plin'
     List<Waypoint> waypoints = const [],
-    // ---- Envío (Delivery) ----
-    bool isDelivery = false,
-    String? packageDescription,
-    double? packageWeightKg,
-    bool packageIsFragile = false,
-    String? packageDetails,
-    String? recipientName,
-    String? recipientPhone,
+    // Programado: hora de Perú. null = ahora.
+    DateTime? scheduledAt,
   }) async {
     final json = await _api.post('${ApiConfig.trips}/trips', body: {
+      if (scheduledAt != null) 'scheduledAt': Schedule.toApi(scheduledAt),
       'originAddress': originAddress,
       'originLat': originLat,
       'originLng': originLng,
@@ -45,14 +44,59 @@ class TripsRepository {
       'estimatedFare': estimatedFare,
       'paymentMethod': paymentMethod,
       'waypoints': waypoints.map((w) => w.toJson()).toList(),
-      'serviceType': isDelivery ? 1 : 0,
+      'serviceType': 0,
+    });
+    return Trip.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// POST /api/trips/delivery — crea el ENVÍO con sus fotos en una sola
+  /// petición (campo "data" = JSON del envío, "files" = 1 a 5 fotos).
+  /// Si faltan fotos o alguna no es válida, el backend no crea nada: un envío
+  /// sin fotos del paquete nunca llega a los conductores.
+  Future<Trip> createDelivery({
+    required String originAddress,
+    required double originLat,
+    required double originLng,
+    required String destAddress,
+    required double destLat,
+    required double destLng,
+    required double estimatedFare,
+    required String paymentMethod,
+    List<Waypoint> waypoints = const [],
+    required String packageDescription,
+    double? packageWeightKg,
+    bool packageIsFragile = false,
+    String? packageDetails,
+    required String recipientName,
+    required String recipientPhone,
+    required List<String> photoPaths,
+    // Programado: hora de Perú. null = ahora.
+    DateTime? scheduledAt,
+  }) async {
+    final data = {
+      if (scheduledAt != null) 'scheduledAt': Schedule.toApi(scheduledAt),
+      'originAddress': originAddress,
+      'originLat': originLat,
+      'originLng': originLng,
+      'destAddress': destAddress,
+      'destLat': destLat,
+      'destLng': destLng,
+      'estimatedFare': estimatedFare,
+      'paymentMethod': paymentMethod,
+      'waypoints': waypoints.map((w) => w.toJson()).toList(),
+      'serviceType': 1,
       'packageDescription': packageDescription,
       'packageWeightKg': packageWeightKg,
       'packageIsFragile': packageIsFragile,
       'packageDetails': packageDetails,
       'recipientName': recipientName,
       'recipientPhone': recipientPhone,
-    });
+    };
+    final json = await _api.postMultipartMany(
+      '${ApiConfig.trips}/trips/delivery',
+      fields: {'data': jsonEncode(data)},
+      files: [for (final p in photoPaths) MapEntry('files', p)],
+    );
     return Trip.fromJson(json as Map<String, dynamic>);
   }
 
@@ -77,13 +121,30 @@ class TripsRepository {
     );
   }
 
-  /// POST /api/trips/{id}/package-photos — el cliente sube fotos del paquete.
-  Future<void> uploadPackagePhotos(String tripId, List<String> paths) async {
-    if (paths.isEmpty) return;
-    await _api.postMultipartMany(
-      '${ApiConfig.trips}/trips/$tripId/package-photos',
-      files: [for (final p in paths) MapEntry('files', p)],
-    );
+
+  /// GET /api/trips/{id}/photos — fotos del envío (paquete, recojo y
+  /// entrega). Solo la ven el pasajero, el conductor del viaje o un admin.
+  Future<List<TripPhoto>> getPhotos(String tripId) async {
+    final json = await _api.get('${ApiConfig.trips}/trips/$tripId/photos');
+    final list = (json as List?) ?? [];
+    return list
+        .map((p) => TripPhoto.fromJson(p as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// GET /api/trips/{id}/planned-route — ruta que trazó el sistema
+  /// (tramo de recogida y tramo del viaje). Solo pasajero o conductor del viaje.
+  Future<PlannedRoute> getPlannedRoute(String tripId) async {
+    final json =
+        await _api.get('${ApiConfig.trips}/trips/$tripId/planned-route');
+    return PlannedRoute.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/trips/{id}/real-path — recorrido GPS real del conductor.
+  /// Solo pasajero o conductor del viaje.
+  Future<RealPath> getRealPath(String tripId) async {
+    final json = await _api.get('${ApiConfig.trips}/trips/$tripId/real-path');
+    return RealPath.fromJson(json as Map<String, dynamic>);
   }
 
   /// POST /api/trips/{id}/pickup-verification — el conductor sube la
@@ -103,6 +164,29 @@ class TripsRepository {
         for (final p in secondaryPaths) MapEntry('secondary', p),
       ],
     );
+  }
+
+  /// GET /api/trips/scheduled — programados vigentes (pendientes, negociando
+  /// o aceptados) ordenados por hora. Pasajero: los suyos. Conductor: los
+  /// que tiene asignados.
+  Future<List<Trip>> getScheduled() async {
+    final json = await _api.get('${ApiConfig.trips}/trips/scheduled');
+    final list = (json as List?) ?? [];
+    return list.map((t) => Trip.fromJson(t as Map<String, dynamic>)).toList();
+  }
+
+  /// GET /api/trips/{id}/tracking — seguimiento de UN viaje (con conductor y
+  /// vehículo), aunque todavía no sea el activo (ej. un programado).
+  Future<Trip> getTracking(String tripId) async {
+    final json = await _api.get('${ApiConfig.trips}/trips/$tripId/tracking');
+    return Trip.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// PUT /api/trips/{id}/republish — el conductor del programado no llegó:
+  /// vuelve a pendiente para otros conductores (se quita al conductor).
+  Future<Trip> republish(String tripId) async {
+    final json = await _api.put('${ApiConfig.trips}/trips/$tripId/republish');
+    return Trip.fromJson(json as Map<String, dynamic>);
   }
 
   /// GET /api/trips/active
@@ -466,6 +550,20 @@ class TripsRepository {
       '${ApiConfig.trips}/trips/ratings/me?page=$page&pageSize=$pageSize',
     );
     return RatingPage.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/trips/ratings/me/summary
+  /// Resumen de MI calificación. Conductor: promedio y cantidad.
+  /// Pasajero: ratingsAvailable=false (no existe calificación de pasajeros).
+  Future<({bool available, double? rating, int count})>
+      getMyRatingSummary() async {
+    final json = await _api.get('${ApiConfig.trips}/trips/ratings/me/summary');
+    final j = (json as Map<String, dynamic>?) ?? const {};
+    return (
+      available: j['ratingsAvailable'] == true,
+      rating: (j['myRating'] as num?)?.toDouble(),
+      count: (j['myRatingCount'] as num?)?.toInt() ?? 0,
+    );
   }
 }
 

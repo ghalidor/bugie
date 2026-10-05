@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
 import { API, apiFetch, ApiError } from '../../state/api';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
+import { Notice, Page, SectionCard, Skeleton, useConfirm } from '../../components/ui';
 
 interface ActiveTrip { id: string; originAddress: string; destAddress: string; }
 
 export default function PassengerSOS() {
+  const confirm = useConfirm();
+  const { sosResponseMin } = usePlatformConfig();
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
+  const [loadingTrip, setLoadingTrip] = useState(true);
   const [sending,    setSending]    = useState(false);
   const [sent,       setSent]       = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -14,10 +18,24 @@ export default function PassengerSOS() {
   useEffect(() => {
     apiFetch<ActiveTrip | null>(`${API.trips}/trips/active`)
       .then(setActiveTrip)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadingTrip(false));
   }, []);
 
   async function activate() {
+    if (!activeTrip) {
+      setError('No tienes un viaje activo. El SOS solo se puede activar durante un viaje en curso.');
+      return;
+    }
+    const ok = await confirm({
+      title: '¿Activar la alerta SOS?',
+      message: 'Se enviará tu ubicación al centro de monitoreo de Bugie. Úsalo solo en una emergencia real.',
+      confirmText: 'Sí, activar SOS',
+      cancelText: 'No',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
     setSending(true); setError(null);
     try {
       const pos = await new Promise<{ lat: number; lng: number }>(resolve =>
@@ -26,12 +44,6 @@ export default function PassengerSOS() {
           () => resolve({ lat: -8.109052, lng: -79.021534 })
         )
       );
-
-      if (!activeTrip) {
-        setError('No tienes un viaje activo. El SOS solo se puede activar durante un viaje en curso.');
-        setSending(false);
-        return;
-      }
 
       await apiFetch(`${API.trips}/sos`, {
         method: 'POST',
@@ -46,100 +58,98 @@ export default function PassengerSOS() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="SOS / Emergencia"
-        subtitle="Alerta inmediata al centro de monitoreo y Policía Nacional."
-        icon="fa-solid fa-triangle-exclamation"
-      />
-
+    <Page
+      title="SOS / Emergencia"
+      subtitle={`Alerta inmediata al centro de monitoreo de Bugie. Respuesta en menos de ${sosResponseMin} min.`}
+      icon="fa-triangle-exclamation"
+    >
       {sent ? (
-        <div className="alert alert-success text-center py-4">
-          <i className="fa-solid fa-circle-check fa-3x text-success mb-3 d-block" />
-          <div className="fw-bold fs-5 mb-2">Alerta SOS enviada</div>
-          <div className="small bugie-muted">
-            El centro de monitoreo de Bugie recibió tu ubicación y está coordinando respuesta.
-            Mantén la calma — ayuda está en camino.
+        <SectionCard>
+          <div className="bx-hero-state bx-tone-ok" role="status">
+            <span className="ico" aria-hidden="true"><i className="fa-solid fa-circle-check" /></span>
+            <h2>Alerta SOS enviada</h2>
+            <p>
+              Se alertó al centro de monitoreo y a los administradores de Bugie con tu ubicación.
+              Si registraste un contacto de emergencia, le enviamos un correo. Mantén la calma.
+            </p>
           </div>
-        </div>
+        </SectionCard>
       ) : (
         <>
-          {/* Viaje activo */}
-          {activeTrip ? (
-            <div className="alert alert-info small mb-3">
-              <i className="fa-solid fa-circle-info me-2" />
-              Viaje activo detectado: <strong>{activeTrip.originAddress} → {activeTrip.destAddress}</strong>
-            </div>
-          ) : (
-            <div className="alert alert-warning small mb-3">
-              <i className="fa-solid fa-triangle-exclamation me-2" />
-              No tienes un viaje activo. El SOS se activa durante un viaje en curso.
-            </div>
-          )}
+          <SectionCard>
+            <div className="bx-stack">
+              {loadingTrip ? (
+                <Skeleton height={48} />
+              ) : activeTrip ? (
+                <Notice tone="info" icon="fa-car" title="Viaje activo detectado">
+                  {activeTrip.originAddress} → {activeTrip.destAddress}
+                </Notice>
+              ) : (
+                <Notice tone="warn" title="No tienes un viaje activo">
+                  El SOS se activa durante un viaje en curso.
+                </Notice>
+              )}
 
-          <div className="alert alert-danger mb-3">
-            <i className="fa-solid fa-triangle-exclamation me-2" />
-            <strong>Solo para emergencias reales.</strong> Al activar, el centro de monitoreo
-            y la Policía Nacional son notificados con tu ubicación GPS.
-          </div>
+              <Notice tone="bad" icon="fa-triangle-exclamation" title="Solo para emergencias reales">
+                Al activar, se alerta al centro de monitoreo y a los administradores de Bugie con tu
+                ubicación GPS, y se envía un correo a tu contacto de emergencia si lo registraste.
+              </Notice>
 
-          {error && (
-            <div className="alert alert-warning small mb-3">
-              <i className="fa-solid fa-circle-exclamation me-2" />{error}
+              {error && <Notice tone="warn">{error}</Notice>}
+
+              <div className="d-grid">
+                <button className="btn btn-danger rounded-pill py-3 fw-bold fs-5" onClick={activate} disabled={sending || !activeTrip}>
+                  {sending
+                    ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Enviando alerta…</>
+                    : <><i className="fa-solid fa-triangle-exclamation me-2" aria-hidden="true" />ACTIVAR SOS</>}
+                </button>
+              </div>
             </div>
-          )}
+          </SectionCard>
 
-          <div className="d-grid mb-3">
-            <button
-              className="btn btn-danger rounded-pill py-3 fw-bold fs-5"
-              onClick={activate}
-              disabled={sending || !activeTrip}
-            >
-              {sending
-                ? <><span className="spinner-border spinner-border-sm me-2" />Enviando alerta…</>
-                : <><i className="fa-solid fa-triangle-exclamation me-2" />ACTIVAR SOS</>
-              }
-            </button>
-          </div>
+          <div className="bx-split">
+            <SectionCard title="¿A dónde llega tu alerta?" icon="fa-tower-broadcast" flush>
+              <ul className="bx-list">
+                {[
+                  ['fa-headset',       'Centro de monitoreo Bugie', 'Supervisión 24/7: reciben tu ubicación en segundos'],
+                  ['fa-user-shield',   'Administradores de Bugie',  'Reciben la alerta y atienden el caso'],
+                  ['fa-envelope',      'Tu contacto de emergencia', 'Le enviamos un correo si lo registraste en tu perfil'],
+                  ['fa-location-dot',  'Tu posición GPS',           'Se comparte automáticamente con el centro de monitoreo y los administradores'],
+                ].map(([icon, title, desc]) => (
+                  <li key={title} className="bx-list-item">
+                    <span className="bx-list-icon" aria-hidden="true"><i className={`fa-solid ${icon}`} /></span>
+                    <span className="bx-list-text">
+                      <span className="bx-list-title">{title}</span>
+                      <span className="bx-list-sub d-block">{desc}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
 
-          {/* A dónde va la alerta */}
-          <div className="bugie-card mb-3">
-            <div className="bugie-card-header">¿A dónde llega tu alerta?</div>
-            <div className="bugie-card-body d-grid gap-2">
-              {[
-                ['fa-headset',        'Centro de monitoreo Bugie', 'Supervisión 24/7 — reciben tu ubicación en segundos'],
-                ['fa-shield-halved',  'Policía Nacional',          'Coordinación directa para respuesta inmediata'],
-                ['fa-location-dot',   'Tu posición GPS',           'Se comparte automáticamente con los servicios'],
-              ].map(([icon, title, desc]) => (
-                <div key={title} className="d-flex gap-3 align-items-start">
-                  <div className="bugie-mini-icon" style={{ flexShrink: 0 }}>
-                    <i className={`fa-solid ${icon}`} />
-                  </div>
-                  <div>
-                    <div className="fw-semibold small">{title}</div>
-                    <div className="small bugie-muted">{desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Contactos de emergencia */}
-          <div className="bugie-card">
-            <div className="bugie-card-header">Contactos de emergencia</div>
-            <div className="bugie-card-body d-grid gap-2">
-              <a className="bugie-list-item text-decoration-none" href="tel:105">
-                <div className="bugie-mini-icon"><i className="fa-solid fa-phone text-danger" /></div>
-                <div><div className="fw-semibold">Policía Nacional</div><div className="small bugie-muted">105</div></div>
-              </a>
-              <a className="bugie-list-item text-decoration-none" href="tel:116">
-                <div className="bugie-mini-icon"><i className="fa-solid fa-truck-medical text-danger" /></div>
-                <div><div className="fw-semibold">SAMU / Bomberos</div><div className="small bugie-muted">116</div></div>
-              </a>
-            </div>
+            <SectionCard title="Números de emergencia" icon="fa-phone" flush>
+              <div className="bx-list">
+                <a className="bx-list-item" href="tel:105">
+                  <span className="bx-list-icon bx-tone-bad" aria-hidden="true"><i className="fa-solid fa-phone" /></span>
+                  <span className="bx-list-text">
+                    <span className="bx-list-title">Policía Nacional</span>
+                    <span className="bx-list-sub d-block">Llamar al 105</span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+                </a>
+                <a className="bx-list-item" href="tel:116">
+                  <span className="bx-list-icon bx-tone-bad" aria-hidden="true"><i className="fa-solid fa-truck-medical" /></span>
+                  <span className="bx-list-text">
+                    <span className="bx-list-title">SAMU / Bomberos</span>
+                    <span className="bx-list-sub d-block">Llamar al 116</span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+                </a>
+              </div>
+            </SectionCard>
           </div>
         </>
       )}
-    </>
+    </Page>
   );
 }

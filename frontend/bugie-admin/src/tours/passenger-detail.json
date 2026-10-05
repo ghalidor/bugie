@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='passenger-tabs']",
+      "title": "Todo el pasajero en pestañas",
+      "text": "«Resumen» tiene sus datos, contacto de emergencia y firma. En «Documentos» revisas su DNI y comparas su foto. En «Historial de cuenta» ves correcciones, eliminación y restauración."
+    },
+    {
+      "selector": "[data-tour='passenger-tabs'] [data-value='viajes']",
+      "title": "Sus viajes",
+      "text": "En «Viajes» ves los viajes y envíos que pidió este pasajero, con estado, fecha y monto. Filtra por estado o fechas y toca uno para ver su detalle y recorrido."
+    },
+    {
+      "selector": "[data-tour='passenger-tabs'] [data-value='notificaciones']",
+      "title": "Sus notificaciones",
+      "text": "En «Notificaciones» ves lo mismo que el pasajero en la bandeja de la app: cuáles leyó y cuándo. Útil para soporte; no cambia nada."
+    },
+    {
+      "selector": "[data-tour='passenger-verify']",
+      "title": "Qué falta para aprobar",
+      "text": "Esta lista se marca sola: aprueba ambos lados del DNI y marca «Revisado» en cada uno. Entonces se activa «Aprobar pasajero»."
+    },
+    {
+      "selector": "[data-tour='passenger-verify']",
+      "title": "Si algo está mal",
+      "text": "Usa «Pedir reenvío»: le llega un correo con el motivo para que suba sus documentos de nuevo."
+    }
+  ]
+}

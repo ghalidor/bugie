@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
+import { API, ApiError, apiFetch } from '../../state/api';
+import {
+  Column, DataTable, Drawer, Field, FilterBar, Page, Pagination, SectionCard, StatCard, StatGrid,
+  Select, StatusBadge, Tabs, Tone, useConfirm, useDebouncedValue, useToast,
+} from '../../components/ui';
+import './siteAdmin.scss';
 
 interface Article {
   id: string; slug: string; tag: string;
@@ -23,385 +28,310 @@ interface ArticlesStatsResponse {
 const TAGS_ES = ['Producto', 'Seguridad', 'Tecnología', 'Empresa', 'Arquitectura'];
 const TAGS_EN = ['Product', 'Safety', 'Technology', 'Company'];
 
-const TAG_COLOR: Record<string, string> = {
-  Producto: 'primary', Seguridad: 'danger', Tecnología: 'info', Empresa: 'secondary',
-  Product: 'primary',  Safety: 'danger',    Technology: 'info', Company: 'secondary',
+const TAG_TONE: Record<string, Tone> = {
+  Producto: 'primary', Seguridad: 'bad', Tecnología: 'info', Empresa: 'neutral', Arquitectura: 'neutral',
+  Product: 'primary',  Safety: 'bad',    Technology: 'info', Company: 'neutral',
 };
 
+const LANG_TABS = [
+  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'Inglés' },
+];
+
 const PAGE_SIZE = 25;
-const EMPTY_FORM = { slug: '', tag: 'Producto', title: '', summary: '', lang: 'es' };
+type Form = { slug: string; tag: string; title: string; summary: string; lang: string };
+const emptyForm = (lang: string): Form => ({ slug: '', tag: lang === 'es' ? TAGS_ES[0] : TAGS_EN[0], title: '', summary: '', lang });
+
+const API_NEWS = `${API.landing}/landing/news`;
+const errText = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
 
 export default function CommunityManager() {
+  const toast   = useToast();
+  const confirm = useConfirm();
+
   const [articles, setArticles] = useState<Article[]>([]);
   const [total,    setTotal]    = useState(0);
   const [page,     setPage]     = useState(1);
   const [stats,    setStats]    = useState<ArticlesStatsResponse>({ total: 0, published: 0, hidden: 0 });
   const [loading,  setLoading]  = useState(true);
+  const [loadErr,  setLoadErr]  = useState<string | null>(null);
   const [lang,     setLang]     = useState('es');
-  // Filtros: búsqueda, tag, estado publicación.
-  const [search,   setSearch]   = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [tagFilter,     setTagFilter]     = useState<string>('all');
-  const [pubFilter,     setPubFilter]     = useState<'all' | 'published' | 'hidden'>('all');
-  const [form,     setForm]     = useState(EMPTY_FORM);
-  const [editing,  setEditing]  = useState<string | null>(null);
-  const [saving,   setSaving]   = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [success,  setSuccess]  = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  // Filtros: búsqueda, tag y estado de publicación.
+  const [search,    setSearch]    = useState('');
+  const searchDebounced = useDebouncedValue(search, 300);
+  const [tagFilter, setTagFilter] = useState<string>('all');
+  const [pubFilter, setPubFilter] = useState<'all' | 'published' | 'hidden'>('all');
 
-  // Debounce search
-  const debounceRef = useRef<number | null>(null);
+  // Drawer de crear / editar
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [form,       setForm]       = useState<Form>(emptyForm('es'));
+  const [initial,    setInitial]    = useState<Form>(emptyForm('es'));
+  const [editing,    setEditing]    = useState<string | null>(null);
+  const [saving,     setSaving]     = useState(false);
+  const [formErr,    setFormErr]    = useState<string | null>(null);
+
+  // Al cambiar idioma, el tag elegido deja de existir: se limpia.
+  useEffect(() => { setTagFilter('all'); }, [lang]);
+
+  // Cambiar un filtro vuelve a la página 1 (sin pedir dos veces); reqId descarta respuestas viejas.
+  const filterKey = `${lang}|${searchDebounced.trim()}|${tagFilter}|${pubFilter}`;
+  const lastKey = useRef(filterKey);
+  const reqId = useRef(0);
   useEffect(() => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      setSearchDebounced(search);
-      setPage(1);
-    }, 300);
-    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current); };
-  }, [search]);
-
-  // Al cambiar idioma o filtros, volver a página 1
-  useEffect(() => { setPage(1); setTagFilter('all'); }, [lang]);
-  useEffect(() => { setPage(1); }, [tagFilter, pubFilter]);
-
-  // Cargar al cambiar página / lang / filtros
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [lang, page, searchDebounced, tagFilter, pubFilter]);
+    if (lastKey.current !== filterKey) {
+      lastKey.current = filterKey;
+      if (page !== 1) { setPage(1); return; }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, page]);
 
   async function load() {
+    const id = ++reqId.current;
     setLoading(true);
-    setError(null);
+    setLoadErr(null);
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(PAGE_SIZE),
-        lang,
-      });
-      if (searchDebounced.trim())  params.append('search', searchDebounced.trim());
-      if (tagFilter !== 'all')     params.append('tag', tagFilter);
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), lang });
+      if (searchDebounced.trim())    params.append('search', searchDebounced.trim());
+      if (tagFilter !== 'all')       params.append('tag', tagFilter);
       if (pubFilter === 'published') params.append('published', 'true');
       if (pubFilter === 'hidden')    params.append('published', 'false');
 
-      const token = localStorage.getItem('bugie_token') ?? '';
-      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-
       // Lista paginada
-      const listRes = await fetch(
-        `${import.meta.env.VITE_API_LANDING}/landing/news/paged?${params.toString()}`,
-        { headers });
-      if (!listRes.ok) throw new Error(`Error ${listRes.status}`);
-      const data: ArticlesPagedResponse = await listRes.json();
+      const data = await apiFetch<ArticlesPagedResponse>(`${API_NEWS}/paged?${params.toString()}`);
+      if (id !== reqId.current) return;
       setArticles(data.items ?? []);
       setTotal(data.total ?? 0);
 
-      // Stats (sin paginación, mismos filtros excepto pubFilter)
+      // Totales (mismos filtros salvo el de estado)
       const statsParams = new URLSearchParams({ lang });
       if (searchDebounced.trim()) statsParams.append('search', searchDebounced.trim());
       if (tagFilter !== 'all')    statsParams.append('tag', tagFilter);
-      const statsRes = await fetch(
-        `${import.meta.env.VITE_API_LANDING}/landing/news/stats?${statsParams.toString()}`,
-        { headers });
-      if (statsRes.ok) {
-        const s: ArticlesStatsResponse = await statsRes.json();
-        setStats(s);
-      }
-    } catch (err: any) {
-      setError(err.message ?? 'No se pudo cargar las publicaciones.');
+      const st = await apiFetch<ArticlesStatsResponse>(`${API_NEWS}/stats?${statsParams.toString()}`).catch(() => null);
+      if (st && id === reqId.current) setStats(st);
+    } catch (err) {
+      if (id !== reqId.current) return;
+      setLoadErr(errText(err, 'No se pudieron cargar las publicaciones.'));
       setArticles([]);
     } finally {
-      setLoading(false);
+      if (id === reqId.current) setLoading(false);
     }
   }
 
-  const set = (f: keyof typeof form) =>
+  const tagsForLang = lang === 'es' ? TAGS_ES : TAGS_EN;
+  const formTags = form.lang === 'es' ? TAGS_ES : TAGS_EN;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+
+  const setField = (f: keyof Form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(p => ({ ...p, [f]: e.target.value }));
 
   function startNew() {
-    setForm({ ...EMPTY_FORM, lang });
-    setEditing(null);
-    setShowForm(true);
-    setError(null);
+    const f = emptyForm(lang);
+    setForm(f); setInitial(f);
+    setEditing(null); setFormErr(null);
+    setDrawerOpen(true);
   }
 
   function startEdit(a: Article) {
-    setForm({ slug: a.slug, tag: a.tag, title: a.title, summary: a.summary, lang: a.lang });
-    setEditing(a.id);
-    setShowForm(true);
-    setError(null);
+    const f = { slug: a.slug, tag: a.tag, title: a.title, summary: a.summary, lang: a.lang };
+    setForm(f); setInitial(f);
+    setEditing(a.id); setFormErr(null);
+    setDrawerOpen(true);
   }
 
-  function cancel() { setShowForm(false); setEditing(null); setError(null); }
+  async function closeDrawer() {
+    if (saving) return;
+    if (dirty && !(await confirm({
+      title: '¿Cerrar sin guardar?', message: 'Los cambios de esta publicación se perderán.',
+      confirmText: 'Cerrar sin guardar', cancelText: 'Seguir editando', tone: 'warning',
+    }))) return;
+    setDrawerOpen(false);
+  }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true); setError(null); setSuccess(false);
-    const token = localStorage.getItem('bugie_token') ?? '';
-
+  async function save(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!form.title.trim() || !form.slug.trim() || form.summary.trim().length < 20) {
+      setFormErr('Completa título, slug y un resumen de al menos 20 caracteres.');
+      return;
+    }
+    setSaving(true); setFormErr(null);
     try {
-      const url    = editing
-        ? `${import.meta.env.VITE_API_LANDING}/landing/news/${editing}`
-        : `${import.meta.env.VITE_API_LANDING}/landing/news`;
+      const url    = editing ? `${API_NEWS}/${editing}` : API_NEWS;
       const method = editing ? 'PUT' : 'POST';
-      const res    = await fetch(url, {
+      await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        throw new Error((b as any).error ?? (b as any).message ?? `Error ${res.status}`);
-      }
-
-      setSuccess(true);
-      setShowForm(false);
+      toast.success(editing ? 'Publicación actualizada.' : 'Publicación creada.');
+      setDrawerOpen(false);
       setEditing(null);
       load();
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setFormErr(errText(err, 'No se pudo guardar la publicación.'));
     } finally { setSaving(false); }
   }
 
   async function togglePublish(a: Article) {
-    const token = localStorage.getItem('bugie_token') ?? '';
-    await fetch(`${import.meta.env.VITE_API_LANDING}/landing/news/${a.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ ...a, isPublished: !a.isPublished }),
-    });
-    load();
+    const ok = await confirm(a.isPublished
+      ? { title: '¿Ocultar de la web?', message: <>«<strong>{a.title}</strong>» dejará de verse en la sección Comunidad. Podrás volver a publicarla.</>,
+          confirmText: 'Ocultar', tone: 'warning' }
+      : { title: '¿Publicar en la web?', message: <>«<strong>{a.title}</strong>» se verá en la sección Comunidad de la web.</>,
+          confirmText: 'Publicar' });
+    if (!ok) return;
+    try {
+      await apiFetch(`${API_NEWS}/${a.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...a, isPublished: !a.isPublished }),
+      });
+      toast.success(a.isPublished ? 'La publicación ya no se ve en la web.' : 'La publicación ya se ve en la web.');
+      load();
+    } catch (err) {
+      toast.error(`No se pudo cambiar el estado: ${errText(err, 'vuelve a intentarlo.')}`);
+    }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const fromIdx = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const toIdx   = Math.min(page * PAGE_SIZE, total);
+  // Filtros activos: tema, estado y búsqueda (lo mismo que borra "Limpiar filtros").
+  const activeFilters = (tagFilter !== 'all' ? 1 : 0) + (pubFilter !== 'all' ? 1 : 0) + (search.trim() ? 1 : 0);
 
-  // Tags disponibles según idioma
-  const tagsForLang = lang === 'es' ? TAGS_ES : TAGS_EN;
+  const columns: Column<Article>[] = [
+    {
+      key: 'title', header: 'Publicación', priority: 1,
+      render: a => (
+        <div style={{ minWidth: 0 }}>
+          <div className="fw-semibold">{a.title}</div>
+          <div className="small bugie-muted text-truncate" style={{ maxWidth: '48ch' }}>{a.summary}</div>
+        </div>
+      ),
+    },
+    { key: 'tag', header: 'Tema', priority: 1, render: a => <StatusBadge size="sm" tone={TAG_TONE[a.tag] ?? 'neutral'}>{a.tag}</StatusBadge> },
+    {
+      key: 'status', header: 'Estado', priority: 1,
+      render: a => a.isPublished
+        ? <StatusBadge size="sm" tone="ok" icon="fa-eye">Publicada</StatusBadge>
+        : <StatusBadge size="sm" tone="neutral" icon="fa-eye-slash">Oculta</StatusBadge>,
+    },
+    {
+      key: 'date', header: 'Fecha', priority: 2,
+      render: a => new Date(a.publishedAt).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric' }),
+    },
+  ];
 
   return (
-    <>
-      <PageHeader
-        title="Gestión de Comunidad"
-        subtitle="Publicaciones que aparecen en la sección de comunidad de la landing."
-        icon="fa-solid fa-users"
-        actions={
-          <button className="btn btn-bugie text-white" type="button" onClick={startNew}>
-            <i className="fa-solid fa-plus me-2" />Nueva publicación
-          </button>
-        }
-      />
+    <Page
+      title="Comunidad"
+      subtitle="Publicaciones de la sección Comunidad de la web."
+      icon="fa-users"
+      helpKey="community"
+      actions={[
+        { label: 'Nueva publicación', icon: 'fa-plus', variant: 'primary', onClick: startNew },
+        { label: 'Actualizar', icon: 'fa-rotate-right', variant: 'secondary', onClick: load, loading },
+      ]}
+    >
+      <StatGrid tourId="community-stats">
+        <StatCard label="Total" value={stats.total.toLocaleString('es-PE')} icon="fa-newspaper" tone="primary" loading={loading} hint="Con los filtros actuales" />
+        <StatCard label="Publicadas" value={stats.published.toLocaleString('es-PE')} icon="fa-eye" tone="ok" loading={loading} hint="Se ven en la web" onClick={() => setPubFilter('published')} />
+        <StatCard label="Ocultas" value={stats.hidden.toLocaleString('es-PE')} icon="fa-eye-slash" tone="neutral" loading={loading} hint="Solo las ves tú" onClick={() => setPubFilter('hidden')} />
+      </StatGrid>
 
-      {/* KPIs */}
-      <div className="row g-3 mb-3">
-        {[
-          { label: 'Total',       value: stats.total,     color: '#818cf8', icon: 'fa-newspaper'    },
-          { label: 'Publicadas',  value: stats.published, color: '#34d399', icon: 'fa-eye'          },
-          { label: 'Ocultas',     value: stats.hidden,    color: '#94a3b8', icon: 'fa-eye-slash'    },
-        ].map(k => (
-          <div className="col-md-4" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value.toLocaleString('es-PE')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div data-tour="community-lang">
+        <Tabs ariaLabel="Idioma" items={LANG_TABS} value={lang} onChange={setLang} />
       </div>
 
-      {/* Selector de idioma + búsqueda */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        {[['es','🇵🇪 Español'],['en','🇺🇸 English']].map(([l, label]) => (
-          <button key={l} type="button" onClick={() => setLang(l)}
-            className={`btn btn-sm ${lang === l ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}>
-            {label}
-          </button>
-        ))}
-        <div className="position-relative" style={{ width: 240 }}>
-          <i className="fa-solid fa-magnifying-glass position-absolute"
-             style={{ left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--bugie-muted)', fontSize: '0.8rem' }} />
-          <input className="form-control form-control-sm ps-4" placeholder="Buscar título o resumen…"
-            value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-      </div>
-
-      {/* Filtros de tag y estado */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        <span className="small bugie-muted me-1">Tag:</span>
-        <button className={`btn btn-sm rounded-pill ${tagFilter === 'all' ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-          onClick={() => setTagFilter('all')}>Todos</button>
-        {tagsForLang.map(t => (
-          <button key={t}
-            className={`btn btn-sm rounded-pill ${tagFilter === t ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-            onClick={() => setTagFilter(t)}>
-            {t}
-          </button>
-        ))}
-        <span className="small bugie-muted ms-3 me-1">Estado:</span>
-        {[
-          { key: 'all',       label: 'Todos'      },
-          { key: 'published', label: 'Publicadas' },
-          { key: 'hidden',    label: 'Ocultas'    },
-        ].map(f => (
-          <button key={f.key}
-            className={`btn btn-sm rounded-pill ${pubFilter === f.key ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-            onClick={() => setPubFilter(f.key as any)}>
-            {f.label}
-          </button>
-        ))}
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto" onClick={load}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
-
-      {success && (
-        <div className="alert alert-success small py-2 mb-3">
-          <i className="fa-solid fa-circle-check me-2" />Guardado correctamente.
-        </div>
-      )}
-
-      {/* Formulario */}
-      {showForm && (
-        <div className="bugie-card mb-3">
-          <div className="bugie-card-header">
-            {editing ? 'Editar publicación' : 'Nueva publicación'}
-          </div>
-          <div className="bugie-card-body">
-            <form onSubmit={save} className="row g-3">
-              <div className="col-md-6">
-                <label className="form-label">Título <span className="text-danger">*</span></label>
-                <input className="form-control" value={form.title} onChange={set('title')} required />
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Tag</label>
-                <select className="form-select" value={form.tag} onChange={set('tag')}>
-                  {tagsForLang.map(t => <option key={t}>{t}</option>)}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Slug <span className="text-danger">*</span></label>
-                <input className="form-control" value={form.slug} onChange={set('slug')}
-                  placeholder="mi-articulo-2026" required />
-              </div>
-              <div className="col-12">
-                <label className="form-label">Resumen <span className="text-danger">*</span></label>
-                <textarea className="form-control" rows={3} value={form.summary}
-                  onChange={set('summary')} required minLength={20} />
-              </div>
-              {error && (
-                <div className="col-12">
-                  <div className="alert alert-danger small py-2 mb-0">
-                    <i className="fa-solid fa-circle-exclamation me-2" />{error}
-                  </div>
-                </div>
-              )}
-              <div className="col-12 d-flex gap-2">
-                <button type="submit" className="btn btn-bugie text-white" disabled={saving}>
-                  {saving ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                          : <><i className="fa-solid fa-floppy-disk me-2" />Guardar</>}
-                </button>
-                <button type="button" className="btn btn-bugie-outline" onClick={cancel}>
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {error && !showForm && (
-        <div className="alert alert-danger small mb-3">{error}</div>
-      )}
-
-      {/* Lista */}
-      <div className="bugie-card">
-        <div className="bugie-card-header">
-          Publicaciones — {lang === 'es' ? 'Español' : 'English'}
-          <span className="badge rounded-pill ms-2" style={{ background: 'var(--bugie-primary)', color: '#fff' }}>
-            {total}
-          </span>
-        </div>
-        <div className="bugie-card-body p-0">
-          {loading ? (
-            <div className="d-flex justify-content-center py-4">
-              <span className="spinner-border" />
+      <SectionCard flush tourId="community-list">
+        <div className="p-3" data-tour="community-filters">
+          <FilterBar
+            search={search} onSearchChange={setSearch} searchPlaceholder="Buscar título o resumen…"
+            chips={[
+              { value: 'all', label: 'Todas' },
+              { value: 'published', label: 'Publicadas', count: stats.published },
+              { value: 'hidden', label: 'Ocultas', count: stats.hidden },
+            ]}
+            chip={pubFilter} onChipChange={v => setPubFilter(v as typeof pubFilter)}
+            activeCount={activeFilters} onClear={() => { setTagFilter('all'); setPubFilter('all'); setSearch(''); }}
+          >
+            <div className="bx-chips" role="group" aria-label="Tema">
+              <button type="button" className="bx-chip" aria-pressed={tagFilter === 'all'} onClick={() => setTagFilter('all')}>Todos los temas</button>
+              {tagsForLang.map(t => (
+                <button key={t} type="button" className="bx-chip" aria-pressed={tagFilter === t} onClick={() => setTagFilter(t)}>{t}</button>
+              ))}
             </div>
-          ) : articles.length === 0 ? (
-            <div className="text-center py-4 bugie-muted small">
-              <i className="fa-solid fa-users fa-2x mb-3 d-block" />
-              No hay publicaciones que coincidan con los filtros.
-            </div>
-          ) : (
-            articles.map((a, i) => (
-              <div key={a.id} className="bugie-list-item"
-                style={{ borderBottom: i < articles.length - 1 ? '1px solid var(--bugie-border)' : 'none', padding: '14px 20px' }}>
-                <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                  <div className="d-flex align-items-center gap-2 mb-1">
-                    <span className={`badge text-bg-${TAG_COLOR[a.tag] ?? 'secondary'}`}>{a.tag}</span>
-                    {!a.isPublished && <span className="badge text-bg-secondary">Oculto</span>}
-                  </div>
-                  <div className="fw-semibold">{a.title}</div>
-                  <div className="small bugie-muted text-truncate">{a.summary}</div>
-                  <div className="small bugie-muted mt-1">
-                    {new Date(a.publishedAt).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric' })}
-                  </div>
-                </div>
-                <div className="d-flex gap-2 ms-3">
-                  <button className="btn btn-sm btn-bugie-outline" onClick={() => startEdit(a)} title="Editar">
-                    <i className="fa-solid fa-pen" />
-                  </button>
-                  <button className="btn btn-sm btn-bugie-outline" onClick={() => togglePublish(a)}
-                    title={a.isPublished ? 'Ocultar' : 'Publicar'}>
-                    <i className={`fa-solid fa-${a.isPublished ? 'eye-slash' : 'eye'}`} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+          </FilterBar>
         </div>
 
-        {/* Paginación */}
-        {!loading && articles.length > 0 && (
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 p-3"
-               style={{ borderTop: '1px solid var(--bugie-border)' }}>
-            <div className="small bugie-muted">
-              Mostrando <strong>{fromIdx}–{toIdx}</strong> de <strong>{total.toLocaleString('es-PE')}</strong>
-            </div>
-            <div className="d-flex align-items-center gap-2">
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(1)} disabled={page === 1}>
-                <i className="fa-solid fa-angles-left" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <i className="fa-solid fa-chevron-left" />
-              </button>
-              <span className="small fw-semibold mx-2">
-                Página {page} de {totalPages}
-              </span>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                <i className="fa-solid fa-chevron-right" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                <i className="fa-solid fa-angles-right" />
-              </button>
+        {loadErr && (
+          <div className="px-3 pb-3">
+            <div className="sa-note bx-tone-bad" role="alert">
+              <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{loadErr}</span>
             </div>
           </div>
         )}
-      </div>
-    </>
+
+        <DataTable
+          columns={columns} rows={articles} rowKey={a => a.id} loading={loading}
+          onRowClick={startEdit}
+          mobileTitle={a => a.title}
+          mobileSubtitle={a => a.summary}
+          empty={{ icon: 'fa-users', title: 'Sin publicaciones', text: 'No hay publicaciones que coincidan con los filtros.' }}
+          actions={a => [
+            { label: 'Editar', icon: 'fa-pen', onClick: () => startEdit(a) },
+            { label: a.isPublished ? 'Ocultar de la web' : 'Publicar en la web', icon: a.isPublished ? 'fa-eye-slash' : 'fa-eye', onClick: () => togglePublish(a) },
+          ]}
+        />
+        <div className="px-3">
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+        </div>
+      </SectionCard>
+
+      <Drawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        size="md"
+        title={editing ? 'Editar publicación' : 'Nueva publicación'}
+        description={`Idioma: ${form.lang === 'es' ? 'Español' : 'Inglés'}`}
+        footer={
+          <>
+            <button type="button" className="btn btn-bugie-outline" onClick={closeDrawer} disabled={saving}>Cancelar</button>
+            <button type="submit" form="community-form" className="btn btn-bugie" disabled={saving || !dirty}>
+              {saving ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Guardando…</>
+                      : <><i className="fa-solid fa-floppy-disk me-2" aria-hidden="true" />Guardar</>}
+            </button>
+          </>
+        }
+      >
+        <form id="community-form" onSubmit={save} className="d-grid gap-3">
+          <Field label="Título" required help="Se muestra como encabezado de la tarjeta.">
+            <input className="form-control" value={form.title} onChange={setField('title')} maxLength={200} />
+          </Field>
+          <div className="bx-form-grid">
+            <Field label="Tema" help="Etiqueta de color en la web.">
+              <Select
+                value={form.tag}
+                onChange={tag => setForm(p => ({ ...p, tag }))}
+                options={[
+                  ...(!formTags.includes(form.tag) && form.tag ? [form.tag] : []),
+                  ...formTags,
+                ].map(t => ({ value: t, label: t }))}
+              />
+
+            </Field>
+            <Field label="Slug" required help="Parte final de la dirección web."
+                   helpLong="Solo minúsculas, números y guiones. Ejemplo: nuevo-boton-sos-2026. No lo cambies si ya compartiste el enlace.">
+              <input className="form-control" value={form.slug} onChange={setField('slug')} placeholder="mi-articulo-2026" />
+            </Field>
+          </div>
+          <Field label="Resumen" required help={`${form.summary.trim().length} caracteres · mínimo 20.`}>
+            <textarea className="form-control" rows={5} value={form.summary} onChange={setField('summary')} />
+          </Field>
+          {formErr && (
+            <div className="sa-note bx-tone-bad" role="alert">
+              <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{formErr}</span>
+            </div>
+          )}
+        </form>
+      </Drawer>
+    </Page>
   );
 }

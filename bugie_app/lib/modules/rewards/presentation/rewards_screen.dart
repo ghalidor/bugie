@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../data/rewards_repository.dart';
@@ -18,15 +19,43 @@ import '../domain/rewards_model.dart';
 ///   · Mis puntos → saldo, nivel, progreso, vencimiento e historial.
 ///   · Canjear    → catálogo con el costo y si alcanza.
 ///   · Cupones    → lo canjeado, con su código.
+///
+/// [initialTab] viene de la ruta (?tab=summary|catalog|coupons|promos|invite),
+/// por ejemplo al tocar un push o un aviso de la bandeja.
 class RewardsScreen extends StatefulWidget {
-  const RewardsScreen({super.key});
+  final String? initialTab;
+  const RewardsScreen({super.key, this.initialTab});
+
+  /// Índice de la pestaña según el nombre que manda la ruta.
+  static int tabIndexOf(String? tab) {
+    switch (tab) {
+      case 'catalog':
+      case 'redeem':   return 1;
+      case 'coupons':  return 2;
+      case 'promos':
+      case 'raffles':  return 3;
+      case 'invite':
+      case 'referral': return 4;
+      default:         return 0;
+    }
+  }
 
   @override
   State<RewardsScreen> createState() => _RewardsScreenState();
 }
 
 class _RewardsScreenState extends State<RewardsScreen> {
-  int _tab = 0;
+  late int _tab = RewardsScreen.tabIndexOf(widget.initialTab);
+
+  /// Si ya estaba abierta y llega otro push con otra pestaña, se cambia.
+  @override
+  void didUpdateWidget(covariant RewardsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialTab != null && widget.initialTab != oldWidget.initialTab) {
+      _tab = RewardsScreen.tabIndexOf(widget.initialTab);
+      _reload++;
+    }
+  }
 
   /// Se sube cada vez que algo cambia el saldo, para que las tres pestañas
   /// vuelvan a pedir datos frescos.
@@ -61,7 +90,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
                 0 => _SummaryTab(key: ValueKey('s$_reload'),
                                  onGoToCatalog: () => setState(() => _tab = 1)),
                 1 => _CatalogTab(key: ValueKey('c$_reload'), onRedeemed: _onRedeemed),
-                2 => _CouponsTab(key: ValueKey('u$_reload'), highlight: _lastCode),
+                2 => _CouponsTab(key: ValueKey('u$_reload'), highlight: _lastCode,
+                                 onGoToRaffles: () => setState(() => _tab = 3)),
                 3 => _ExtrasTab(key: ValueKey('x$_reload')),
                 _ => _ReferralTab(key: ValueKey('r$_reload')),
               },
@@ -145,6 +175,10 @@ class _SummaryTab extends StatefulWidget {
 class _SummaryTabState extends State<_SummaryTab> {
   RewardsPointsProfile? _profile;
   Progress?             _progress;
+  /// Beneficios de nivel del mes. Solo pasajero; null si no aplica o falló.
+  LevelBenefits?        _benefits;
+  /// Tipo que se está reclamando ('discount' | 'free_trip').
+  String?               _claiming;
   List<RewardLevel>     _levels = [];
   List<RewardsTransaction> _history = [];
   int  _historyTotal = 0;
@@ -163,12 +197,19 @@ class _SummaryTabState extends State<_SummaryTab> {
     setState(() { _loading = true; _error = null; });
     try {
       final repo = context.read<RewardsRepository>();
+      final isPassenger = context.read<Session>().role == UserRole.passenger;
       final results = await Future.wait([
         repo.getProfile(),
         repo.getLevels(),
         repo.getHistory(page: 1, pageSize: 15),
         // El progreso es complementario: si falla, la pantalla igual sirve.
         repo.getProgress().then<Progress?>((p) => p).catchError((_) => null),
+        // Beneficios de nivel: solo pasajero, y también complementarios.
+        isPassenger
+            ? repo.getLevelBenefits()
+                .then<LevelBenefits?>((b) => b)
+                .catchError((_) => null)
+            : Future<LevelBenefits?>.value(null),
       ]);
       if (!mounted) return;
       final page = results[2] as RewardsPage<RewardsTransaction>;
@@ -176,6 +217,7 @@ class _SummaryTabState extends State<_SummaryTab> {
         _profile      = results[0] as RewardsPointsProfile;
         _levels       = results[1] as List<RewardLevel>;
         _progress     = results[3] as Progress?;
+        _benefits     = results[4] as LevelBenefits?;
         _history      = page.items;
         _historyTotal = page.total;
         _historyPage  = 1;
@@ -213,6 +255,121 @@ class _SummaryTabState extends State<_SummaryTab> {
     }
   }
 
+  /// Reclamar un cupón de nivel: confirmar, pedirlo, mostrar el código y
+  /// refrescar la pestaña.
+  Future<void> _claim(String type) async {
+    final b = _benefits;
+    if (b == null || _claiming != null) return;
+    final isTrip = type == 'free_trip';
+    final max = b.freeTrips.maxAmount;
+    final what = isTrip
+        ? 'un cupón de viaje gratis'
+            '${max != null ? ' hasta S/ ${max.toStringAsFixed(2)}' : ''}'
+        : 'un cupón de ${_num(b.discountPercentage)} % de descuento';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isTrip ? 'Reclamar viaje gratis' : 'Reclamar cupón'),
+        content: Text(
+          'Recibirás $what. No cuesta puntos.\n\n'
+          'Vence el ${formatDate(b.periodEndsAt)}, al terminar el mes.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Reclamar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _claiming = type);
+    try {
+      final r = await context.read<RewardsRepository>().claimLevelBenefit(type);
+      if (!mounted) return;
+      setState(() { _benefits = r.benefits; _claiming = null; });
+      await _showClaimedCoupon(r.coupon);
+      if (mounted) _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _claiming = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: BugieColors.danger),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _claiming = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo reclamar el beneficio.')),
+        );
+      }
+    }
+  }
+
+  /// Muestra el código BG- recién reclamado, con botón para copiarlo.
+  Future<void> _showClaimedCoupon(RewardRedemption coupon) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final c = ctx.bugie;
+        return AlertDialog(
+          title: const Text('¡Listo, ya tienes tu cupón!'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(describeReward(coupon.rewardType, coupon.amountSoles,
+                      coupon.quantity, coupon.percentage),
+                  style: TextStyle(fontSize: 13, color: c.textMuted)),
+              const SizedBox(height: 12),
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: coupon.code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Código copiado'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: BugieColors.primary.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(coupon.code,
+                          style: const TextStyle(
+                              fontFamily: 'monospace', fontSize: 19,
+                              fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                    ),
+                    const Icon(Icons.copy, size: 18),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Úsalo con «Usar un cupón» en tu próximo viaje.',
+                  style: TextStyle(fontSize: 13)),
+              const SizedBox(height: 4),
+              Text('Vence el ${formatDate(coupon.expiresAt)}.',
+                  style: TextStyle(fontSize: 12, color: c.textMuted)),
+            ],
+          ),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido')),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.bugie;
@@ -220,6 +377,7 @@ class _SummaryTabState extends State<_SummaryTab> {
     if (_error != null) return _ErrorView(message: _error!, onRetry: _load);
 
     final p = _profile!;
+    final b = _benefits;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -232,6 +390,14 @@ class _SummaryTabState extends State<_SummaryTab> {
           const SizedBox(height: 12),
           if (p.availablePoints > 0 && p.pointsExpiryDate != null)
             _ExpiryNotice(profile: p),
+          if (b != null && b.eligible && b.hasAny) ...[
+            _LevelBenefitsCard(
+              benefits: b,
+              claiming: _claiming,
+              onClaim: _claim,
+            ),
+            const SizedBox(height: 12),
+          ],
           _TotalsRow(profile: p),
           const SizedBox(height: 18),
           if (p.availablePoints > 0)
@@ -357,6 +523,128 @@ class _LevelCard extends StatelessWidget {
           ] else
             const Text('Estás en el nivel más alto.',
                 style: TextStyle(color: BugieColors.onDarkMuted, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Beneficios del nivel en el mes: cupones de descuento y viajes gratis.
+class _LevelBenefitsCard extends StatelessWidget {
+  final LevelBenefits benefits;
+  final String? claiming;
+  final ValueChanged<String> onClaim;
+
+  const _LevelBenefitsCard({
+    required this.benefits,
+    required this.claiming,
+    required this.onClaim,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final b = benefits;
+    final trips = b.freeTrips;
+    final max = trips.maxAmount;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: levelColor(b.level).withOpacity(.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.workspace_premium, size: 19, color: levelColor(b.level)),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text('Beneficios de tu nivel este mes',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
+            ),
+          ]),
+          if (b.discountCoupons.total > 0)
+            _BenefitLine(
+              icon: Icons.percent,
+              text: 'Cupones de ${_num(b.discountPercentage)} %: te quedan '
+                  '${b.discountCoupons.available} de ${b.discountCoupons.total}',
+              button: 'Reclamar cupón',
+              enabled: b.canClaim && b.discountCoupons.available > 0 && claiming == null,
+              busy: claiming == 'discount',
+              onPressed: () => onClaim('discount'),
+            ),
+          if (trips.total > 0)
+            _BenefitLine(
+              icon: Icons.directions_car_filled_outlined,
+              text: 'Viajes gratis'
+                  '${max != null ? ' (hasta S/ ${max.toStringAsFixed(2)})' : ''}'
+                  ': te quedan ${trips.available} de ${trips.total}',
+              button: 'Reclamar viaje gratis',
+              enabled: b.canClaim && trips.available > 0 && claiming == null,
+              busy: claiming == 'free_trip',
+              onPressed: () => onClaim('free_trip'),
+            ),
+          const SizedBox(height: 10),
+          Row(children: [
+            Icon(Icons.schedule, size: 13, color: c.textMuted),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                'Vencen el ${formatDate(b.periodEndsAt)}, al terminar el mes. '
+                'Lo que no reclames no se acumula.',
+                style: TextStyle(fontSize: 11.5, color: c.textMuted),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+class _BenefitLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final String button;
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  const _BenefitLine({
+    required this.icon,
+    required this.text,
+    required this.button,
+    required this.enabled,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(icon, size: 16, color: BugieColors.primary),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+          ]),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: enabled ? onPressed : null,
+              child: busy
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(button),
+            ),
+          ),
         ],
       ),
     );
@@ -776,7 +1064,9 @@ class _CatalogCard extends StatelessWidget {
 
 class _CouponsTab extends StatefulWidget {
   final String? highlight;
-  const _CouponsTab({super.key, this.highlight});
+  /// Lleva a «Promos y sorteos» para usar un cupón de ticket.
+  final VoidCallback onGoToRaffles;
+  const _CouponsTab({super.key, this.highlight, required this.onGoToRaffles});
 
   @override
   State<_CouponsTab> createState() => _CouponsTabState();
@@ -889,6 +1179,7 @@ class _CouponsTabState extends State<_CouponsTab> {
         itemBuilder: (_, i) => _CouponCard(
           coupon: _items[i],
           highlighted: _items[i].code == widget.highlight,
+          onGoToRaffles: widget.onGoToRaffles,
         ),
       ),
     );
@@ -904,7 +1195,12 @@ class _Filter {
 class _CouponCard extends StatelessWidget {
   final RewardRedemption coupon;
   final bool highlighted;
-  const _CouponCard({required this.coupon, required this.highlighted});
+  final VoidCallback onGoToRaffles;
+  const _CouponCard({
+    required this.coupon,
+    required this.highlighted,
+    required this.onGoToRaffles,
+  });
 
   /// Tipos que entrega el equipo de Bugie fuera de la app.
   static const _manual = {'wallet_bonus', 'physical', 'partner_benefit'};
@@ -941,6 +1237,17 @@ class _CouponCard extends StatelessWidget {
                           coupon.quantity, coupon.percentage),
                       style: TextStyle(
                           fontSize: 12.5, color: c.textMuted)),
+                  const SizedBox(height: 2),
+                  // Los cupones de nivel no cuestan puntos.
+                  Text(coupon.isLevelBenefit
+                          ? 'Beneficio de nivel'
+                          : '${formatPoints(coupon.pointsSpent)} pts',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          color: coupon.isLevelBenefit
+                              ? BugieColors.primary
+                              : c.textMuted,
+                          fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -996,6 +1303,17 @@ class _CouponCard extends StatelessWidget {
               style: TextStyle(fontSize: 11.5, color: c.textMuted),
             ),
           ]),
+          if (coupon.status == 'active' && coupon.rewardType == 'raffle_ticket') ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onGoToRaffles,
+                icon: const Icon(Icons.confirmation_number_outlined, size: 17),
+                label: const Text('Úsalo en un sorteo abierto'),
+              ),
+            ),
+          ],
           if (coupon.status == 'active' && _manual.contains(coupon.rewardType)) ...[
             const SizedBox(height: 8),
             Row(children: [
@@ -1027,6 +1345,8 @@ class _ExtrasTabState extends State<_ExtrasTab> {
   List<UserRaffle>      _raffles = [];
   bool _loading = true;
   String? _error;
+  /// Sorteo donde se está usando un cupón de ticket.
+  String? _usingIn;
 
   @override
   void initState() {
@@ -1053,6 +1373,70 @@ class _ExtrasTabState extends State<_ExtrasTab> {
           _error = 'No se pudieron cargar las promociones.';
           _loading = false;
         });
+      }
+    }
+  }
+
+  /// Usar un cupón de ticket en el sorteo: confirmar, usarlo, mostrar los
+  /// números de ticket y refrescar.
+  Future<void> _useTicketCoupon(UserRaffle raffle) async {
+    if (_usingIn != null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Usar cupón de ticket'),
+        content: Text(
+          'Se usará uno de tus cupones de ticket en «${raffle.name}». '
+          'Los tickets quedan en este sorteo y el cupón ya no se puede usar en otro.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Usar cupón')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _usingIn = raffle.id);
+    try {
+      final r = await context.read<RewardsRepository>().useTicketCoupon(
+          raffle.id, redemptionId: raffle.nextTicketCouponId);
+      if (!mounted) return;
+      setState(() => _usingIn = null);
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(r.ticketsAdded == 1
+              ? '¡Ya tienes 1 ticket más!'
+              : '¡Ya tienes ${r.ticketsAdded} tickets más!'),
+          content: Text(
+            '${r.ticketNumbers.length == 1 ? 'Tu número' : 'Tus números'} en '
+            '«${r.raffleName}»: ${r.ticketNumbers.join(', ')}.\n\n'
+            'Ahora tienes ${r.myTickets} '
+            '${r.myTickets == 1 ? 'ticket' : 'tickets'} en este sorteo.',
+          ),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido')),
+          ],
+        ),
+      );
+      if (mounted) _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _usingIn = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: BugieColors.danger),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _usingIn = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo usar el cupón de ticket.')),
+        );
       }
     }
   }
@@ -1094,7 +1478,12 @@ class _ExtrasTabState extends State<_ExtrasTab> {
                   textAlign: TextAlign.center,
                   style: TextStyle(color: c.textMuted, fontSize: 13)),
             ),
-          ..._raffles.map((r) => _RaffleCard(raffle: r)),
+          ..._raffles.map((r) => _RaffleCard(
+                raffle: r,
+                busy: _usingIn == r.id,
+                disabled: _usingIn != null,
+                onUseTicketCoupon: () => _useTicketCoupon(r),
+              )),
         ],
       ),
     );
@@ -1202,7 +1591,15 @@ class _PromoCard extends StatelessWidget {
 
 class _RaffleCard extends StatelessWidget {
   final UserRaffle raffle;
-  const _RaffleCard({required this.raffle});
+  final bool busy;
+  final bool disabled;
+  final VoidCallback onUseTicketCoupon;
+  const _RaffleCard({
+    required this.raffle,
+    required this.busy,
+    required this.disabled,
+    required this.onUseTicketCoupon,
+  });
 
   static const _tipo = {
     'weekly': 'Semanal', 'monthly': 'Mensual', 'special': 'Especial',
@@ -1256,7 +1653,48 @@ class _RaffleCard extends StatelessWidget {
                       fontSize: 12.5, color: dorado, fontWeight: FontWeight.w700),
                 ),
               ),
-            ])
+            ]),
+          // Código para cobrar el premio donde el admin (PZ-…).
+          if (raffle.iWon && (raffle.myPrizeCode ?? '').isNotEmpty) ...[
+            const SizedBox(height: 8),
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: raffle.myPrizeCode!));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Código ${raffle.myPrizeCode} copiado')),
+                );
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: dorado.withValues(alpha: .15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(raffle.myPrizeCode!,
+                            style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2,
+                                fontFamily: 'monospace')),
+                        Text('Muestra este código al administrador para cobrar tu premio.',
+                            style: TextStyle(fontSize: 11.5, color: c.textMuted)),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.copy, size: 18),
+                ]),
+              ),
+            ),
+          ]
+          else if (raffle.iWon)
+            const SizedBox.shrink()
           else if (raffle.isDrawn)
             Text(
               'Ya se sorteó. Participaste con ${raffle.myTickets} '
@@ -1297,6 +1735,21 @@ class _RaffleCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text('${raffle.countdown} · ${formatDate(raffle.drawDate)}',
                 style: TextStyle(fontSize: 11.5, color: c.textMuted)),
+            if (raffle.canUseTicketCoupon) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: disabled ? null : onUseTicketCoupon,
+                  icon: busy
+                      ? const SizedBox(width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.confirmation_number_outlined, size: 17),
+                  label: Text(
+                      'Usar mi cupón de ticket (${raffle.ticketCouponsAvailable})'),
+                ),
+              ),
+            ],
           ],
         ],
       ),

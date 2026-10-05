@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='payments-stats']",
+      "title": "Totales",
+      "text": "Lo recaudado, la comisión de Bugie y lo que va a los conductores. Respetan la búsqueda, el método y las fechas. Si no se pueden cargar, lo verás indicado."
+    },
+    {
+      "selector": "[data-tour='payments-filters']",
+      "title": "Filtra los pagos",
+      "text": "Busca por pasajero, conductor, documento o referencia, y filtra por estado (incluye «Fallidos»), método y fechas: en todo el historial, no solo en la página."
+    },
+    {
+      "selector": "[data-tour='payments-list']",
+      "title": "Cómo se repartió cada pago",
+      "text": "Cada fila muestra el monto, la comisión de Bugie en rojo y lo que recibió el conductor en verde. «Ver viaje» abre el detalle del viaje."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Exportar",
+      "text": "«Exportar CSV» descarga todos los pagos del filtro, no solo la página."
+    }
+  ]
+}

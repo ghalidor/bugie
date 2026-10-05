@@ -61,3 +61,58 @@ class UserVerificationStatus {
         email:      (j['email'] ?? '').toString(),
       );
 }
+
+/// Un requisito de verificación del pasajero.
+/// key: 'dni_front' | 'dni_back' | 'profile_photo'.
+/// status: missing | pending | approved | rejected (foto: missing | uploaded).
+class PassengerRequirement {
+  final String key;
+  final String label;
+  final String status;
+  final String? rejectionReason;
+  final bool done;
+
+  PassengerRequirement({
+    required this.key,
+    required this.label,
+    required this.status,
+    required this.done,
+    this.rejectionReason,
+  });
+
+  factory PassengerRequirement.fromJson(Map<String, dynamic> j) =>
+      PassengerRequirement(
+        key:             (j['key'] ?? '').toString(),
+        label:           (j['label'] ?? '').toString(),
+        status:          (j['status'] ?? 'missing').toString(),
+        done:            j['done'] == true,
+        rejectionReason: j['rejectionReason']?.toString(),
+      );
+}
+
+/// Respuesta de GET /api/auth/passengers/documents/me/requirements.
+class PassengerRequirements {
+  final bool isVerified;
+  final bool readyForReview;
+  final List<String> missing;
+  final List<PassengerRequirement> requirements;
+
+  PassengerRequirements({
+    required this.isVerified,
+    required this.readyForReview,
+    required this.missing,
+    required this.requirements,
+  });
+
+  factory PassengerRequirements.fromJson(Map<String, dynamic> j) =>
+      PassengerRequirements(
+        isVerified:     j['isVerified'] == true,
+        readyForReview: j['readyForReview'] == true,
+        missing: (j['missing'] as List?)?.map((e) => e.toString()).toList() ??
+            const [],
+        requirements: ((j['requirements'] as List?) ?? const [])
+            .map((e) =>
+                PassengerRequirement.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
+}

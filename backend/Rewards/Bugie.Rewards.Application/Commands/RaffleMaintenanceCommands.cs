@@ -33,17 +33,20 @@ public class RunRaffleMaintenanceHandler
     private readonly IRaffleEligibilityRepository _candidates;
     private readonly IRewardLevelRepository       _levels;
     private readonly IRewardSettingsRepository    _settings;
+    private readonly IMediator                    _mediator;
 
     public RunRaffleMaintenanceHandler(
         IRaffleRepository raffles,
         IRaffleEligibilityRepository candidates,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _raffles    = raffles;
         _candidates = candidates;
         _levels     = levels;
         _settings   = settings;
+        _mediator   = mediator;
     }
 
     public async Task<RaffleMaintenanceResult> Handle(
@@ -206,6 +209,19 @@ public class RunRaffleMaintenanceHandler
                 $"{raffle.Name}: sorteado con {tickets.Count} tickets, " +
                 $"{winners.Count} ganador(es).");
             hechos++;
+
+            // Aviso a los ganadores (push + bandeja + correo). Nunca rompe el
+            // sorteo: si algo falla, queda anotado en los mensajes (al log).
+            try
+            {
+                var avisados = await _mediator.Send(new NotifyRaffleWinnersCommand(raffle.Id), ct);
+                if (avisados < winners.Count)
+                    mensajes.Add($"{raffle.Name}: se avisó a {avisados} de {winners.Count} ganador(es).");
+            }
+            catch (Exception ex)
+            {
+                mensajes.Add($"{raffle.Name}: no se pudo avisar a los ganadores ({ex.Message}).");
+            }
         }
 
         return hechos;

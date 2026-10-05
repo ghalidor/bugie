@@ -1,6 +1,9 @@
 namespace Bugie.Rewards.Application.DTOs;
 
 /// <summary>Item del catalogo tal como lo ve el usuario.</summary>
+/// <param name="CanAfford">true si el usuario tiene puntos suficientes ahora mismo.</param>
+/// <param name="PointsMissing">Cuantos puntos le faltan. 0 si ya puede canjearlo.</param>
+/// <param name="BlockedReason">Null si puede canjearlo. Si no, el motivo en texto.</param>
 public record CatalogItemDto(
     Guid     Id,
     string   Code,
@@ -18,13 +21,10 @@ public record CatalogItemDto(
     short    SortOrder,
     bool     IsActive,
 
-    /// <summary>true si el usuario tiene puntos suficientes ahora mismo.</summary>
     bool     CanAfford,
 
-    /// <summary>Cuantos puntos le faltan. 0 si ya puede canjearlo.</summary>
     int      PointsMissing,
 
-    /// <summary>Null si puede canjearlo. Si no, el motivo en texto.</summary>
     string?  BlockedReason);
 
 public record RedemptionDto(
@@ -53,16 +53,16 @@ public record RedeemResultDto(
     string        CurrentLevel);
 
 /// <summary>Respuesta a Trips cuando pregunta si un cupón sirve para un viaje.</summary>
+/// <param name="DiscountAmount">Lo que de verdad se descuenta, ya recortado si hizo falta.</param>
+/// <param name="FullDiscount">Lo mismo que DiscountAmount. Se conserva por compatibilidad.</param>
+/// <param name="Reason">Por qué no se puede usar. Null si sí se puede.</param>
+/// <param name="Warning">Aviso cuando se aplicó menos de lo que valía.</param>
 public record CouponValidationDto(
     bool     Valid,
     string?  Code,
     string?  ItemName,
     string?  RewardType,
-    /// <summary>Lo que de verdad se descuenta, ya recortado si hizo falta.</summary>
     decimal  DiscountAmount,
-    /// <summary>Lo mismo que DiscountAmount. Se conserva por compatibilidad.</summary>
     decimal  FullDiscount,
-    /// <summary>Por qué no se puede usar. Null si sí se puede.</summary>
     string?  Reason,
-    /// <summary>Aviso cuando se aplicó menos de lo que valía.</summary>
     string?  Warning);

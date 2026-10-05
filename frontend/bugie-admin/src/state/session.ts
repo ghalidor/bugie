@@ -4,12 +4,6 @@ export function getToken(): string | null {
   return localStorage.getItem('bugie_token');
 }
 
-export function getAdminUser() {
-  const raw = localStorage.getItem('bugie_admin_user');
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
 export function authHeaders(): Record<string, string> {
   const token = getToken();
   return {
@@ -23,6 +17,18 @@ export function clearSession() {
   localStorage.removeItem('bugie_admin_user');
 }
 
-export function isAuthenticated(): boolean {
-  return !!getToken();
+// ── Mensaje para mostrar en el login tras cerrar la sesión ──
+// (p. ej. "Tu sesión se cerró..." o "Tu cuenta fue desactivada..."). Se lee una sola vez.
+const KEY_LOGOUT_MSG = 'bugie_admin_logout_msg';
+
+export function setLogoutMessage(message: string) {
+  try { sessionStorage.setItem(KEY_LOGOUT_MSG, message); } catch { /* sin almacenamiento */ }
+}
+
+export function takeLogoutMessage(): string | null {
+  try {
+    const msg = sessionStorage.getItem(KEY_LOGOUT_MSG);
+    sessionStorage.removeItem(KEY_LOGOUT_MSG);
+    return msg;
+  } catch { return null; }
 }

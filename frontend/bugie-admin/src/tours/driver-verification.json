@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='verif-list']",
+      "title": "Tu bandeja de pendientes",
+      "text": "Aquí solo aparecen conductores que aún no pueden trabajar. La columna «Qué falta» te dice si te toca revisar a ti o si esperas al conductor."
+    },
+    {
+      "selector": "[data-tour='verif-list']",
+      "title": "Prioriza a quien más espera",
+      "text": "«Esperando» se pone amarillo a los 3 días y rojo a los 7. Toca «Revisar» para abrir directo sus documentos."
+    },
+    {
+      "selector": "[data-tour='verif-search']",
+      "title": "Busca a alguien en concreto",
+      "text": "Escribe su nombre o correo si un conductor te llama preguntando por su verificación."
+    }
+  ]
+}

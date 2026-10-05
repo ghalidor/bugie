@@ -9,5 +9,7 @@ namespace Bugie.Trips.Application.Queries;
 /// en appsettings.json ? TripFiltering.NearbyRadiusMeters), excepto los
 /// viajes donde el conductor ya envió una propuesta — esos se muestran
 /// siempre para no perder la negociación en curso.
+/// SkipDetails = true: solo la lista visible, sin pasajeros ni waypoints
+/// (la usa el mapa de demanda del conductor).
 /// </summary>
-public record GetPendingTripsQuery(Guid DriverUserId) : IRequest<List<TripDto>>;
+public record GetPendingTripsQuery(Guid DriverUserId, bool SkipDetails = false) : IRequest<List<TripDto>>;

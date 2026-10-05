@@ -166,6 +166,83 @@ public class RaffleRepository : IRaffleRepository
         }
     }
 
+    public async Task<List<string>> UseTicketCouponAsync(
+        Guid raffleId, Guid userId, Guid profileId, Guid redemptionId,
+        int quantity, string usedNote, CancellationToken ct = default)
+    {
+        var vacio = new List<string>();
+        if (quantity <= 0) return vacio;
+
+        var wasClosed = _db.State != ConnectionState.Open;
+        if (wasClosed) _db.Open();
+
+        using var trx = _db.BeginTransaction();
+        try
+        {
+            var now = DateTime.UtcNow;
+
+            // 1. Bloquea el sorteo (numeracion sin carreras) y exige que siga
+            //    abierto y que su fecha no haya llegado.
+            var abierto = await _db.ExecuteScalarAsync<int>(@"
+                SELECT 1 FROM rewards.Raffles
+                WHERE Id = @Id AND Status = 'open' AND DrawDate > @Now
+                FOR UPDATE",
+                new { Id = raffleId, Now = now }, trx);
+
+            if (abierto == 0) { trx.Rollback(); return vacio; }
+
+            // 2. Marca el cupon como usado. El WHERE evita usarlo dos veces
+            //    (doble clic) o usar uno ajeno, vencido o de otro tipo.
+            var usado = await _db.ExecuteAsync(@"
+                UPDATE rewards.Redemptions SET
+                    Status          = 'used',
+                    UsedAt          = @Now,
+                    UsedReferenceId = @RaffleId,
+                    UsedNote        = @Note
+                WHERE Id = @Id AND UserId = @UserId
+                  AND RewardType = 'raffle_ticket'
+                  AND Status = 'active' AND ExpiresAt > @Now",
+                new { Id = redemptionId, UserId = userId, RaffleId = raffleId, Note = usedNote, Now = now }, trx);
+
+            if (usado == 0) { trx.Rollback(); return vacio; }
+
+            // 3. Crea los tickets con la misma numeracion que el reparto.
+            var desde = await _db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM rewards.RaffleTickets WHERE RaffleId = @RaffleId",
+                new { RaffleId = raffleId }, trx);
+
+            var filas = Enumerable.Range(1, quantity).Select(i => new
+            {
+                Id           = Guid.NewGuid(),
+                RaffleId     = raffleId,
+                UserId       = userId,
+                ProfileId    = profileId,
+                TicketNumber = RaffleDraw.TicketNumber(desde + i),
+                Source       = TicketSources.PointsRedemption,
+                ReferenceId  = (Guid?)redemptionId,
+            }).ToList();
+
+            await _db.ExecuteAsync(@"
+                INSERT INTO rewards.RaffleTickets
+                    (Id, RaffleId, UserId, ProfileId, TicketNumber, Source, ReferenceId, CreatedAt)
+                VALUES
+                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, now())",
+                filas, trx);
+
+            trx.Commit();
+            return filas.Select(f => f.TicketNumber).ToList();
+        }
+        catch
+        {
+            trx.Rollback();
+            throw;
+        }
+        finally
+        {
+            if (wasClosed && _db.State == ConnectionState.Open) _db.Close();
+        }
+    }
+
     private sealed class SummaryRow
     {
         public Guid     Id               { get; set; }
@@ -276,6 +353,10 @@ public class RaffleRepository : IRaffleRepository
     public Task<RaffleWinner?> GetWinnerByIdAsync(Guid id, CancellationToken ct = default) =>
         _db.QuerySingleOrDefaultAsync<RaffleWinner>(
             "SELECT * FROM rewards.RaffleWinners WHERE Id = @Id", new { Id = id });
+
+    public Task<RaffleWinner?> GetWinnerByPrizeCodeAsync(string prizeCode, CancellationToken ct = default) =>
+        _db.QuerySingleOrDefaultAsync<RaffleWinner>(
+            "SELECT * FROM rewards.RaffleWinners WHERE PrizeCode = @Code", new { Code = prizeCode });
 
     public Task UpdateWinnerAsync(RaffleWinner w, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"

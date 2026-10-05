@@ -53,12 +53,27 @@ public class GetTripHistoryHandler : IRequestHandler<GetTripHistoryQuery, List<T
             ? await _ratings.GetByTripIdsAsync(tripIds, ct)
             : new Dictionary<Guid, TripRating>();
 
+        // Historial del CONDUCTOR: el pasajero va solo con sus iniciales
+        // (privacidad, ej. "L. M."). El nombre completo nunca sale de aqui.
+        var passengerInitials = new Dictionary<Guid, string>();
+        if(q.Role == "driver")
+        {
+            var passengerIds = list.Select(t => t.PassengerId).Distinct().ToArray();
+            if(passengerIds.Length > 0)
+            {
+                var passengers = await _auth.GetUsersByIdsAsync(passengerIds, ct);
+                foreach(var (id, u) in passengers)
+                    passengerInitials[id] = Initials(u.FullName);
+            }
+        }
+
         return list.Select(t =>
         {
             int? stars = ratings.GetValueOrDefault(t.Id)?.Stars;
+            var passengerName = passengerInitials.GetValueOrDefault(t.PassengerId);
 
             if(t.DriverId is null)
-                return CreateTripHandler.ToDto(t, passengerStars: stars);
+                return CreateTripHandler.ToDto(t, passengerName: passengerName, passengerStars: stars);
 
             var did = t.DriverId.Value;
             var info = infos.GetValueOrDefault(did);
@@ -72,7 +87,16 @@ public class GetTripHistoryHandler : IRequestHandler<GetTripHistoryQuery, List<T
                 vehicleModel: info?.VehicleModel,
                 vehicleColor: info?.VehicleColor,
                 vehiclePhotoUrl: info?.VehiclePhotoUrl,
+                passengerName: passengerName,
                 passengerStars: stars);
         }).ToList();
+    }
+
+    /// <summary>"Luis Martinez" -> "L. M." (maximo dos iniciales).</summary>
+    private static string? Initials(string? fullName)
+    {
+        if(string.IsNullOrWhiteSpace(fullName)) return null;
+        var parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2);
+        return string.Join(" ", parts.Select(p => char.ToUpperInvariant(p[0]) + "."));
     }
 }

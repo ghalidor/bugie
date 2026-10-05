@@ -12,11 +12,14 @@ import '../../../core/widgets/bugie_card.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/user_model.dart';
+import '../../auth/presentation/widgets/identity_info_card.dart';
+import '../../emergency_contact/presentation/emergency_contact_card.dart';
 
 /// Perfil del pasajero.
 /// Datos que muestra (todos vienen de GET /api/auth/me):
 ///   - Foto de perfil (subible)
 ///   - Nombre + correo
+///   - Nombres, apellidos y documento (solo lectura; se corrigen con soporte)
 ///   - Teléfono
 ///   - Estado de verificación de cuenta
 ///   - Miembro desde (fecha de creación)
@@ -96,17 +99,7 @@ class _PassengerProfileScreenState extends State<PassengerProfileScreen> {
       // Actualizar state local con la URL nueva (no esperar al GET).
       if (_profile != null && newUrl.isNotEmpty) {
         setState(() {
-          _profile = UserProfile(
-            id:               _profile!.id,
-            fullName:         _profile!.fullName,
-            email:            _profile!.email,
-            phone:            _profile!.phone,
-            role:             _profile!.role,
-            isActive:         _profile!.isActive,
-            isVerified:       _profile!.isVerified,
-            profilePhotoUrl:  newUrl,
-            createdAt:        _profile!.createdAt,
-          );
+          _profile = _profile!.copyWithPhoto(newUrl);
           _photoVersion++;
         });
       }
@@ -232,6 +225,10 @@ class _PassengerProfileScreenState extends State<PassengerProfileScreen> {
                     ),
                     const SizedBox(height: 20),
 
+                    // ── Datos personales (solo lectura) ──────────────────
+                    IdentityInfoCard(profile: _profile),
+                    const SizedBox(height: 12),
+
                     // ── Info de cuenta ───────────────────────────────────
                     BugieCard(
                       title: 'Información de la cuenta',
@@ -313,6 +310,10 @@ class _PassengerProfileScreenState extends State<PassengerProfileScreen> {
                         onTap: () => context.push('/passenger/verification'),
                       ),
                     ),
+                    const SizedBox(height: 12),
+
+                    // ── Contacto de emergencia (recomendado) ───────────
+                    const EmergencyContactCard(),
                     const SizedBox(height: 20),
 
                     OutlinedButton.icon(
@@ -324,7 +325,7 @@ class _PassengerProfileScreenState extends State<PassengerProfileScreen> {
                       icon: const Icon(Icons.logout),
                       label: const Text('Cerrar sesión'),
                       onPressed: () async {
-                        await context.read<Session>().clear();
+                        await context.read<AuthRepository>().logout();
                         if (context.mounted) context.go('/');
                       },
                     ),

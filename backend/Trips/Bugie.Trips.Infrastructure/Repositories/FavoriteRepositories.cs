@@ -47,11 +47,6 @@ public class FavoriteDriverRepository : IFavoriteDriverRepository {
             DELETE FROM trips.FavoriteDrivers
             WHERE PassengerId = @PassengerId AND DriverUserId = @DriverUserId",
             new { PassengerId = passengerId, DriverUserId = driverUserId });
-
-    public Task<int> CountForDriverAsync(Guid driverUserId, CancellationToken ct = default) =>
-        _db.ExecuteScalarAsync<int>(@"
-            SELECT COUNT(1) FROM trips.FavoriteDrivers WHERE DriverUserId = @DriverUserId",
-            new { DriverUserId = driverUserId });
 }
 
 public class FavoriteAddressRepository : IFavoriteAddressRepository {

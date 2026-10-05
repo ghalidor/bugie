@@ -26,6 +26,18 @@ public static class Permissions
     public const string ViewReports = "view:reports";
     public const string ViewSecurity = "view:security"; // este módulo mismo
 
+    // Cada página del menú con su propio permiso (antes varias compartían
+    // view:landing, view:payments o view:drivers).
+    public const string ViewVerification = "view:verification";            // Verificación de conductores
+    public const string ViewDriverPayouts = "view:driver_payouts";         // Pagos a conductores
+    public const string ViewCommissions = "view:commissions";              // Comisiones
+    public const string ViewRewards = "view:rewards";                      // Fidelización (puntos)
+    public const string ViewMessages = "view:messages";                    // Mensajes de contacto
+    public const string ViewSettings = "view:settings";                    // Configuración
+    public const string ViewNotificationsConfig = "view:notifications_config"; // Avisos del panel
+    public const string ViewComplaints = "view:complaints";                // Libro de reclamaciones
+    public const string ViewCompany = "view:company";                      // Datos de la empresa
+
     // ── ACCIONES (Fase 2 — se reservan los nombres) ─────────────────────
     // Estos NO se validan todavía en endpoints, pero los dejamos definidos
     // para que el catálogo esté centralizado y los nombres no cambien después.
@@ -43,6 +55,8 @@ public static class Permissions
         ViewDashboard, ViewUsers, ViewDrivers, ViewPassengers, ViewTrips,
         ViewPayments, ViewLiveMap, ViewSosCenter, ViewLanding, ViewCommunity,
         ViewLegalDocs, ViewFaq, ViewReports, ViewSecurity,
+        ViewVerification, ViewDriverPayouts, ViewCommissions, ViewRewards,
+        ViewMessages, ViewSettings, ViewNotificationsConfig, ViewComplaints, ViewCompany,
     };
 
     /// <summary>Todos los permisos de ACCIÓN (Fase 2) — útil para validar entradas.</summary>

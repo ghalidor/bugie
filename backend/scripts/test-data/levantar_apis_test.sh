@@ -7,8 +7,8 @@ mkdir -p scripts/test-data/logs
 export ConnectionStrings__Default="Host=localhost;Port=5432;Database=bugie_test;Username=postgres;Password=147896321;"
 export ASPNETCORE_ENVIRONMENT=Development
 for svc in Auth Trips Drivers Payments Landing Rewards; do
-  LocalStorage__StoragePath="C:/bugie-uploads-test/${svc,,}" \
-    dotnet run --no-build --no-launch-profile --project "$svc/Bugie.$svc.Api" \
+  # Las imagenes van a la carpeta de appsettings (LocalStorage:StoragePath)
+  dotnet run --no-build --no-launch-profile --project "$svc/Bugie.$svc.Api" \
     > "scripts/test-data/logs/${svc,,}.log" 2>&1 &
   echo "$svc PID $!"
 done

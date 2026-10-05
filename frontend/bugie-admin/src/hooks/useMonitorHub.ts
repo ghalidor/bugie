@@ -29,11 +29,50 @@ export interface PassengerLocationEvent {
 }
 
 export interface SosEvent {
+  /// Id del aviso guardado en el historial (null si no se guardó).
+  notificationId?: string | null;
+  alertId?: string | null;
+  /// Texto del aviso armado por el backend (incluye nombre y rol).
+  title?: string;
+  message?: string;
   tripId: string;
   userId: string;
   userRole: string;
   lat: number;
   lng: number;
+}
+
+/// Alerta de desvío de ruta detectada en el backend (Trips.Api).
+export interface RouteDeviationEvent {
+  /// Id del aviso guardado en el historial (solo en deviation:new).
+  notificationId?: string | null;
+  id: string;
+  tripId: string;
+  driverId: string;
+  leg: string;
+  lat: number;
+  lng: number;
+  distanceM: number;
+  maxDistanceM: number;
+  status: 'open' | 'closed';
+  closeReason: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+}
+
+/// Aviso para el Centro de avisos (POST /api/internal/admin-events en Trips).
+export interface AdminEvent {
+  /// Id del aviso guardado en el historial (null si no se guardó).
+  notificationId: string | null;
+  type: string;
+  title: string;
+  message: string;
+  link: string;
+  /// Permiso que debe tener el admin para verlo ('' = cualquiera).
+  permission: string;
+  createdAt: string;
 }
 
 interface UseMonitorHubOpts {
@@ -46,6 +85,11 @@ interface UseMonitorHubOpts {
   onPassengerLocation?: (payload: PassengerLocationEvent) => void;
   /// Un conductor se desconectó (sacarlo del mapa).
   onDriverOffline?: (payload: { userId: string }) => void;
+  /// Alerta de desvío de ruta: kind = new (se abrió), closed (volvió a la
+  /// ruta o terminó el viaje), reviewed (un admin la revisó).
+  onDeviation?: (kind: 'new' | 'closed' | 'reviewed', payload: RouteDeviationEvent) => void;
+  /// Aviso general para el Centro de avisos ("admin:event").
+  onAdminEvent?: (payload: AdminEvent) => void;
 }
 
 /// Hook que mantiene una conexión SignalR al hub /hubs/monitor.
@@ -76,6 +120,10 @@ export function useMonitorHub(opts: UseMonitorHubOpts) {
     conn.on('sos:new', (payload: any) => {
       try {
         optsRef.current.onSos?.({
+          notificationId: payload?.notificationId ? String(payload.notificationId) : null,
+          alertId:  payload?.alertId ? String(payload.alertId) : null,
+          title:    payload?.title ? String(payload.title) : undefined,
+          message:  payload?.message ? String(payload.message) : undefined,
           tripId:   payload.tripId,
           userId:   payload.userId,
           userRole: payload.userRole ?? 'unknown',
@@ -113,6 +161,28 @@ export function useMonitorHub(opts: UseMonitorHubOpts) {
       try {
         optsRef.current.onDriverOffline?.({ userId: payload.userId });
       } catch (e) { console.warn('Error procesando driver:offline', e); }
+    });
+
+    (['new', 'closed', 'reviewed'] as const).forEach(kind => {
+      conn.on(`deviation:${kind}`, (payload: RouteDeviationEvent) => {
+        try {
+          optsRef.current.onDeviation?.(kind, payload);
+        } catch (e) { console.warn(`Error procesando deviation:${kind}`, e); }
+      });
+    });
+
+    conn.on('admin:event', (payload: any) => {
+      try {
+        optsRef.current.onAdminEvent?.({
+          notificationId: payload?.notificationId ? String(payload.notificationId) : null,
+          type:       String(payload?.type ?? ''),
+          title:      String(payload?.title ?? ''),
+          message:    String(payload?.message ?? ''),
+          link:       String(payload?.link ?? ''),
+          permission: String(payload?.permission ?? ''),
+          createdAt:  String(payload?.createdAt ?? ''),
+        });
+      } catch (e) { console.warn('Error procesando admin:event', e); }
     });
 
     conn.start()

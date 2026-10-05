@@ -68,6 +68,31 @@ class Session extends ChangeNotifier {
   String? get profilePhotoUrl => _profilePhotoUrl;
   bool get photoFetched => _photoFetched;
 
+  // true = GET /auth/me dijo que faltan documento o nombres: el router manda
+  // a "Completa tus datos" hasta que los complete. No se guarda en disco: se
+  // vuelve a consultar al iniciar sesión y al abrir la app.
+  bool _needsProfileCompletion = false;
+  bool get needsProfileCompletion => _needsProfileCompletion;
+
+  void setNeedsProfileCompletion(bool value) {
+    if (_needsProfileCompletion == value) return;
+    _needsProfileCompletion = value;
+    notifyListeners();
+  }
+
+  /// Actualiza el nombre guardado (tras completar los datos el backend arma
+  /// el fullName nuevo con nombres + apellidos).
+  Future<void> updateFullName(String fullName) async {
+    final u = _user;
+    if (u == null || fullName.trim().isEmpty) return;
+    _user = SessionUser(
+        userId: u.userId, fullName: fullName, email: u.email, role: u.role);
+    try {
+      await _storage.write(key: _kUser, value: jsonEncode(_user!.toJson()));
+    } catch (_) {}
+    notifyListeners();
+  }
+
   void setProfilePhotoUrl(String? url) {
     _profilePhotoUrl = url;
     _photoFetched = true;
@@ -80,29 +105,31 @@ class Session extends ChangeNotifier {
   Future<void> load() async {
     try {
       final raw = await _storage.read(key: _kUser);
-      debugPrint('[Session] load: storage tiene user? ${raw != null}');
       if (raw != null) {
         try {
           _user = SessionUser.fromJson(jsonDecode(raw));
-          debugPrint('[Session] load: user=${_user?.email} role=${_user?.role}');
-        } catch (e) {
-          debugPrint('[Session] load: error parsing user JSON: $e');
+        } catch (_) {
+          // JSON guardado inválido: se queda sin sesión.
           _user = null;
         }
-      } else {
-        debugPrint('[Session] load: NO hay user guardado en storage.');
       }
-    } catch (e) {
+    } catch (_) {
       // secure_storage puede fallar al primer arranque en emuladores Android
       // por temas de Keystore. No rompemos la app: solo dejamos al usuario
       // sin sesión y el router lo manda a /.
-      debugPrint('[Session] load: ERROR leyendo secure_storage: $e');
       _user = null;
     }
     notifyListeners();
   }
 
   Future<String?> getToken() => _storage.read(key: _kToken);
+
+  /// Reemplaza solo el token (p. ej. tras cambiar la contraseña: el backend
+  /// cierra todas las sesiones y devuelve un JWT nuevo para la actual).
+  Future<void> updateToken(String token) async {
+    if (token.isEmpty) return;
+    await _storage.write(key: _kToken, value: token);
+  }
 
   /// Guarda token + usuario tras login/registro exitoso.
   Future<void> save({required String token, required SessionUser user}) async {
@@ -119,6 +146,7 @@ class Session extends ChangeNotifier {
     _user = null;
     _profilePhotoUrl = null;
     _photoFetched = false;
+    _needsProfileCompletion = false;
     notifyListeners();
   }
 }

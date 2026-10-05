@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='legal-docs']",
+      "title": "Elige el documento",
+      "text": "Términos y Condiciones o Política de Privacidad: toca el que quieras editar."
+    },
+    {
+      "selector": "[data-tour='legal-lang']",
+      "title": "Un texto por idioma",
+      "text": "Cada idioma tiene su propia versión. Cámbialo con estas pestañas; si tienes cambios sin guardar, te avisaremos."
+    },
+    {
+      "selector": "[data-tour='legal-editor']",
+      "title": "Edita como en un procesador de textos",
+      "text": "Usa la barra para negritas, títulos, listas y enlaces. Al terminar, pulsa «Guardar» en la barra inferior."
+    }
+  ]
+}

@@ -13,7 +13,8 @@ namespace Bugie.Auth.Application.Queries;
 public record GetUsersStatsQuery(
     string? Search,
     string? Role,
-    bool? Verified = null) : IRequest<UsersStatsDto>;
+    bool? Verified = null,
+    bool? Deleted = false) : IRequest<UsersStatsDto>;
 
 public record UsersStatsDto(
     int Total,
@@ -30,7 +31,7 @@ public class GetUsersStatsHandler
 
     public async Task<UsersStatsDto> Handle(GetUsersStatsQuery q, CancellationToken ct) {
         var (total, activos, pasajeros, conductores, verificados, noVerificados) =
-            await _users.GetStatsAsync(q.Search, q.Role, q.Verified, ct);
+            await _users.GetStatsAsync(q.Search, q.Role, q.Verified, ct, q.Deleted);
         return new UsersStatsDto(total, activos, pasajeros, conductores,
             verificados, noVerificados);
     }

@@ -14,6 +14,8 @@ namespace Bugie.Trips.Api.Realtime;
 ///   - "driver:location"   — un conductor reportó nueva posición
 ///   - "passenger:location"— un pasajero (en viaje) reportó nueva posición
 ///   - "driver:offline"    — un conductor se desconectó (no más broadcasts)
+///   - "deviation:new" / "deviation:closed" / "deviation:reviewed"
+///                         — alerta de desvío de ruta (detectada en el backend)
 ///
 /// Estrategia: al conectarse, el admin se agrega automáticamente al grupo
 /// "admins" en OnConnectedAsync. Al desconectarse, se remueve.

@@ -27,6 +27,16 @@ public interface IRedemptionRepository
         PointsProfile profile, PointsTransaction movement,
         Redemption redemption, CancellationToken ct = default);
 
+    /// <summary>
+    /// Anula un cupon que no costo puntos (beneficio de nivel): solo cambia
+    /// su estado, no hay nada que devolver. False si ya no estaba activo.
+    /// </summary>
+    Task<bool> CancelWithoutRefundAsync(Redemption redemption, CancellationToken ct = default);
+
+    /// <summary>Cupones activos y vigentes de un usuario de un tipo, el que vence primero arriba.</summary>
+    Task<List<Redemption>> GetActiveByTypeAsync(
+        Guid userId, string rewardType, CancellationToken ct = default);
+
     Task<Redemption?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<Redemption?> GetByCodeAsync(string code, CancellationToken ct = default);
     Task UpdateAsync(Redemption redemption, CancellationToken ct = default);

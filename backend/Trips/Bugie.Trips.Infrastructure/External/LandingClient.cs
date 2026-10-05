@@ -18,6 +18,36 @@ public class LandingClient : ILandingClient
     // campos que nos importan).
     private record SettingDto(string SettingKey, string Value);
 
+    // Caché compartido (el cliente HTTP es transient): settings + hora de lectura.
+    private static Dictionary<string, string>? _cache;
+    private static DateTime _cacheAt = DateTime.MinValue;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
+
+    public async Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
+    {
+        var cache = _cache;
+        if(cache is null || DateTime.UtcNow - _cacheAt > CacheTtl)
+        {
+            try
+            {
+                var list = await _http.GetFromJsonAsync<List<SettingDto>>(
+                    "api/landing/settings", ct);
+                cache = (list ?? new List<SettingDto>())
+                    .GroupBy(s => s.SettingKey, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First().Value, StringComparer.OrdinalIgnoreCase);
+                _cache = cache;
+                _cacheAt = DateTime.UtcNow;
+            }
+            catch(Exception e)
+            {
+                // Si Landing no responde usamos lo último leído (si hay).
+                Console.WriteLine($"LandingClient.GetSettingAsync error: {e.Message}");
+                if(cache is null) return null;
+            }
+        }
+        return cache.TryGetValue(key, out var value) ? value : null;
+    }
+
     public async Task<int> GetMaxRadiusMetersAsync(int fallbackMeters, CancellationToken ct = default)
     {
         try

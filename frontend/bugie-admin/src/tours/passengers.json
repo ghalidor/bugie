@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='passengers-filters']",
+      "title": "Busca y filtra",
+      "text": "Escribe un nombre, correo, teléfono o número de documento. Los filtros muestran cuántos pasajeros hay en cada grupo; empieza por «Por verificar»."
+    },
+    {
+      "selector": "[data-tour='passengers-list']",
+      "title": "Abre un pasajero",
+      "text": "Toca cualquier fila para ver su DNI, sus datos y su contacto de emergencia. Desde ahí lo apruebas o le pides reenviar documentos."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

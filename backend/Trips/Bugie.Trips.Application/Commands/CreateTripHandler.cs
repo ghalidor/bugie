@@ -7,7 +7,8 @@ using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Application.Commands;
 
-public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
+public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>,
+    IRequestHandler<NotifyNearbyDriversCommand>
 {
     private readonly ITripRepository _trips;
     private readonly IAuthClient _auth;
@@ -50,11 +51,22 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
         // "Activo" significa cualquier status que NO sea completed (4) o cancelled (5).
         // Esto evita que un pasajero tenga 2 viajes en paralelo y que pueda
         // saltarse el flujo cancelando o terminando el viaje actual.
-        var existing = await _trips.GetActiveTripAsync(cmd.PassengerId, ct);
+        // Programados: no se bloquean por un viaje activo (son para mas tarde),
+        // y un programado futuro tampoco cuenta como activo (ver GetActiveTripAsync).
+        var existing = cmd.ScheduledAt.HasValue ? null : await _trips.GetActiveTripAsync(cmd.PassengerId, ct);
         if(existing is not null)
         {
             throw new InvalidOperationException(
                 "Ya tienes un viaje en curso. Termínalo o cancélalo antes de solicitar otro.");
+        }
+
+        // Validacion 3: el pasajero no puede tener dos programados propios a menos
+        // de 1 hora uno del otro (misma regla que para el conductor).
+        if(cmd.ScheduledAt.HasValue)
+        {
+            var conflict = await Bugie.Trips.Application.Services.ScheduledConflicts
+                .FindPassengerConflictMessageAsync(_trips, cmd.PassengerId, cmd.ScheduledAt.Value, ct);
+            if(conflict is not null) throw new InvalidOperationException(conflict);
         }
 
         // Envio: hace falta saber a quien se entrega.
@@ -75,7 +87,8 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
             packageIsFragile: cmd.PackageIsFragile,
             packageDetails: cmd.PackageDetails,
             recipientName: cmd.ServiceType == ServiceType.Delivery ? recipientName : null,
-            recipientPhone: cmd.ServiceType == ServiceType.Delivery ? recipientPhone : null);
+            recipientPhone: cmd.ServiceType == ServiceType.Delivery ? recipientPhone : null,
+            scheduledAt: cmd.ScheduledAt);
 
         await _trips.AddAsync(trip, ct);
 
@@ -104,9 +117,25 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
         // IMPORTANTE: usamos CancellationToken.None — si pasáramos `ct`, cuando
         // el POST /api/trips responde al cliente el token se cancela y aborta
         // las llamadas HTTP a Drivers/Auth/FCM a mitad de camino.
-        _ = NotifyDriversAsync(trip, cmd.EstimatedFare, CancellationToken.None);
+        if(cmd.NotifyDrivers)
+        {
+            // Envios: la lista de conductores sale de la BD. Se lee AQUI (con la conexion
+            // de la peticion viva); solo el push va en segundo plano. Si la consulta corre
+            // en segundo plano, la conexion se cierra al responder y queda corrupta en el pool.
+            var deliveryDrivers = await DeliveryDriversAsync(trip, ct);
+            _ = NotifyDriversAsync(trip, cmd.EstimatedFare, deliveryDrivers, CancellationToken.None);
+        }
 
         return ToDto(trip);
+    }
+
+    // Aviso a conductores cuando el viaje ya existe (envios: tras guardar las fotos).
+    public async Task Handle(NotifyNearbyDriversCommand cmd, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(cmd.TripId, ct);
+        if(trip is null) return;
+        var deliveryDrivers = await DeliveryDriversAsync(trip, ct);
+        _ = NotifyDriversAsync(trip, trip.EstimatedFare, deliveryDrivers, CancellationToken.None);
     }
 
     /// <summary>
@@ -114,30 +143,66 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
     /// hay una nueva solicitud. Fire-and-forget: corre en background, no
     /// bloquea la respuesta al pasajero.
     /// </summary>
-    private async Task NotifyDriversAsync(Trip trip, decimal estimatedFare, CancellationToken ct)
+    /// Envios: todos los conductores conectados y aprobados (null si es viaje).
+    private async Task<List<Guid>?> DeliveryDriversAsync(Trip trip, CancellationToken ct)
+    {
+        if(trip.ServiceType != ServiceType.Delivery) return null;
+        try { return await _trips.GetOnlineApprovedDriverUserIdsAsync(ct); }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"DeliveryDriversAsync error: {ex.Message}");
+            return new List<Guid>();
+        }
+    }
+
+    private async Task NotifyDriversAsync(Trip trip, decimal estimatedFare, List<Guid>? deliveryDriverIds, CancellationToken ct)
     {
         try
         {
-            // 1. Saber qué radio usar (el admin lo configura en Landing).
-            //    Fallback: 5 km (5000m) si Landing no responde.
-            var radiusMeters = await _landing.GetMaxRadiusMetersAsync(5000, ct);
-            var radiusKm = radiusMeters / 1000.0;
+            var isDelivery = trip.ServiceType == ServiceType.Delivery;
+            List<Guid> userIds;
+            if(isDelivery)
+            {
+                // Envios: a TODOS los conductores conectados y aprobados, sin distancia.
+                // Ya calculados antes de responder (ver DeliveryDriversAsync).
+                userIds = deliveryDriverIds ?? new List<Guid>();
+            }
+            else
+            {
+                // 1. Saber qué radio usar (el admin lo configura en Landing).
+                //    Fallback: 5 km (5000m) si Landing no responde.
+                var radiusMeters = await _landing.GetMaxRadiusMetersAsync(5000, ct);
+                var radiusKm = radiusMeters / 1000.0;
 
-            // 2. Conductores cercanos al ORIGEN del viaje.
-            //    El endpoint de Drivers ya filtra online + approved.
-            var userIds = await _drivers.GetNearbyDriverUserIdsAsync(
-                trip.OriginLat, trip.OriginLng, radiusKm, maxResults: 20, ct);
+                // 2. Conductores cercanos al ORIGEN del viaje.
+                //    El endpoint de Drivers ya filtra online + approved.
+                userIds = await _drivers.GetNearbyDriverUserIdsAsync(
+                    trip.OriginLat, trip.OriginLng, radiusKm, maxResults: 20, ct);
+            }
 
             if(userIds.Count == 0) return;
 
+            // Programado: se indica la fecha y hora (de Perú) en el aviso.
+            var when = trip.ScheduledAt.HasValue
+                ? $" · Programado {Bugie.Trips.Domain.Common.BugieTime.ToPeru(trip.ScheduledAt.Value):dd/MM HH:mm}"
+                : "";
             // 3. Mandar push. El cliente Flutter, al tocar, va a /driver/requests.
             var msg = new FcmPushMessage(
-                Title: "Nueva solicitud de viaje",
-                Body: $"S/ {estimatedFare:F2} · {trip.OriginAddress}",
+                Title: trip.ScheduledAt.HasValue
+                    ? (isDelivery ? "Nuevo envío programado" : "Nuevo viaje programado")
+                    : (isDelivery ? "Nueva solicitud de envío" : "Nueva solicitud de viaje"),
+                Body: isDelivery
+                    ? $"S/ {estimatedFare:F2}{when} · Paquete: {trip.PackageDescription} · {trip.OriginAddress}"
+                    : $"S/ {estimatedFare:F2}{when} · {trip.OriginAddress}",
                 Route: "/driver/requests",
                 ExtraData: new Dictionary<string, string>
                 {
                     ["tripId"] = trip.Id.ToString(),
+                    ["trip_id"] = trip.Id.ToString(),
+                    ["alert_type"] = "proposal",
+                    // Icono de viaje o envío y de quién viene (pasajero).
+                    ["service"] = isDelivery ? "delivery" : "ride",
+                    ["from"] = "passenger",
                 });
             await _fcm.SendToUsersAsync(userIds, msg, ct);
         }
@@ -181,5 +246,8 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>
         t.CouponCode, t.DiscountAmount, t.FareBeforeDiscount,
         t.AcceptedAt, t.DriverArrivedAt,
         t.CancelledBy, t.CancelReason, t.CancelledAt,
-        t.RecipientName, t.RecipientPhone, t.DeliveryReceivedBy, t.DeliveryConfirmedAt);
+        t.RecipientName, t.RecipientPhone, t.DeliveryReceivedBy, t.DeliveryConfirmedAt,
+        t.ScheduledAt,
+        t.ScheduledAt.HasValue && !t.IsFutureScheduled(DateTime.UtcNow),
+        t.IsDriverLate(DateTime.UtcNow));
 }

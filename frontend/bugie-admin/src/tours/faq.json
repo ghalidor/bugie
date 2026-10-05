@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='faq-filters']",
+      "title": "Encuentra cualquier pregunta",
+      "text": "Busca por texto y filtra por categoría o estado. Cambia de idioma con las pestañas de arriba."
+    },
+    {
+      "selector": "[data-tour='faq-list']",
+      "title": "Ordena a tu gusto",
+      "text": "Arrastra una pregunta desde el icono de puntos, o usa las flechas, para cambiar su orden dentro de la categoría. Se guarda solo."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "Crear y editar",
+      "text": "Con «Nueva pregunta» se abre un panel lateral. Toca cualquier pregunta para editarla."
+    }
+  ]
+}

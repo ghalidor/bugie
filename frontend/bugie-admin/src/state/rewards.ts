@@ -1,4 +1,5 @@
 import { API, apiFetch } from './api';
+import type { Tone } from '../components/ui';
 
 // ─────────────────────────────────────────────────────────────
 // Tipos: espejo exacto de los DTOs de Bugie.Rewards.Api
@@ -21,6 +22,10 @@ export interface RewardLevel {
   maxPoints:            number | null;
   discountPercentage:   number;
   monthlyFreeTrips:     number;
+  /** Cupones del % de descuento que el pasajero puede reclamar al mes. */
+  monthlyDiscountCoupons: number;
+  /** Tope en soles de cada viaje gratis (null = sin viajes gratis). */
+  freeTripMaxAmount:    number | null;
   weeklyRaffleTickets:  number;
   monthlyRaffleTickets: number;
   isActive:             boolean;
@@ -111,6 +116,8 @@ export interface RaffleWinner {
   note:         string | null;
   userName?:    string | null;
   userRole?:    string | null;
+  /** Código que el ganador presenta para cobrar (PZ-XXXXXX). */
+  prizeCode?:   string | null;
 }
 
 export interface Raffle {
@@ -323,6 +330,8 @@ export const rewardsAdminApi = {
         maxPoints:            level.maxPoints,
         discountPercentage:   level.discountPercentage,
         monthlyFreeTrips:     level.monthlyFreeTrips,
+        monthlyDiscountCoupons: level.monthlyDiscountCoupons,
+        freeTripMaxAmount:    level.freeTripMaxAmount,
         weeklyRaffleTickets:  level.weeklyRaffleTickets,
         monthlyRaffleTickets: level.monthlyRaffleTickets,
         isActive:             level.isActive,
@@ -471,16 +480,12 @@ export const STATUS_LABEL: Record<string, string> = {
   cancelled: 'Anulado',
 };
 
-/**
- * Colores por estado, como VARIABLES del tema y no como valores fijos.
- * Un verde que se lee bien sobre fondo oscuro se lava sobre blanco, y al
- * reves: cada tema define el suyo en _variables.scss.
- */
-export const STATUS_COLOR: Record<string, string> = {
-  active:    'var(--bugie-ok)',
-  used:      'var(--bugie-neutral)',
-  expired:   'var(--bugie-warn)',
-  cancelled: 'var(--bugie-bad)',
+/** Tono de StatusBadge para cada estado de canje. */
+export const STATUS_TONE: Record<string, Tone> = {
+  active:    'warn',
+  used:      'ok',
+  expired:   'neutral',
+  cancelled: 'bad',
 };
 
 /**
@@ -585,6 +590,14 @@ export const RAFFLE_STATUS: Record<string, { label: string; color: string }> = {
   closed:    { label: 'Cerrado',   color: 'var(--bugie-warn)' },
   drawn:     { label: 'Sorteado',  color: 'var(--bugie-primary-soft)' },
   cancelled: { label: 'Cancelado', color: 'var(--bugie-neutral)' },
+};
+
+/** Tono de StatusBadge para cada estado de sorteo. */
+export const RAFFLE_TONE: Record<string, Tone> = {
+  open:      'ok',
+  closed:    'warn',
+  drawn:     'primary',
+  cancelled: 'neutral',
 };
 
 export const raffleTypeLabel = (v: string) =>

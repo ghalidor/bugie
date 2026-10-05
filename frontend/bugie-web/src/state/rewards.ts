@@ -118,6 +118,48 @@ export interface UserRaffle {
   iWon:              boolean;
   myPrizeRank:       number | null;
   myTicketNumber:    string | null;
+  /** Cupones de ticket vigentes que la persona puede usar en este sorteo. */
+  ticketCouponsAvailable: number;
+  canUseTicketCoupon:     boolean;
+  nextTicketCouponId:     string | null;
+}
+
+export interface UseTicketCouponResult {
+  raffleId:          string;
+  raffleName:        string;
+  ticketsAdded:      number;
+  ticketNumbers:     string[];
+  myTickets:         number;
+  ticketCouponsLeft: number;
+  coupon:            Redemption;
+}
+
+export interface BenefitCount {
+  total:     number;
+  used:      number;
+  available: number;
+}
+
+/** Beneficios mensuales del nivel (solo pasajeros). */
+export interface LevelBenefits {
+  eligible:           boolean;
+  notEligibleReason:  string | null;
+  level:              string;
+  levelName:          string;
+  discountPercentage: number;
+  discountCoupons:    BenefitCount;
+  freeTrips:          BenefitCount & { maxAmount: number | null };
+  /** Mes del beneficio: «2026-10». */
+  period:             string;
+  /** Hora Perú, sin zona. */
+  periodEndsAt:       string;
+  couponsApplyToFare: boolean;
+  canClaim:           boolean;
+}
+
+export interface ClaimLevelBenefitResult {
+  coupon:   Redemption;
+  benefits: LevelBenefits;
 }
 
 export interface ReferredPerson {
@@ -227,11 +269,6 @@ export const rewardsApi = {
       method: 'POST', body: JSON.stringify({ code }),
     }),
 
-  removeCouponFromTrip: (tripId: string) =>
-    apiFetch<{ message: string }>(`${API.trips}/trips/${tripId}/coupon`, {
-      method: 'DELETE',
-    }),
-
   progress: () =>
     apiFetch<Progress>(`${base()}/me/progress`),
 
@@ -252,6 +289,21 @@ export const rewardsApi = {
 
   raffles: () =>
     apiFetch<UserRaffle[]>(`${base()}/raffles`),
+
+  levelBenefits: () =>
+    apiFetch<LevelBenefits>(`${base()}/me/level-benefits`),
+
+  claimLevelBenefit: (type: 'discount' | 'free_trip') =>
+    apiFetch<ClaimLevelBenefitResult>(`${base()}/me/level-benefits/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    }),
+
+  applyTicketCoupon: (raffleId: string, redemptionId?: string | null) =>
+    apiFetch<UseTicketCouponResult>(`${base()}/raffles/${raffleId}/use-ticket-coupon`, {
+      method: 'POST',
+      body: JSON.stringify(redemptionId ? { redemptionId } : {}),
+    }),
 
   myCoupons: (status: string | null, page = 1, pageSize = 20) => {
     const s = status ? `&status=${status}` : '';

@@ -7,14 +7,19 @@
 --   * a cada viaje le da una duracion realista (12 a 30 min) y mueve con el
 --     todo lo suyo: propuestas, recorrido GPS, pago, calificacion, incidente,
 --     SOS, fotos y puntos ganados;
---   * intercala en orden lo demas (canjes, ajustes, sorteos, contacto);
---   * deja el registro/activacion de usuarios en los dias previos.
+--   * intercala en orden lo demas (canjes, ajustes, sorteos, contacto,
+--     reclamaciones, estados del conductor, auditoria de cuentas, avisos);
+--   * deja el registro/activacion de usuarios en los dias previos;
+--   * pone cada conexion CERRADA de un conductor en un dia en que tuvo viajes,
+--     cubriendo esos viajes (turno de al menos 3 h).
 --
 -- No se tocan:
---   * configuracion previa al seed (landing, catalogo, niveles)
+--   * configuracion previa al seed (landing, catalogo, niveles, feriados fijos)
 --   * el viaje EN CURSO y el PENDIENTE (quedan hoy, para la demo del mapa)
---   * presencia y ubicacion actual de los conductores (siguen en linea)
---   * vencimientos de documentos, fechas de promociones y de sorteos
+--   * la conexion ACTIVA y la ubicacion actual de los conductores (siguen en linea)
+--   * vencimientos de documentos, fechas de promociones y de sorteos,
+--     fin de suspension (SuspendedUntil) y plazos de documentos (Deadline)
+--   * lo que el seed hace al final (avisos leidos, viajes programados): queda hoy
 --
 -- La base guarda en UTC. Los horarios del dia (07:00 a 22:00) son de Peru
 -- y se pasan a UTC (+5 h) al guardarlos.
@@ -96,6 +101,29 @@ CREATE FUNCTION pg_temp.f(x timestamp) RETURNS timestamp LANGUAGE sql STABLE AS 
   FROM p
 $f$;
 
+-- Evento que puede ser de un viaje (tid puede ser NULL): si cae dentro del
+-- viaje (hasta 30 s despues de su fin) usa ft; si no, f.
+CREATE FUNCTION pg_temp.fx(tid uuid, x timestamp) RETURNS timestamp LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(
+    (SELECT pg_temp.ft(tid, x) FROM a JOIN span s ON s.id = a.id
+      WHERE a.id = tid AND x <= a.c + (s.secs + 30) * interval '1 second'),
+    pg_temp.f(x))
+$f$;
+
+-- Viaje al que se refiere un aviso de la bandeja (data.trip_id o data.tripId).
+CREATE FUNCTION pg_temp.tid(j jsonb) RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$
+  SELECT CASE WHEN coalesce(j->>'trip_id', j->>'tripId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN coalesce(j->>'trip_id', j->>'tripId')::uuid END
+$f$;
+
+-- Fecha limite de una reclamacion: se corre los mismos dias que su fecha de
+-- registro (dia de Peru); si cae en fin de semana pasa al lunes.
+CREATE FUNCTION pg_temp.due(d date, c timestamp) RETURNS date LANGUAGE sql STABLE AS $f$
+  SELECT CASE WHEN s = 0 THEN d
+              ELSE (d + s) + CASE extract(isodow FROM d + s)::int WHEN 6 THEN 2 WHEN 7 THEN 1 ELSE 0 END END
+  FROM (SELECT ((pg_temp.f(c) - interval '5 hours')::date - (c - interval '5 hours')::date) AS s) z
+$f$;
+
 -- ---------------------------------------------------------------- 2) vencimientos (antes de mover su createdat)
 UPDATE rewards.redemptions        SET expiresat  = expiresat  + (pg_temp.f(createdat) - createdat) WHERE expiresat IS NOT NULL;
 UPDATE rewards.pointstransactions SET expirydate = expirydate + (coalesce(pg_temp.ft(referenceid, createdat), pg_temp.f(createdat)) - createdat)
@@ -115,6 +143,18 @@ UPDATE drivers.locationhistory SET recordedat = pg_temp.ft(tripid, recordedat) W
 UPDATE payments.payments   SET createdat = pg_temp.ft(tripid, createdat), paidat = pg_temp.ft(tripid, paidat) WHERE tripid IN (SELECT id FROM a);
 UPDATE rewards.promotionapplications SET createdat = pg_temp.ft(tripid, createdat) WHERE tripid IN (SELECT id FROM a);
 UPDATE rewards.pointstransactions    SET createdat = pg_temp.ft(referenceid, createdat) WHERE referenceid IN (SELECT id FROM a);
+UPDATE trips.tripplannedroutes SET createdat = pg_temp.fx(tripid, createdat);
+UPDATE trips.triproutepoints   SET recordedat = pg_temp.fx(tripid, recordedat);
+UPDATE trips.routedeviations   SET startedat = pg_temp.fx(tripid, startedat), endedat = pg_temp.fx(tripid, endedat), reviewedat = pg_temp.f(reviewedat);
+UPDATE payments.wallettransactions SET createdat = pg_temp.fx(tripid, createdat), paidat = pg_temp.fx(tripid, paidat);
+-- Bandeja: los avisos de un viaje van con su viaje; ReadAt (lo marca el seed al final) queda hoy.
+UPDATE trips.usernotifications SET createdat = pg_temp.fx(pg_temp.tid(data), createdat), readat = pg_temp.f(readat);
+UPDATE trips.usernotifications SET readat = createdat WHERE readat < createdat;
+-- Historial de avisos del admin: el de un desvio va con su viaje (data.tripId); lecturas despues del aviso.
+UPDATE trips.adminnotifications SET createdat = pg_temp.fx(pg_temp.tid(data), createdat);
+UPDATE trips.adminnotificationreads SET readat = pg_temp.f(readat);
+UPDATE trips.adminnotificationreads r SET readat = n.createdat
+  FROM trips.adminnotifications n WHERE n.id = r.notificationid AND r.readat < n.createdat;
 UPDATE trips.trips t SET
     acceptedat          = pg_temp.ft(t.id, t.acceptedat),
     driverarrivedat     = pg_temp.ft(t.id, t.driverarrivedat),
@@ -127,7 +167,19 @@ UPDATE trips.trips t SET
  WHERE t.id IN (SELECT id FROM a);
 
 -- ---------------------------------------------------------------- 4) eventos sueltos
-UPDATE auth.users              SET createdat = pg_temp.f(createdat), termsacceptedat = pg_temp.f(termsacceptedat);
+UPDATE auth.users              SET createdat = pg_temp.f(createdat), termsacceptedat = pg_temp.f(termsacceptedat), deletedat = pg_temp.f(deletedat);
+UPDATE auth.useraccountaudit   SET createdat = pg_temp.f(createdat);
+UPDATE auth.emergencycontacts  SET createdat = pg_temp.f(createdat), updatedat = pg_temp.f(updatedat);
+UPDATE drivers.approvalaudit   SET createdat = pg_temp.f(createdat);
+UPDATE drivers.driverreviewrequests SET createdat = pg_temp.f(createdat), resolvedat = pg_temp.f(resolvedat);
+UPDATE drivers.vehiclephotos   SET createdat = pg_temp.f(createdat), updatedat = pg_temp.f(updatedat);
+UPDATE drivers.documentnotifications SET notifiedat = pg_temp.f(notifiedat);
+UPDATE drivers.reviews         SET createdat = pg_temp.f(createdat);
+UPDATE payments.driverwallet   SET updatedat = pg_temp.f(updatedat);
+UPDATE landing.holidays        SET createdat = pg_temp.f(createdat);
+-- DueDate se corre con su fecha de registro (usa los valores ANTERIORES de createdat)
+UPDATE landing.complaints      SET duedate = pg_temp.due(duedate, createdat),
+                                   createdat = pg_temp.f(createdat), respondedat = pg_temp.f(respondedat), closedat = pg_temp.f(closedat);
 UPDATE auth.passengerdocuments SET createdat = pg_temp.f(createdat), reviewedat = pg_temp.f(reviewedat);
 UPDATE auth.adminroles         SET createdat = pg_temp.f(createdat);
 UPDATE drivers.drivers         SET createdat = pg_temp.f(createdat), approvedat = pg_temp.f(approvedat);
@@ -149,5 +201,43 @@ UPDATE rewards.referrals          SET createdat = pg_temp.f(createdat), qualifie
 UPDATE landing.contactmessages SET createdat = pg_temp.f(createdat), readat = pg_temp.f(readat), lastreplyat = pg_temp.f(lastreplyat);
 UPDATE landing.contactreplies  SET createdat = pg_temp.f(createdat);
 UPDATE payments.withdrawals    SET createdat = pg_temp.f(createdat), paidat = pg_temp.f(paidat), processedat = pg_temp.f(processedat);
+
+-- ---------------------------------------------------------------- 5) conexiones cerradas de los conductores
+-- El seed las crea en segundos. Cada una (en orden) va a un dia distinto en que
+-- el conductor tuvo viajes: empieza 20-60 min antes de su primer viaje del dia y
+-- termina 25-60 min despues del ultimo (minimo 3 h). Si el conductor no tiene
+-- suficientes dias con viajes: turno desde las 08:00 de Peru, de 4 a 6 h.
+-- La conexion ACTIVA (CheckedOutAt NULL) no se toca: sigue hoy.
+CREATE TEMP TABLE pc ON COMMIT DROP AS
+WITH c AS (
+  SELECT id, driveruserid AS u,
+         row_number() OVER (PARTITION BY driveruserid ORDER BY checkedinat) AS k,
+         count(*)    OVER (PARTITION BY driveruserid)                        AS n
+  FROM drivers.driverpresencecheckins WHERE checkedoutat IS NOT NULL
+), c2 AS (
+  SELECT *, ((now() AT TIME ZONE 'America/Lima')::date - 24 + ((k - 1) * 22 / n)::int)
+            + interval '13 hours' + ((k * 17) % 90) * interval '1 minute' AS fb
+  FROM c
+), dd AS (
+  SELECT t.driverid AS u, (a.tgt - interval '5 hours')::date AS dia,
+         min(a.tgt) AS ini, max(a.tgt + a.dur) AS fin
+  FROM a JOIN trips.trips t ON t.id = a.id
+  WHERE t.driverid IS NOT NULL
+  GROUP BY 1, 2
+), dn AS (
+  SELECT *, row_number() OVER (PARTITION BY u ORDER BY dia) AS j,
+            count(*)    OVER (PARTITION BY u)               AS m
+  FROM dd
+)
+SELECT c2.id,
+       coalesce(dn.ini - (20 + (c2.k * 13) % 40) * interval '1 minute', c2.fb) AS cin,
+       coalesce(greatest(dn.fin + (25 + (c2.k * 11) % 35) * interval '1 minute', dn.ini + interval '3 hours'),
+                c2.fb + (4 + c2.k % 3) * interval '1 hour')                    AS cout
+FROM c2
+LEFT JOIN dn ON dn.u = c2.u AND dn.m >= c2.n AND dn.j = 1 + ((c2.k - 1) * dn.m) / c2.n;
+
+UPDATE drivers.driverpresencecheckins x
+   SET checkedinat = pc.cin, checkedoutat = pc.cout, createdat = pc.cin
+  FROM pc WHERE pc.id = x.id;
 
 COMMIT;

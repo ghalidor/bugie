@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
+import { useEffect, useState } from 'react';
 import { API, apiFetch, ApiError } from '../../state/api';
+import {
+  Drawer, EmptyState, Field, FilterBar, Page, Pagination, SectionCard, Skeleton, StatCard, StatGrid,
+  StatusBadge, useConfirm, useToast,
+} from '../../components/ui';
+import './siteAdmin.scss';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface ContactItem {
@@ -28,8 +32,8 @@ interface DetailResponse extends Omit<ContactItem,'repliesCount'> {
   replies: ReplyItem[];
 }
 
-// Plantillas predefinidas. El admin elige una y la edita libremente antes de enviar.
-const TEMPLATES: { label: string; subject: (m: ContactItem) => string; body: string }[] = [
+// Plantillas. Se elige una y se edita libremente antes de enviar.
+const TEMPLATES: { label: string; subject: (m: { subject: string }) => string; body: string }[] = [
   {
     label: 'Saludo cordial',
     subject: m => `Re: ${m.subject}`,
@@ -66,426 +70,329 @@ const TEMPLATES: { label: string; subject: (m: ContactItem) => string; body: str
 const PAGE_SIZE = 20;
 type Filter = 'all' | 'unread' | 'read';
 
+const fmtDate = (iso: string) => {
+  const d = new Date(iso);
+  const today = new Date();
+  return d.toDateString() === today.toDateString()
+    ? d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 export default function Messages() {
   const [filter, setFilter] = useState<Filter>('all');
   const [page,   setPage]   = useState(1);
 
   const [data,    setData]    = useState<PagedResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  // Totales reales de la bandeja (antes se contaban solo los de la página visible).
+  const [counts,  setCounts]  = useState<{ all: number; unread: number } | null>(null);
 
-  // Modal detalle
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => { setPage(1); }, [filter]);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter, page]);
 
   async function load() {
-    setLoading(true); setError(null);
+    setLoading(true); setLoadErr(null);
     try {
-      const params = new URLSearchParams({
-        filter, page: String(page), pageSize: String(PAGE_SIZE),
-      });
-      const res = await apiFetch<PagedResponse>(
-        `${API.landing}/landing/contact?${params.toString()}`);
+      const params = new URLSearchParams({ filter, page: String(page), pageSize: String(PAGE_SIZE) });
+      const res = await apiFetch<PagedResponse>(`${API.landing}/landing/contact?${params.toString()}`);
       setData(res);
+      loadCounts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar.');
+      setLoadErr(err instanceof ApiError ? err.message : 'No se pudieron cargar los mensajes.');
     } finally {
       setLoading(false);
     }
   }
 
-  // Stats simples para los KPIs
-  const stats = useMemo(() => {
-    if (!data) return { total: 0, unread: 0, read: 0, replied: 0 };
-    const unread  = data.items.filter(m => !m.isRead).length;
-    const read    = data.items.filter(m => m.isRead).length;
-    const replied = data.items.filter(m => m.repliesCount > 0).length;
-    return { total: data.total, unread, read, replied };
-  }, [data]);
+  /** Pide solo el total de "todos" y "sin leer" (mismo endpoint, 1 elemento). */
+  async function loadCounts() {
+    try {
+      const [all, unread] = await Promise.all((['all', 'unread'] as const).map(f =>
+        apiFetch<PagedResponse>(`${API.landing}/landing/contact?filter=${f}&page=1&pageSize=1`)));
+      setCounts({ all: all.total, unread: unread.total });
+    } catch { /* los totales son informativos */ }
+  }
 
-  const totalPages = data?.totalPages ?? 1;
-  const fromIdx = data && data.total > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
-  const toIdx   = data ? Math.min(page * PAGE_SIZE, data.total) : 0;
+  const statsLoading = !counts;
+  const all    = counts?.all ?? 0;
+  const unread = counts?.unread ?? 0;
 
   return (
-    <>
-      <PageHeader
-        title="Mensajes de contacto"
-        subtitle="Bandeja de mensajes recibidos desde el formulario público. Marca como leído y responde por correo."
-        icon="fa-solid fa-envelope"
-      />
+    <Page
+      title="Mensajes de contacto"
+      subtitle="Lo que te escriben desde el formulario de la web. Léelos y responde por correo."
+      icon="fa-envelope"
+      helpKey="messages"
+      actions={[{ label: 'Actualizar', icon: 'fa-rotate-right', variant: 'secondary', onClick: load, loading }]}
+    >
+      <StatGrid tourId="msg-stats">
+        <StatCard label="Total" value={all.toLocaleString('es-PE')} icon="fa-envelope" tone="primary" loading={statsLoading} onClick={() => setFilter('all')} />
+        <StatCard label="Sin leer" value={unread.toLocaleString('es-PE')} icon="fa-envelope-circle-check" tone="warn" loading={statsLoading}
+                  pulse={unread > 0} hint={unread > 0 ? 'Esperan tu respuesta' : 'Bandeja al día'} onClick={() => setFilter('unread')} />
+        <StatCard label="Leídos" value={(all - unread).toLocaleString('es-PE')} icon="fa-envelope-open" tone="ok" loading={statsLoading} onClick={() => setFilter('read')} />
+      </StatGrid>
 
-      {/* KPIs */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Total',        value: stats.total,   color: '#818cf8', icon: 'fa-envelope'    },
-          { label: 'Sin leer',     value: stats.unread,  color: '#f59e0b', icon: 'fa-circle'      },
-          { label: 'Leídos',       value: stats.read,    color: '#34d399', icon: 'fa-circle-check'},
-          { label: 'Con respuesta',value: stats.replied, color: '#a78bfa', icon: 'fa-reply'       },
-        ].map(k => (
-          <div className="col-md-3 col-sm-6" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%',
-                              background: k.color + '22',
-                              display: 'flex', alignItems: 'center',
-                              justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value.toLocaleString('es-PE')}
-                  </div>
-                </div>
-              </div>
+      <SectionCard flush>
+        <div className="p-3" data-tour="msg-filters">
+          <FilterBar
+            chips={[
+              { value: 'all', label: 'Todos', count: counts?.all },
+              { value: 'unread', label: 'Sin leer', count: counts?.unread },
+              { value: 'read', label: 'Leídos', count: counts ? all - unread : undefined },
+            ]}
+            chip={filter} onChipChange={v => setFilter(v as Filter)}
+          />
+        </div>
+
+        {loadErr && (
+          <div className="px-3 pb-3">
+            <div className="sa-note bx-tone-bad" role="alert">
+              <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{loadErr}</span>
             </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      {/* Tabs filtro */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        <div className="d-flex gap-2">
-          {([
-            { key: 'all',    label: 'Todos'    },
-            { key: 'unread', label: 'Sin leer' },
-            { key: 'read',   label: 'Leídos'   },
-          ] as { key: Filter; label: string }[]).map(f => (
-            <button key={f.key}
-              className={`btn btn-sm rounded-pill ${filter === f.key ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-              onClick={() => setFilter(f.key)}>
-              {f.label}
+        <div className="sa-rows" data-tour="msg-list" style={{ borderTop: '1px solid var(--bugie-border)' }}>
+          {loading && !data ? (
+            <div className="p-3"><Skeleton height={56} count={5} /></div>
+          ) : !data || data.items.length === 0 ? (
+            <EmptyState
+              icon="fa-envelope-open"
+              variant={filter === 'unread' ? 'done' : 'empty'}
+              title={filter === 'unread' ? '¡Bandeja al día!' : 'Sin mensajes'}
+              text={filter === 'unread' ? 'No tienes mensajes por leer.' : 'No hay mensajes en esta vista.'}
+            />
+          ) : data.items.map(m => (
+            <button key={m.id} type="button"
+                    className={`sa-row sa-mail ${!m.isRead ? 'unread' : ''}`}
+                    onClick={() => setOpenId(m.id)}
+                    aria-label={`${m.isRead ? '' : 'Sin leer. '}Mensaje de ${m.name}: ${m.subject}`}>
+              <span className="dot" aria-hidden="true" />
+              <span className="sa-row-main">
+                <span className="d-flex align-items-center gap-2 flex-wrap">
+                  <span className="who">{m.name}</span>
+                  {m.repliesCount > 0 && (
+                    <StatusBadge size="sm" tone="info" icon="fa-reply">
+                      {m.repliesCount === 1 ? '1 respuesta' : `${m.repliesCount} respuestas`}
+                    </StatusBadge>
+                  )}
+                </span>
+                <span className="line"><span className="subj">{m.subject}</span> · {m.email}</span>
+                <span className="line">{m.message}</span>
+              </span>
+              <span className="when">{fmtDate(m.createdAt)}</span>
             </button>
           ))}
         </div>
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto" onClick={load}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
 
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {loading && !data && (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      )}
-
-      {!loading && data && data.items.length === 0 ? (
-        <div className="bugie-card p-5 text-center">
-          <i className="fa-solid fa-envelope-open fa-2x mb-3 d-block bugie-muted" />
-          <div className="fw-semibold mb-1">Sin mensajes</div>
-          <div className="small bugie-muted">No hay mensajes en esta categoría.</div>
+        <div className="px-3">
+          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPageChange={setPage} />
         </div>
-      ) : data && data.items.length > 0 ? (
-        <>
-          <div className="d-flex flex-column gap-2">
-            {data.items.map(m => (
-              <div key={m.id} className="bugie-card px-3 py-3"
-                   style={{ overflow: 'hidden', position: 'relative', cursor: 'pointer' }}
-                   onClick={() => setOpenId(m.id)}>
-                <div style={{
-                  position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-                  background: m.isRead ? '#34d399' : '#f59e0b',
-                  borderRadius: '12px 0 0 12px',
-                }} />
-                <div className="d-flex align-items-center gap-3 ps-1 flex-wrap">
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                                background: m.isRead ? 'rgba(52,211,153,0.15)' : 'rgba(245,158,11,0.15)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className="fa-solid fa-envelope"
-                       style={{ color: m.isRead ? '#34d399' : '#f59e0b' }} />
-                  </div>
-                  <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                    <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
-                      <span className="fw-semibold">{m.name}</span>
-                      <span className="badge rounded-pill"
-                            style={{
-                              background: m.isRead ? 'rgba(52,211,153,0.2)' : 'rgba(245,158,11,0.2)',
-                              color:      m.isRead ? '#34d399'              : '#f59e0b',
-                              fontSize: '0.72rem' }}>
-                        <i className={`fa-solid ${m.isRead ? 'fa-circle-check' : 'fa-clock'} me-1`}
-                           style={{ fontSize: '0.65rem' }} />
-                        {m.isRead ? 'Leído' : 'Sin leer'}
-                      </span>
-                      {m.repliesCount > 0 && (
-                        <span className="badge rounded-pill"
-                              style={{ background: 'rgba(167,139,250,0.2)', color: '#a78bfa',
-                                       fontSize: '0.72rem' }}>
-                          <i className="fa-solid fa-reply me-1" style={{ fontSize: '0.65rem' }} />
-                          {m.repliesCount}
-                        </span>
-                      )}
-                    </div>
-                    <div className="small bugie-muted text-truncate">
-                      <strong>{m.subject}</strong> · {m.email}
-                    </div>
-                    <div className="small bugie-muted text-truncate"
-                         style={{ marginTop: 2 }}>
-                      {m.message}
-                    </div>
-                  </div>
-                  <div className="text-end flex-shrink-0">
-                    <div className="small bugie-muted">
-                      {new Date(m.createdAt).toLocaleDateString('es-PE',
-                        { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      </SectionCard>
 
-          {/* Paginación */}
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
-            <div className="small bugie-muted">
-              Mostrando <strong>{fromIdx}–{toIdx}</strong> de <strong>{data.total.toLocaleString('es-PE')}</strong>
-            </div>
-            <div className="d-flex align-items-center gap-2">
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(1)} disabled={page === 1}>
-                <i className="fa-solid fa-angles-left" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <i className="fa-solid fa-chevron-left" />
-              </button>
-              <span className="small fw-semibold mx-2">
-                Página {page} de {totalPages}
-              </span>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                <i className="fa-solid fa-chevron-right" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                <i className="fa-solid fa-angles-right" />
-              </button>
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      {/* Modal detalle / respuesta */}
-      {openId && (
-        <DetailModal
-          id={openId}
-          onClose={() => setOpenId(null)}
-          onChanged={() => { setOpenId(null); load(); }}
-        />
-      )}
-    </>
+      <DetailDrawer
+        id={openId}
+        onClose={() => { setOpenId(null); load(); }}
+      />
+    </Page>
   );
 }
 
-// ─── Modal detalle + responder ──────────────────────────────────────────────
-function DetailModal({ id, onClose, onChanged }:
-  { id: string; onClose: () => void; onChanged: () => void }) {
+// ─── Detalle + responder ────────────────────────────────────────────────────
+function DetailDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const toast   = useToast();
+  const confirm = useConfirm();
+
   const [detail,  setDetail]  = useState<DetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  // Editor de respuesta
   const [subject, setSubject] = useState('');
   const [body,    setBody]    = useState('');
   const [sending, setSending] = useState(false);
-  const [sendOk,  setSendOk]  = useState<string | null>(null);
+  const [toggling, setToggling] = useState(false);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => {
+    if (!id) return;
+    setDetail(null); setBody(''); setSubject(''); setError(null);
+    load(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-  async function load() {
+  async function load(msgId: string, keepSubject = false) {
     setLoading(true); setError(null);
     try {
-      const res = await apiFetch<DetailResponse>(`${API.landing}/landing/contact/${id}`);
+      const res = await apiFetch<DetailResponse>(`${API.landing}/landing/contact/${msgId}`);
       setDetail(res);
-      setSubject(`Re: ${res.subject}`);
+      if (!keepSubject) setSubject(`Re: ${res.subject}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar.');
+      setError(err instanceof ApiError ? err.message : 'No se pudo cargar el mensaje.');
     } finally {
       setLoading(false);
     }
   }
 
   async function toggleRead() {
-    if (!detail) return;
+    if (!detail || !id) return;
     const endpoint = detail.isRead ? 'unread' : 'read';
+    setToggling(true);
     try {
       await apiFetch(`${API.landing}/landing/contact/${id}/${endpoint}`, { method: 'PUT' });
-      onChanged();
+      setDetail(d => d ? { ...d, isRead: !d.isRead } : d);
+      toast.success(detail.isRead ? 'Marcado como no leído.' : 'Marcado como leído.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo actualizar.');
-    }
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+    } finally { setToggling(false); }
   }
 
-  function applyTemplate(t: typeof TEMPLATES[number]) {
+  async function applyTemplate(t: typeof TEMPLATES[number]) {
     if (!detail) return;
-    setSubject(t.subject(detail as any));
+    if (body.trim() && body !== t.body && !(await confirm({
+      title: '¿Reemplazar tu texto?', message: 'La plantilla reemplazará lo que ya escribiste.',
+      confirmText: 'Usar plantilla', tone: 'warning',
+    }))) return;
+    setSubject(t.subject(detail));
     setBody(t.body);
   }
 
   async function send() {
-    if (!detail) return;
+    if (!detail || !id) return;
     if (!subject.trim() || !body.trim()) {
-      setError('Completa asunto y cuerpo.');
+      setError('Completa el asunto y el mensaje.');
       return;
     }
-    setSending(true); setError(null); setSendOk(null);
+    const ok = await confirm({
+      title: '¿Enviar la respuesta?',
+      message: <>Se enviará un correo a <strong>{detail.email}</strong>. No se puede deshacer.</>,
+      confirmText: 'Enviar',
+    });
+    if (!ok) return;
+    setSending(true); setError(null);
     try {
       const reply = await apiFetch<ReplyItem>(
         `${API.landing}/landing/contact/${id}/reply`,
         { method: 'POST', body: JSON.stringify({ subject, body }) });
       if (reply.status === 'sent') {
-        setSendOk('Respuesta enviada correctamente.');
+        toast.success(`Respuesta enviada a ${detail.email}.`);
       } else {
-        setError(`No se pudo enviar: ${reply.errorMessage ?? 'error desconocido'}.`);
+        toast.error(`No se pudo enviar: ${reply.errorMessage ?? 'error desconocido'}.`);
       }
       setBody('');
-      await load();
+      await load(id, true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo enviar.');
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo enviar.');
     } finally {
       setSending(false);
     }
   }
 
+  async function close() {
+    if (sending) return;
+    if (body.trim() && !(await confirm({
+      title: '¿Cerrar sin enviar?', message: 'Tu respuesta todavía no se ha enviado y se perderá.',
+      confirmText: 'Cerrar sin enviar', cancelText: 'Seguir escribiendo', tone: 'warning',
+    }))) return;
+    onClose();
+  }
+
   return (
-    <div className="modal show d-block"
-         style={{
-           // Position fija a la ventana y z-index alto para que aparezca
-           // por encima del sidebar/header. Sin esto, el modal queda
-           // atrapado dentro del contenedor del admin y no se ve.
-           position: 'fixed',
-           top: 0, left: 0, right: 0, bottom: 0,
-           background: 'rgba(0,0,0,0.5)',
-           zIndex: 1055,
-           overflowY: 'auto',
-         }}
-         onClick={onClose}>
-      <div className="modal-dialog modal-lg modal-dialog-scrollable"
-           style={{ marginTop: 60 }}
-           onClick={e => e.stopPropagation()}>
-        <div className="modal-content bugie-card" style={{ borderRadius: 16 }}>
-          <div className="modal-header" style={{ borderBottom: '1px solid var(--bugie-border)' }}>
-            <h5 className="modal-title">
-              <i className="fa-solid fa-envelope-open me-2" style={{ color: '#818cf8' }} />
-              Mensaje de contacto
-            </h5>
-            <button className="btn-close btn-close-white" onClick={onClose} />
-          </div>
+    <Drawer
+      open={!!id}
+      onClose={close}
+      size="lg"
+      title={detail ? detail.subject : 'Mensaje de contacto'}
+      description={detail ? `${detail.name} · ${detail.email}` : undefined}
+      footer={
+        <>
+          <button type="button" className="btn btn-bugie-outline" onClick={close} disabled={sending}>Cerrar</button>
+          <button type="button" className="btn btn-bugie" onClick={send} disabled={sending || !detail || !body.trim()}>
+            {sending
+              ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Enviando…</>
+              : <><i className="fa-solid fa-paper-plane me-2" aria-hidden="true" />Enviar respuesta</>}
+          </button>
+        </>
+      }
+    >
+      {loading && !detail && <Skeleton height={80} count={3} />}
 
-          <div className="modal-body">
-            {loading && <div className="text-center py-4"><span className="spinner-border" /></div>}
-            {error   && <div className="alert alert-danger small">{error}</div>}
-            {sendOk  && <div className="alert alert-success small">{sendOk}</div>}
-
-            {detail && (
-              <>
-                {/* Mensaje original */}
-                <div className="mb-3 p-3"
-                     style={{ background: 'var(--bugie-bg-soft)', borderRadius: 12 }}>
-                  <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-                    <div>
-                      <div className="fw-semibold">{detail.name}</div>
-                      <div className="small bugie-muted">{detail.email}</div>
-                    </div>
-                    <div className="text-end">
-                      <div className="small bugie-muted">
-                        {new Date(detail.createdAt).toLocaleString('es-PE')}
-                      </div>
-                      <button className="btn btn-sm btn-bugie-outline rounded-pill mt-2"
-                              onClick={toggleRead}>
-                        <i className={`fa-solid ${detail.isRead ? 'fa-envelope' : 'fa-circle-check'} me-1`} />
-                        {detail.isRead ? 'Marcar como no leído' : 'Marcar como leído'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="fw-semibold mb-2">{detail.subject}</div>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{detail.message}</div>
-                </div>
-
-                {/* Historial de respuestas */}
-                {detail.replies.length > 0 && (
-                  <div className="mb-3">
-                    <div className="small bugie-muted text-uppercase mb-2">
-                      Historial de respuestas
-                    </div>
-                    {detail.replies.map(r => (
-                      <div key={r.id} className="p-3 mb-2"
-                           style={{ background: r.status === 'sent'
-                                    ? 'rgba(52,211,153,0.05)'
-                                    : 'rgba(239,68,68,0.05)',
-                                    border: `1px solid ${r.status === 'sent'
-                                      ? 'rgba(52,211,153,0.3)'
-                                      : 'rgba(239,68,68,0.3)'}`,
-                                    borderRadius: 12 }}>
-                        <div className="d-flex justify-content-between flex-wrap mb-2">
-                          <div className="small fw-semibold">
-                            <i className={`fa-solid ${r.status === 'sent'
-                              ? 'fa-paper-plane' : 'fa-triangle-exclamation'} me-1`}
-                              style={{ color: r.status === 'sent' ? '#34d399' : '#ef4444' }} />
-                            {r.adminName ?? 'Admin'}
-                            {r.status === 'failed' && (
-                              <span className="ms-2 badge" style={{
-                                background: 'rgba(239,68,68,0.2)', color: '#ef4444' }}>
-                                FALLÓ
-                              </span>
-                            )}
-                          </div>
-                          <div className="small bugie-muted">
-                            {new Date(r.createdAt).toLocaleString('es-PE')}
-                          </div>
-                        </div>
-                        <div className="small fw-semibold mb-1">{r.subject}</div>
-                        <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{r.body}</div>
-                        {r.status === 'failed' && r.errorMessage && (
-                          <div className="small mt-2" style={{ color: '#ef4444' }}>
-                            <strong>Error:</strong> {r.errorMessage}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Editor */}
-                <div className="mb-3">
-                  <div className="small bugie-muted text-uppercase mb-2">Plantillas</div>
-                  <div className="d-flex flex-wrap gap-2 mb-3">
-                    {TEMPLATES.map(t => (
-                      <button key={t.label}
-                              className="btn btn-sm btn-bugie-outline rounded-pill"
-                              onClick={() => applyTemplate(t)}>
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <label className="form-label small bugie-muted text-uppercase">Asunto</label>
-                  <input type="text" className="form-control mb-2"
-                         value={subject} onChange={e => setSubject(e.target.value)} />
-
-                  <label className="form-label small bugie-muted text-uppercase">Mensaje</label>
-                  <textarea className="form-control" rows={8}
-                            value={body} onChange={e => setBody(e.target.value)} />
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="modal-footer" style={{ borderTop: '1px solid var(--bugie-border)' }}>
-            <button className="btn btn-bugie-outline rounded-pill" onClick={onClose}>
-              Cerrar
-            </button>
-            <button className="btn btn-bugie text-white rounded-pill"
-                    onClick={send} disabled={sending || !detail}>
-              {sending
-                ? <><span className="spinner-border spinner-border-sm me-2" /> Enviando…</>
-                : <><i className="fa-solid fa-paper-plane me-1" /> Enviar respuesta</>}
-            </button>
-          </div>
+      {error && (
+        <div className="sa-note bx-tone-bad mb-3" role="alert">
+          <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{error}</span>
         </div>
-      </div>
-    </div>
+      )}
+
+      {detail && (
+        <div className="d-grid gap-4">
+          {/* Mensaje original */}
+          <section className="sa-bubble sa-anim">
+            <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+              <div style={{ minWidth: 0 }}>
+                <div className="fw-semibold">{detail.name}</div>
+                <a className="small" href={`mailto:${detail.email}`}>{detail.email}</a>
+                <div className="small bugie-muted">{new Date(detail.createdAt).toLocaleString('es-PE')}</div>
+              </div>
+              <div className="d-flex align-items-center gap-2 flex-wrap">
+                {detail.isRead
+                  ? <StatusBadge tone="ok" icon="fa-envelope-open">Leído</StatusBadge>
+                  : <StatusBadge tone="warn" icon="fa-envelope">Sin leer</StatusBadge>}
+                <button type="button" className="btn btn-sm btn-bugie-outline rounded-pill"
+                        onClick={toggleRead} disabled={toggling}>
+                  {detail.isRead ? 'Marcar como no leído' : 'Marcar como leído'}
+                </button>
+              </div>
+            </div>
+            <p className="sa-pre">{detail.message}</p>
+          </section>
+
+          {/* Historial */}
+          {detail.replies.length > 0 && (
+            <section className="d-grid gap-2">
+              <h3 className="h6 fw-bold mb-0">Respuestas enviadas ({detail.replies.length})</h3>
+              {detail.replies.map(r => (
+                <div key={r.id} className={`sa-bubble tone ${r.status === 'sent' ? 'bx-tone-ok' : 'bx-tone-bad'}`}>
+                  <div className="d-flex justify-content-between flex-wrap gap-2 mb-1">
+                    <span className="small fw-semibold">
+                      <i className={`fa-solid ${r.status === 'sent' ? 'fa-paper-plane' : 'fa-triangle-exclamation'} me-1`} aria-hidden="true" />
+                      {r.adminName ?? 'Admin'}
+                      {r.status === 'failed' && <StatusBadge size="sm" tone="bad" className="ms-2">No se envió</StatusBadge>}
+                    </span>
+                    <span className="small bugie-muted">{new Date(r.createdAt).toLocaleString('es-PE')}</span>
+                  </div>
+                  <div className="small fw-semibold mb-1">{r.subject}</div>
+                  <p className="small sa-pre">{r.body}</p>
+                  {r.status === 'failed' && r.errorMessage && (
+                    <div className="small mt-2"><strong>Error:</strong> {r.errorMessage}</div>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* Respuesta */}
+          <section className="d-grid gap-3">
+            <h3 className="h6 fw-bold mb-0">Responder por correo</h3>
+            <div>
+              <div className="small bugie-muted mb-2">Empieza con una plantilla (puedes editarla):</div>
+              <div className="sa-chips-inline">
+                {TEMPLATES.map(t => (
+                  <button key={t.label} type="button" className="bx-chip" onClick={() => applyTemplate(t)}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Field label="Asunto" required>
+              <input type="text" className="form-control" value={subject} onChange={e => setSubject(e.target.value)} />
+            </Field>
+            <Field label="Mensaje" required help="Se envía como texto simple desde el correo de Bugie.">
+              <textarea className="form-control" rows={8} value={body} onChange={e => setBody(e.target.value)} />
+            </Field>
+          </section>
+        </div>
+      )}
+    </Drawer>
   );
 }

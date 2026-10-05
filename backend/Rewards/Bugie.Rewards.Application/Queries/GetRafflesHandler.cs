@@ -43,26 +43,5 @@ public class GetRafflesHandler : IRequestHandler<GetRafflesQuery, List<RaffleDto
         r.Status, r.DrawnAt, r.TicketsAtDraw, r.DrawSeed, tickets,
         winners.Select(w => new RaffleWinnerDto(
             w.Id, w.UserId, w.TicketNumber, w.PrizeRank, w.PrizeDetail,
-            w.Status, w.DeliveredAt, w.Note)).ToList());
-}
-
-public class GetMyRafflesHandler : IRequestHandler<GetMyRafflesQuery, List<MyRaffleDto>>
-{
-    private readonly IRaffleRepository _raffles;
-    public GetMyRafflesHandler(IRaffleRepository raffles) => _raffles = raffles;
-
-    public async Task<List<MyRaffleDto>> Handle(GetMyRafflesQuery q, CancellationToken ct)
-    {
-        var resumen = await _raffles.GetUserTicketsSummaryAsync(q.UserId, ct);
-        var ganados = await _raffles.GetWinnersByUserAsync(q.UserId, ct);
-
-        return resumen.Select(x =>
-        {
-            var premio = ganados.FirstOrDefault(w => w.RaffleId == x.Raffle.Id);
-            return new MyRaffleDto(
-                x.Raffle.Id, x.Raffle.Name, x.Raffle.RaffleType,
-                x.Raffle.PrizeDescription, x.Raffle.DrawDate, x.Raffle.Status,
-                x.Tickets, premio is not null, premio?.PrizeRank);
-        }).ToList();
-    }
+            w.Status, w.DeliveredAt, w.Note, PrizeCode: w.PrizeCode)).ToList());
 }

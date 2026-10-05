@@ -15,6 +15,13 @@ class ApiConfig {
   static String get landing  => dotenv.env['API_LANDING']  ?? 'http://10.0.2.2:5005/api';
   static String get rewards  => dotenv.env['API_REWARDS']  ?? 'http://10.0.2.2:5006/api';
 
+  /// URL base de la web pública de Bugie (sin "/" final). Se usa para abrir
+  /// páginas web desde la app, ej. el Libro de Reclamaciones.
+  static String get webBase {
+    final raw = dotenv.env['WEB_BASE_URL'] ?? 'http://10.0.2.2:5173';
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
   static String _baseFor(ApiService s) {
     switch (s) {
       case ApiService.auth:     return auth;

@@ -1,12 +1,12 @@
 namespace Bugie.Rewards.Application.DTOs;
 
+/// <param name="HasProfile">false si nunca ganó puntos. Suele ser la respuesta al reclamo.</param>
 public record UserSearchDto(
     Guid      UserId,
     string?   FullName,
     string?   Email,
     string?   Phone,
     string?   Role,
-    /// <summary>false si nunca ganó puntos. Suele ser la respuesta al reclamo.</summary>
     bool      HasProfile,
     string?   UserType,
     string?   CurrentLevel,
@@ -22,6 +22,7 @@ public record ProfileSummaryDto(
     DateTime? PointsExpiryDate,
     DateTime  MemberSince);
 
+/// <param name="Milestones">Logros recientes, en texto.</param>
 public record UserRewardsDetailDto(
     UserSearchDto             User,
     ProfileSummaryDto?        Profile,
@@ -29,15 +30,14 @@ public record UserRewardsDetailDto(
     List<RedemptionDto>       Redemptions,
     int                       Invited,
     int                       InvitedQualified,
-    /// <summary>Logros recientes, en texto.</summary>
     List<string>              Milestones);
 
+/// <param name="Warning">Aviso si no se pudo aplicar todo lo pedido.</param>
 public record AdjustmentResultDto(
     int     PointsApplied,
     int     BalanceBefore,
     int     BalanceAfter,
     string  NewLevel,
-    /// <summary>Aviso si no se pudo aplicar todo lo pedido.</summary>
     string? Warning);
 
 // ── Balance del programa ──────────────────────────────────────────────
@@ -46,23 +46,24 @@ public record SourceBreakdownDto(string SourceEvent, string Label, int Transacti
 
 public record MonthlyPointsDto(string Month, int Issued, int Redeemed);
 
+/// <param name="PointsIssued">Todo lo emitido desde el inicio.</param>
+/// <param name="PointsAvailable">Lo que los usuarios pueden canjear hoy. Esto es la deuda.</param>
+/// <param name="RedemptionRate">Qué porcentaje de lo emitido se canjeó.</param>
 public record ProgramBalanceDto(
     int Profiles,
     int ProfilesWithPoints,
-    /// <summary>Todo lo emitido desde el inicio.</summary>
     int PointsIssued,
-    /// <summary>Lo que los usuarios pueden canjear hoy. Esto es la deuda.</summary>
     int PointsAvailable,
     int PointsRedeemed,
     int PointsExpired,
     int ActiveRedemptions,
-    /// <summary>Qué porcentaje de lo emitido se canjeó.</summary>
     int RedemptionRate,
     List<SourceBreakdownDto> BySource,
     List<MonthlyPointsDto>   ByMonth);
 
 // ── Cupones aplicados a viajes ────────────────────────────────────────
 
+/// <param name="Status">completed | cancelled | in_progress</param>
 public record CouponUsageDto(
     Guid      TripId,
     string    CouponCode,
@@ -72,18 +73,17 @@ public record CouponUsageDto(
     decimal   AmountPaid,
     string?   PassengerName,
     string?   DriverName,
-    /// <summary>completed | cancelled | in_progress</summary>
     string    Status,
     DateTime  CreatedAt,
     DateTime? CompletedAt);
 
+/// <param name="AverageDiscount">Descuento promedio por viaje.</param>
+/// <param name="FeatureEnabled">true si el interruptor está apagado: entonces esto no crece.</param>
 public record CouponUsageReportDto(
     int     Trips,
     int     TripsCompleted,
     int     TripsCancelled,
     decimal TotalDiscount,
-    /// <summary>Descuento promedio por viaje.</summary>
     decimal AverageDiscount,
-    /// <summary>true si el interruptor está apagado: entonces esto no crece.</summary>
     bool    FeatureEnabled,
     List<CouponUsageDto> Recent);

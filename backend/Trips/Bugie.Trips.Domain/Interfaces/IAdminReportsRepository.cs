@@ -21,7 +21,25 @@ public interface IAdminReportsRepository
     /// </summary>
     Task<IReadOnlyList<DriverRankingRow>> GetDriverRankingPagedAsync(
         DateTime from, DateTime to, int skip, int take, CancellationToken ct = default);
+
+    /// <summary>
+    /// Ranking completo de cada mes (hora de Peru) dentro de [from, to): una fila
+    /// por conductor y mes con su puesto. Mismo orden que el ranking mensual.
+    /// </summary>
+    Task<IReadOnlyList<MonthlyRankingRow>> GetMonthlyRankingAsync(
+        DateTime from, DateTime to, CancellationToken ct = default);
 }
+
+/// <summary>Puesto de un conductor en un mes.</summary>
+public record MonthlyRankingRow(
+    Guid DriverUserId,
+    string FullName,
+    string? PhotoUrl,
+    int Year,
+    int Month,
+    decimal AvgStars,
+    int RatingCount,
+    int Place);
 
 /// <summary>
 /// Fila plana devuelta por el repo. Usamos un record para que sea inmutable.

@@ -2,18 +2,24 @@
 
 /// <summary>
 /// Abstracción del almacenamiento de archivos.
-/// La implementación actual es Google Drive, pero al ser interfaz se puede
+/// La implementación actual es local (LocalStorageService), pero al ser interfaz se puede
 /// cambiar después por S3, Azure Blob, etc. sin tocar el resto del código.
 /// </summary>
 public interface IDriveStorageService
 {
-    /// <summary>Sube un archivo y devuelve la metadata del archivo creado.</summary>
+    /// <summary>
+    /// Sube un archivo y devuelve la metadata del archivo creado. Valida el tipo
+    /// real (magic bytes): JPG/PNG/WEBP y PDF solo si allowPdf. El nombre en disco
+    /// se genera (GUID + extensión del tipo detectado). Lanza
+    /// InvalidOperationException si el archivo no es válido.
+    /// </summary>
     Task<StoredFile> UploadAsync(
         Stream fileStream,
         string originalFileName,
         string mimeType,
         string folderPath,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool allowPdf = false);
 
     /// <summary>Elimina un archivo por su ID de Drive.</summary>
     Task DeleteAsync(string driveFileId, CancellationToken ct = default);

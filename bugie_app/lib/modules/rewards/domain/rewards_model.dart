@@ -217,6 +217,17 @@ class RewardRedemption {
         usedNote:    j['usedNote']?.toString(),
         createdAt:   _date(j['createdAt']) ?? DateTime.now(),
       );
+
+  /// true si el canje se cobra o se recoge donde el admin con su código
+  /// (bono en soles, producto o beneficio de socio). Los descuentos, viajes
+  /// gratis y tickets se aplican solos dentro de la app.
+  /// true si es un cupón de beneficio de nivel (no costó puntos).
+  bool get isLevelBenefit => pointsSpent == 0;
+
+  bool get isCollectible =>
+      rewardType == 'wallet_bonus' ||
+      rewardType == 'physical' ||
+      rewardType == 'partner_benefit';
 }
 
 /// Resultado del canje: el cupón más el saldo que quedó.
@@ -288,6 +299,16 @@ class UserRaffle {
   final bool      iWon;
   final int?      myPrizeRank;
   final String?   myTicketNumber;
+  /// Si ganó: código para cobrar el premio donde el admin (PZ-XXXXXX).
+  final String?   myPrizeCode;
+  /// Si ganó: el premio ya se le entregó o pagó.
+  final bool      myPrizeDelivered;
+  /// Cupones de ticket (canjeados en el catálogo) que puedo usar aquí.
+  final int       ticketCouponsAvailable;
+  /// true si el sorteo está abierto, cumplo requisitos y tengo cupón de ticket.
+  final bool      canUseTicketCoupon;
+  /// Cupón de ticket que se usaría (el que vence primero).
+  final String?   nextTicketCouponId;
 
   UserRaffle({
     required this.id,
@@ -303,6 +324,11 @@ class UserRaffle {
     this.notEligibleReason,
     this.myPrizeRank,
     this.myTicketNumber,
+    this.myPrizeCode,
+    this.myPrizeDelivered = false,
+    this.ticketCouponsAvailable = 0,
+    this.canUseTicketCoupon = false,
+    this.nextTicketCouponId,
   });
 
   factory UserRaffle.fromJson(Map<String, dynamic> j) => UserRaffle(
@@ -319,6 +345,11 @@ class UserRaffle {
         iWon:              j['iWon'] == true,
         myPrizeRank:       (j['myPrizeRank'] as num?)?.toInt(),
         myTicketNumber:    j['myTicketNumber']?.toString(),
+        myPrizeCode:       j['myPrizeCode']?.toString(),
+        myPrizeDelivered:  j['myPrizeDelivered'] == true,
+        ticketCouponsAvailable: (j['ticketCouponsAvailable'] as num?)?.toInt() ?? 0,
+        canUseTicketCoupon:     j['canUseTicketCoupon'] == true,
+        nextTicketCouponId:     j['nextTicketCouponId']?.toString(),
       );
 
   bool get isDrawn => status == 'drawn';
@@ -332,6 +363,124 @@ class UserRaffle {
     if (d == 1)  return 'Se sortea mañana';
     return 'Faltan $d días';
   }
+}
+
+/// Resultado de usar un cupón de ticket en un sorteo.
+class TicketCouponResult {
+  final String       raffleId;
+  final String       raffleName;
+  final int          ticketsAdded;
+  final List<String> ticketNumbers;
+  final int          myTickets;
+  final int          ticketCouponsLeft;
+
+  TicketCouponResult({
+    required this.raffleId,
+    required this.raffleName,
+    required this.ticketsAdded,
+    required this.ticketNumbers,
+    required this.myTickets,
+    required this.ticketCouponsLeft,
+  });
+
+  factory TicketCouponResult.fromJson(Map<String, dynamic> j) =>
+      TicketCouponResult(
+        raffleId:          (j['raffleId'] ?? '').toString(),
+        raffleName:        (j['raffleName'] ?? '').toString(),
+        ticketsAdded:      (j['ticketsAdded'] as num?)?.toInt() ?? 0,
+        ticketNumbers:     ((j['ticketNumbers'] as List?) ?? [])
+            .map((e) => e.toString())
+            .toList(),
+        myTickets:         (j['myTickets'] as num?)?.toInt() ?? 0,
+        ticketCouponsLeft: (j['ticketCouponsLeft'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Cupo del mes de un beneficio de nivel (cupones o viajes gratis).
+class BenefitQuota {
+  final int     total;
+  final int     used;
+  final int     available;
+  /// Solo viajes gratis: tope en soles de cada viaje.
+  final double? maxAmount;
+
+  BenefitQuota({
+    required this.total,
+    required this.used,
+    required this.available,
+    this.maxAmount,
+  });
+
+  factory BenefitQuota.fromJson(Map<String, dynamic>? j) => BenefitQuota(
+        total:     (j?['total']     as num?)?.toInt() ?? 0,
+        used:      (j?['used']      as num?)?.toInt() ?? 0,
+        available: (j?['available'] as num?)?.toInt() ?? 0,
+        maxAmount: (j?['maxAmount'] as num?)?.toDouble(),
+      );
+}
+
+/// Beneficios de mi nivel en el mes (solo pasajero).
+class LevelBenefits {
+  final bool      eligible;
+  final String?   notEligibleReason;
+  final String    level;
+  final String    levelName;
+  final double    discountPercentage;
+  final BenefitQuota discountCoupons;
+  final BenefitQuota freeTrips;
+  final String    period;
+  /// Fin del mes (hora de Perú): ahí vencen los cupones reclamados.
+  final DateTime? periodEndsAt;
+  final bool      couponsApplyToFare;
+  final bool      canClaim;
+
+  LevelBenefits({
+    required this.eligible,
+    required this.level,
+    required this.levelName,
+    required this.discountPercentage,
+    required this.discountCoupons,
+    required this.freeTrips,
+    required this.period,
+    required this.couponsApplyToFare,
+    required this.canClaim,
+    this.notEligibleReason,
+    this.periodEndsAt,
+  });
+
+  factory LevelBenefits.fromJson(Map<String, dynamic> j) => LevelBenefits(
+        eligible:           j['eligible'] == true,
+        notEligibleReason:  j['notEligibleReason']?.toString(),
+        level:              (j['level'] ?? 'bronze').toString(),
+        levelName:          (j['levelName'] ?? '').toString(),
+        discountPercentage: (j['discountPercentage'] as num?)?.toDouble() ?? 0,
+        discountCoupons:    BenefitQuota.fromJson(
+            (j['discountCoupons'] as Map?)?.cast<String, dynamic>()),
+        freeTrips:          BenefitQuota.fromJson(
+            (j['freeTrips'] as Map?)?.cast<String, dynamic>()),
+        period:             (j['period'] ?? '').toString(),
+        periodEndsAt:       _date(j['periodEndsAt']),
+        couponsApplyToFare: j['couponsApplyToFare'] == true,
+        canClaim:           j['canClaim'] == true,
+      );
+
+  /// true si hay algo que mostrar: algún cupo con total mayor a 0.
+  bool get hasAny => discountCoupons.total > 0 || freeTrips.total > 0;
+}
+
+/// Resultado de reclamar un beneficio: el cupón creado y cómo queda el mes.
+class LevelClaimResult {
+  final RewardRedemption coupon;
+  final LevelBenefits    benefits;
+
+  LevelClaimResult({required this.coupon, required this.benefits});
+
+  factory LevelClaimResult.fromJson(Map<String, dynamic> j) => LevelClaimResult(
+        coupon:   RewardRedemption.fromJson(
+            (j['coupon'] as Map).cast<String, dynamic>()),
+        benefits: LevelBenefits.fromJson(
+            ((j['benefits'] as Map?) ?? {}).cast<String, dynamic>()),
+      );
 }
 
 /// Una persona que invité.

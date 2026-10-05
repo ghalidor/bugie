@@ -116,17 +116,20 @@ public class RegisterReferralHandler
     private readonly IPointsProfileRepository     _profiles;
     private readonly IRewardLevelRepository       _levels;
     private readonly IRewardSettingsRepository    _settings;
+    private readonly IMediator                    _mediator;
 
     public RegisterReferralHandler(
         IReferralRepository referrals,
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _referrals = referrals;
         _profiles  = profiles;
         _levels    = levels;
         _settings  = settings;
+        _mediator  = mediator;
     }
 
     public async Task<ReferralResultDto> Handle(
@@ -203,6 +206,7 @@ public class RegisterReferralHandler
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
 
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -216,7 +220,8 @@ public class RegisterReferralHandler
             expiryDate:    profile.PointsExpiryDate,
             notes:         nota);
 
-        await _profiles.ApplyEarnAsync(profile, movement, ct);
+        if (await _profiles.ApplyEarnAsync(profile, movement, ct))
+            await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
     }
 }
 
@@ -232,17 +237,20 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IMediator                 _mediator;
 
     public CountReferralTripHandler(
         IReferralRepository referrals,
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _referrals = referrals;
         _profiles  = profiles;
         _levels    = levels;
         _settings  = settings;
+        _mediator  = mediator;
     }
 
     public async Task<Unit> Handle(CountReferralTripCommand cmd, CancellationToken ct)
@@ -287,6 +295,7 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
 
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -300,7 +309,8 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
             expiryDate:    profile.PointsExpiryDate,
             notes:         $"Tu referido completó {options.ReferralQualifyTrips} viajes");
 
-        await _profiles.ApplyEarnAsync(profile, movement, ct);
+        if (await _profiles.ApplyEarnAsync(profile, movement, ct))
+            await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
     }
 }
 
@@ -363,7 +373,7 @@ public class InviteByEmailHandler : IRequestHandler<InviteByEmailCommand, Unit>
     private static string Body(string nombre, string code) => $@"
 <div style=""font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1e1b39"">
   <h2 style=""color:#5b5bd6;margin-bottom:4px"">{nombre} te invitó a Bugie</h2>
-  <p>Bugie es la app de transporte seguro de Trujillo. Conductores verificados,
+  <p>Bugie es la app de transporte seguro de tu ciudad. Conductores verificados,
      monitoreo en tiempo real y botón SOS.</p>
 
   <p style=""margin-bottom:6px"">Usa este código al crear tu cuenta:</p>

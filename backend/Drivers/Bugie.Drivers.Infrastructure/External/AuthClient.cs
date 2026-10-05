@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Bugie.Drivers.Domain.External;
 
 namespace Bugie.Drivers.Infrastructure.External;
@@ -8,11 +9,13 @@ public class AuthClient : IAuthClient
 {
     private readonly HttpClient _http;
     private readonly IHttpContextAccessor _httpContext;
+    private readonly IConfiguration _cfg;
 
-    public AuthClient(HttpClient http, IHttpContextAccessor httpContext)
+    public AuthClient(HttpClient http, IHttpContextAccessor httpContext, IConfiguration cfg)
     {
         _http = http;
         _httpContext = httpContext;
+        _cfg = cfg;
     }
 
     public async Task<Dictionary<Guid, UserInfoDto>> GetUsersByIdsAsync(
@@ -22,11 +25,12 @@ public class AuthClient : IAuthClient
         if (idList.Count == 0) return new Dictionary<Guid, UserInfoDto>();
 
         var query = string.Join("&", idList.Select(id => $"ids={id}"));
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/auth/users/bulk?{query}");
-
-        // Reenviar el JWT del usuario actual
-        var token = _httpContext.HttpContext?.Request.Headers["Authorization"].ToString();
-        if (!string.IsNullOrEmpty(token)) req.Headers.Add("Authorization", token);
+        // Endpoint interno de Auth (X-Internal-Token). El documento solo se pide
+        // si quien consulta en Drivers es admin (igual que antes con el JWT).
+        var includeDocument = _httpContext.HttpContext?.User?.IsInRole("admin") == true;
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            $"api/internal/users/bulk?{query}&includeDocument={(includeDocument ? "true" : "false")}");
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? string.Empty);
 
         try
         {

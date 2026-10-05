@@ -1,6 +1,7 @@
 using MediatR;
 using Bugie.Drivers.Application.DTOs;
 using Bugie.Drivers.Domain.Entities;
+using Bugie.Drivers.Domain.Enums;
 using Bugie.Drivers.Domain.Interfaces;
 
 namespace Bugie.Drivers.Application.Commands;
@@ -32,5 +33,11 @@ public class RegisterDriverHandler : IRequestHandler<RegisterDriverCommand, Driv
         d.Rating, d.TotalRatings,
         false,              // HasActiveTrip: se calcula en queries de monitoreo
         d.CreatedAt, d.ApprovedAt,
-        d.ProfilePhotoUrl);
+        d.ProfilePhotoUrl,
+        d.DocumentsDeadline,
+        d.Strikes,
+        MissingDocuments: null,
+        // El motivo solo tiene sentido mientras está rechazado o suspendido
+        StatusReason: d.Status is DriverStatus.Rejected or DriverStatus.Suspended ? d.StatusReason : null,
+        SuspendedUntil: d.Status == DriverStatus.Suspended ? d.SuspendedUntil : null);
 }

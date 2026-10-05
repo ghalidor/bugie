@@ -1,75 +1,91 @@
-import { useState } from 'react';
-import PageHeader from '../../../components/PageHeader';
-import SettingsTab from './SettingsTab';
-import LevelsTab from './LevelsTab';
-import CatalogTab from './CatalogTab';
+import { Page, Tabs, useTabParam } from '../../../components/ui';
+import BalanceTab from './BalanceTab';
+import ReferralsTab from './ReferralsTab';
+import CouponUsageCard from './CouponUsageCard';
 import RedemptionsTab from './RedemptionsTab';
+import SupportTab from './SupportTab';
+import CatalogTab from './CatalogTab';
+import LevelsTab from './LevelsTab';
 import PromotionsTab from './PromotionsTab';
 import RafflesTab from './RafflesTab';
-import ReferralsTab from './ReferralsTab';
-import BalanceTab from './BalanceTab';
-import SupportTab from './SupportTab';
+import SettingsTab from './SettingsTab';
+import './rewards.css';
 
-type Tab = 'balance' | 'soporte' | 'config' | 'niveles' | 'catalogo' | 'canjes' | 'promos' | 'sorteos' | 'referidos';
+/// Fidelización (programa de puntos). Cada subruta de /admin/puntos es una
+/// página propia; lo que se cambia aquí toma efecto en el acto, sin
+/// recompilar ni reiniciar el servicio.
 
-const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: 'balance',  label: 'Balance',       icon: 'fa-solid fa-scale-balanced' },
-  { key: 'soporte',  label: 'Buscar usuario', icon: 'fa-solid fa-user-magnifying-glass' },
-  { key: 'config',   label: 'Configuración', icon: 'fa-solid fa-sliders' },
-  { key: 'niveles',  label: 'Niveles',       icon: 'fa-solid fa-medal' },
-  { key: 'catalogo', label: 'Catálogo',      icon: 'fa-solid fa-gift' },
-  { key: 'canjes',   label: 'Canjes',        icon: 'fa-solid fa-ticket' },
-  { key: 'promos',   label: 'Promociones',   icon: 'fa-solid fa-bullhorn' },
-  { key: 'sorteos',  label: 'Sorteos',       icon: 'fa-solid fa-dice' },
-  { key: 'referidos', label: 'Referidos',    icon: 'fa-solid fa-user-plus' },
-];
-
-/// Administracion del programa de puntos. Todo lo que se cambia aca toma
-/// efecto en el acto, sin recompilar ni reiniciar el servicio.
-export default function RewardsAdmin() {
-  const [tab, setTab] = useState<Tab>('balance');
-
+/** /admin/puntos/resumen — balance, referidos y uso de cupones. */
+export function RewardsSummary() {
+  const [tab] = useTabParam(['balance', 'referidos', 'cupones']);
   return (
-    <>
-      <PageHeader
-        title="Puntos y recompensas"
-        subtitle="Tasas de conversión, niveles, catálogo de canje y entrega de premios."
-        icon="fa-solid fa-star"
-      />
-
-      <div className="d-flex flex-wrap gap-2 mb-3" role="tablist">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className="btn btn-sm"
-            style={{
-              borderRadius: 999,
-              padding: '0.4rem 0.95rem',
-              fontWeight: 600,
-              border: `1px solid ${tab === t.key ? 'var(--bugie-primary)' : 'var(--bugie-border)'}`,
-              background: tab === t.key ? 'var(--bugie-primary)' : 'transparent',
-              color: tab === t.key ? '#fff' : 'var(--bugie-text)',
-            }}
-          >
-            <i className={`${t.icon} me-2`} />
-            {t.label}
-          </button>
-        ))}
+    <Page
+      title="Resumen de puntos"
+      subtitle="Cuánto debes en puntos, de dónde salen y qué tan bien funcionan los referidos."
+      icon="fa-chart-pie"
+      helpKey="rewards-summary"
+    >
+      <div data-tour="rw-sum-tabs">
+        <Tabs items={[
+          { value: 'balance',   label: 'Balance',            icon: 'fa-scale-balanced' },
+          { value: 'referidos', label: 'Referidos',          icon: 'fa-user-plus' },
+          { value: 'cupones',   label: 'Cupones en viajes',  icon: 'fa-tag' },
+        ]} />
       </div>
-
-      {tab === 'balance'  && <BalanceTab />}
-      {tab === 'soporte'  && <SupportTab />}
-      {tab === 'config'   && <SettingsTab />}
-      {tab === 'niveles'  && <LevelsTab />}
-      {tab === 'catalogo' && <CatalogTab />}
-      {tab === 'canjes'   && <RedemptionsTab />}
-      {tab === 'promos'   && <PromotionsTab />}
-      {tab === 'sorteos'  && <RafflesTab />}
+      {tab === 'balance'   && <BalanceTab />}
       {tab === 'referidos' && <ReferralsTab />}
-    </>
+      {tab === 'cupones'   && <CouponUsageCard />}
+    </Page>
   );
 }
+
+/** /admin/puntos/canjes — entrega de canjes y soporte a usuarios. */
+export function RewardsRedemptions() {
+  const [tab] = useTabParam(['canjes', 'soporte']);
+  return (
+    <Page
+      title="Canjes y soporte"
+      subtitle="Entrega lo que canjearon y corrige los puntos de quien reclama."
+      icon="fa-ticket"
+      helpKey="rewards-redemptions"
+    >
+      <div data-tour="rw-red-tabs">
+        <Tabs items={[
+          { value: 'canjes',  label: 'Canjes',              icon: 'fa-ticket' },
+          { value: 'soporte', label: 'Soporte de usuario',  icon: 'fa-magnifying-glass' },
+        ]} />
+      </div>
+      {tab === 'canjes'  && <RedemptionsTab />}
+      {tab === 'soporte' && <SupportTab />}
+    </Page>
+  );
+}
+
+/** /admin/puntos/catalogo — recompensas canjeables y niveles. */
+export function RewardsCatalog() {
+  const [tab] = useTabParam(['catalogo', 'niveles']);
+  return (
+    <Page
+      title="Catálogo y niveles"
+      subtitle="Qué se puede canjear y qué beneficios da cada nivel."
+      icon="fa-gift"
+      helpKey="rewards-catalog"
+    >
+      <div data-tour="rw-cat-tabs">
+        <Tabs items={[
+          { value: 'catalogo', label: 'Catálogo', icon: 'fa-gift' },
+          { value: 'niveles',  label: 'Niveles',  icon: 'fa-medal' },
+        ]} />
+      </div>
+      {tab === 'catalogo' && <CatalogTab />}
+      {tab === 'niveles'  && <LevelsTab />}
+    </Page>
+  );
+}
+
+/** /admin/puntos/promociones */
+export const RewardsPromotions = PromotionsTab;
+/** /admin/puntos/sorteos */
+export const RewardsRaffles = RafflesTab;
+/** /admin/puntos/ajustes */
+export const RewardsSettings = SettingsTab;

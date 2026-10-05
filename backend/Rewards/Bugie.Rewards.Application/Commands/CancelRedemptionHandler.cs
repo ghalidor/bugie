@@ -29,6 +29,16 @@ public class CancelRedemptionHandler : IRequestHandler<CancelRedemptionCommand, 
         if (redemption.Status == RedemptionStatus.Cancelled)
             throw new InvalidOperationException("El cupon ya estaba anulado.");
 
+        // Cupon que no costo puntos (beneficio de nivel): solo se anula.
+        // Su cupo del mes vuelve a quedar libre (no se cuentan los anulados).
+        if (redemption.PointsSpent <= 0)
+        {
+            redemption.Cancel(cmd.Note ?? "Cupón anulado por el administrador.");
+            if (!await _redemptions.CancelWithoutRefundAsync(redemption, ct))
+                throw new InvalidOperationException("No se pudo anular el cupón.");
+            return GetMyRedemptionsHandler.ToDto(redemption);
+        }
+
         var profile = await _profiles.GetByUserIdAsync(redemption.UserId, ct)
             ?? throw new KeyNotFoundException("Perfil de puntos no encontrado.");
 

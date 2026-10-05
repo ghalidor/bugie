@@ -37,15 +37,18 @@ public class AccrueRatingPointsHandler
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IMediator                 _mediator;
 
     public AccrueRatingPointsHandler(
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _profiles = profiles;
         _levels   = levels;
         _settings = settings;
+        _mediator = mediator;
     }
 
     public async Task<RatingPointsResult> Handle(
@@ -104,6 +107,7 @@ public class AccrueRatingPointsHandler
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
 
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -117,6 +121,10 @@ public class AccrueRatingPointsHandler
             expiryDate:    profile.PointsExpiryDate,
             notes:         nota);
 
-        return await _profiles.ApplyEarnAsync(profile, movement, ct) ? points : 0;
+        if (!await _profiles.ApplyEarnAsync(profile, movement, ct)) return 0;
+
+        // Si subió de nivel, aviso de los cupones del nivel (solo pasajero).
+        await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
+        return points;
     }
 }

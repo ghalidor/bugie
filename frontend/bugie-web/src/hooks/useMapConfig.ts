@@ -30,12 +30,6 @@ function fetchAndSet() {
   }).catch(() => DEFAULT);
 }
 
-/** Limpia el cache y refetchea. Llamar al guardar settings de mapa. */
-export function invalidateMapConfigCache() {
-  _cache = null;
-  fetchAndSet();
-}
-
 export function useMapConfig(): MapConfig {
   const [config, setConfig] = useState<MapConfig>(_cache ?? DEFAULT);
 

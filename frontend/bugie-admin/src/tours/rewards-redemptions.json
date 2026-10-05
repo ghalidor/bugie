@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-red-tabs']",
+      "title": "Canjes y soporte",
+      "text": "En Canjes entregas lo que los usuarios canjearon. En Soporte buscas a una persona y corriges sus puntos."
+    },
+    {
+      "selector": "[data-tour='rw-red-list']",
+      "title": "Filtra por estado",
+      "text": "«Pendientes» muestra lo que falta entregar. Usa «Marcar entregado» o «Anular»: anular devuelve los puntos y pide un motivo."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

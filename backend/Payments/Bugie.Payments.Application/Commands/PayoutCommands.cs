@@ -21,8 +21,9 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
 
     private readonly IWithdrawalRepository _payouts;
     private readonly IPayoutNotifier       _notifier;
-    public RegisterPayoutHandler(IWithdrawalRepository payouts, IPayoutNotifier notifier)
-        => (_payouts, _notifier) = (payouts, notifier);
+    private readonly IPayoutCodeClient     _codes;
+    public RegisterPayoutHandler(IWithdrawalRepository payouts, IPayoutNotifier notifier, IPayoutCodeClient codes)
+        => (_payouts, _notifier, _codes) = (payouts, notifier, codes);
 
     public async Task<PayoutDto> Handle(RegisterPayoutCommand cmd, CancellationToken ct)
     {
@@ -45,8 +46,32 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
         if (sourceType != "manual" && sourceRef is null)
             throw new InvalidOperationException("Falta el código del canje o del premio.");
 
-        if (sourceRef is not null && await _payouts.ExistsBySourceAsync(sourceType, sourceRef, ct))
-            throw new PayoutAlreadyRegisteredException("Ese canje o premio ya tiene un pago registrado.");
+        if (sourceType == "manual")
+        {
+            // Pago sin código (bono especial): el motivo es obligatorio y se genera
+            // un comprobante propio PAG-2026-000123 que ve el conductor.
+            if (string.IsNullOrWhiteSpace(r.Note))
+                throw new InvalidOperationException("En un pago manual escribe el motivo en la nota.");
+            sourceRef = await _payouts.NextReceiptCodeAsync(BugieTime.ToPeru(DateTime.UtcNow).Year, ct);
+        }
+        else
+        {
+            // Con código: tiene que existir en Rewards, ser de este conductor y estar sin pagar.
+            var info = await _codes.LookupAsync(sourceRef!, ct)
+                ?? throw new InvalidOperationException($"No existe ningún canje ni premio con el código {sourceRef}.");
+            if (info.Kind != sourceType)
+                throw new InvalidOperationException("El código no corresponde al origen del pago.");
+            if (info.UserId != r.DriverId)
+                throw new InvalidOperationException("El código es de otro usuario.");
+
+            var refs = new List<string> { info.Code, sourceRef! };
+            if (info.WinnerId is not null) refs.Add(info.WinnerId.Value.ToString());
+            if (await _payouts.GetBySourceAsync(sourceType, refs, ct) is not null)
+                throw new PayoutAlreadyRegisteredException("Ese canje o premio ya tiene un pago registrado.");
+            if (!info.Payable)
+                throw new InvalidOperationException(info.Reason ?? "Este código no se puede pagar.");
+            sourceRef = info.Code;   // siempre se guarda el código legible (BG-... / PZ-...)
+        }
 
         // Sin fecha = ahora. La fecha llega en hora de Peru y ya viene en UTC (ver BugieTime).
         var paidAt = r.PaidAt is null ? DateTime.UtcNow : BugieTime.ToUtcFromInput(r.PaidAt.Value);
@@ -59,7 +84,12 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
             cmd.AdminId, Trim(cmd.AdminName, 120), Trim(r.Note, 300),
             sourceType, Trim(sourceRef, 60));
 
-        await _payouts.AddAsync(w, ct);
+        try { await _payouts.AddAsync(w, ct); }
+        catch (Exception ex) when (ex.Message.Contains("uq_wd_source"))
+        {
+            // Dos registros al mismo tiempo: la base deja pasar solo uno.
+            throw new PayoutAlreadyRegisteredException("Ese canje o premio ya tiene un pago registrado.");
+        }
         // Aviso al conductor (push + correo). No bloquea ni falla el registro.
         _ = _notifier.NotifyAsync(w);
         return ToDto(w);
@@ -70,7 +100,9 @@ public class RegisterPayoutHandler : IRequestHandler<RegisterPayoutCommand, Payo
 
     internal static PayoutDto ToDto(Withdrawal w) => new(
         w.Id, w.DriverId, w.DriverName, w.Amount, w.Method, w.AccountRef, w.OperationNumber,
-        w.PaidAt, w.PaidByAdminName, w.Note, w.SourceType, w.SourceRef, w.CreatedAt);
+        w.PaidAt, w.PaidByAdminName, w.Note, w.SourceType, w.SourceRef, w.CreatedAt,
+        // Codigo visible (BG-..., PZ-..., PAG-...). Los pagos antiguos de premios guardaban un id.
+        w.SourceRef is null || Guid.TryParse(w.SourceRef, out _) ? null : w.SourceRef);
 }
 
 /// <summary>Reporte de pagos a conductores (filtros + totales).</summary>

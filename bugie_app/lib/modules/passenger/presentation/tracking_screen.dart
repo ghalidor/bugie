@@ -18,7 +18,12 @@ import '../../../core/utils/route_geometry.dart';
 import '../../../core/widgets/bugie_card.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/bugie_map.dart';
+import '../../../core/widgets/delivery_info.dart';
+import '../../../core/widgets/negotiation/negotiation.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../../core/widgets/schedule_picker.dart';
 import '../../trips/data/trips_repository.dart';
+import '../../rewards/data/rewards_repository.dart';
 import '../../trips/domain/proposal_model.dart';
 import '../../trips/domain/route_model.dart';
 import '../../trips/domain/trip_model.dart';
@@ -34,7 +39,10 @@ import '../../favorites/data/favorites_repository.dart';
 ///   - Card rojo (rejected/driver, 24h)           → "el conductor declinó", con X para ocultar.
 ///   - Botón "Rechazar todas" sólo si hay 2+ propuestas pending del conductor.
 class PassengerTrackingScreen extends StatefulWidget {
-  const PassengerTrackingScreen({super.key});
+  /// Seguir un viaje en particular (ej. un programado que todavía no es el
+  /// viaje activo). null = el viaje activo.
+  final String? tripId;
+  const PassengerTrackingScreen({super.key, this.tripId});
 
   @override
   State<PassengerTrackingScreen> createState() => _PassengerTrackingScreenState();
@@ -43,6 +51,9 @@ class PassengerTrackingScreen extends StatefulWidget {
 class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     with WidgetsBindingObserver {
   Trip? _trip;
+  /// Programados del pasajero (se muestran cuando no hay viaje activo).
+  List<Trip> _scheduled = [];
+  bool _republishing = false;
   List<Proposal> _proposals = [];
   RouteInfo? _routeInfo;
   bool _loading = true;
@@ -92,7 +103,11 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
 
   /// Umbral en metros: si el conductor está más lejos que esto de la
   /// ruta más cercana, consideramos que está desviado.
-  static const double _deviationThresholdMeters = 500;
+  /// Lo configura el admin (deviation_threshold_m). Se lee UNA vez al entrar
+  /// (no en cada actualización de GPS); si no se puede leer o no es un
+  /// número válido, se usa [_defaultDeviationThresholdMeters].
+  static const double _defaultDeviationThresholdMeters = 300;
+  double _deviationThresholdMeters = _defaultDeviationThresholdMeters;
 
   /// Estado actual de desvío. Cuando true, mostramos banner y línea roja.
   bool _isDeviated = false;
@@ -161,15 +176,24 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     }
   }
 
-  /// Lee del admin si la detección de desvío está activada.
-  /// Si la red falla, se queda en el default (false) — seguro.
+  /// Lee del admin si la detección de desvío está activada y su umbral en
+  /// metros. Se llama una sola vez al entrar a la pantalla.
+  /// Si la red falla, se queda en los defaults (apagada, 300 m) — seguro.
   Future<void> _loadDeviationFlag() async {
     try {
-      final enabled = await context
-          .read<AdminSettingsService>()
-          .getBool('deviation_detection_enabled', fallback: false);
-      if (mounted) setState(() => _deviationFeatureEnabled = enabled);
-    } catch (_) {/* default false ya cubre el caso */}
+      final settings = context.read<AdminSettingsService>();
+      final enabled = await settings.getBool('deviation_detection_enabled',
+          fallback: false);
+      final threshold = await settings.getDouble('deviation_threshold_m',
+          fallback: _defaultDeviationThresholdMeters);
+      if (mounted) {
+        setState(() {
+          _deviationFeatureEnabled = enabled;
+          _deviationThresholdMeters =
+              threshold > 0 ? threshold : _defaultDeviationThresholdMeters;
+        });
+      }
+    } catch (_) {/* los defaults ya cubren el caso */}
   }
 
   @override
@@ -306,7 +330,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       return;
     }
 
-    final driverPos = LatLng(trip!.driverCurrentLat!, trip.driverCurrentLng!);
+    final driverPos = LatLng(trip.driverCurrentLat!, trip.driverCurrentLng!);
     final route = _routeInfo!.options.first.coordinates;
     final result = RouteGeometry.nearestOnPolyline(driverPos, route);
 
@@ -351,7 +375,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   /// modernos), imprime en consola para que se pueda diagnosticar.
   Future<void> _vibrateAlert() async {
     try {
-      final has = await Vibration.hasVibrator() ?? false;
+      final has = await Vibration.hasVibrator();
       if (!has) {
         debugPrint('[Bugie] Vibration.hasVibrator devolvió false. '
             'El dispositivo no tiene vibrador o falta el permiso VIBRATE '
@@ -384,11 +408,11 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.cancel_outlined, size: 48, color: BugieColors.danger),
         title: Text(t.cancelledBy == 'driver'
-            ? 'Tu conductor canceló el viaje'
-            : 'Bugie canceló tu viaje'),
+            ? 'Tu conductor canceló el ${t.isDelivery ? 'envío' : 'viaje'}'
+            : 'Bugie canceló tu ${t.isDelivery ? 'envío' : 'viaje'}'),
         content: Text(
           '${t.cancelReason != null ? 'Motivo: ${t.cancelReason}\n\n' : ''}'
-          'Puedes solicitar otro viaje cuando quieras.',
+          'Puedes solicitar otro ${t.isDelivery ? 'envío' : 'viaje'} cuando quieras.',
           textAlign: TextAlign.center,
         ),
         actions: [
@@ -533,7 +557,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       if (existing != null) {
         if (mounted) {
           context.go('/passenger');
-          showSuccessSnack('¡Viaje completado!');
+          showSuccessSnack(prev.isDelivery ? '¡Envío completado!' : '¡Viaje completado!');
         }
         return;
       }
@@ -553,7 +577,17 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
 
     final repo = context.read<TripsRepository>();
     try {
-      final trip = await repo.getActive();
+      final trip = widget.tripId != null
+          ? await _loadById(repo, widget.tripId!)
+          : await repo.getActive();
+
+      // Sin viaje: traer sus programados para mostrarlos.
+      List<Trip> scheduled = const [];
+      if (trip == null) {
+        try {
+          scheduled = await repo.getScheduled();
+        } catch (_) {}
+      }
 
       List<Proposal> proposals = [];
       if (trip != null &&
@@ -568,6 +602,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       final prevTrip = _trip;
       setState(() {
         _trip = trip;
+        _scheduled = scheduled;
         _proposals = proposals;
         _loading = false;
         _error = null;
@@ -599,7 +634,8 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       }
 
       // Ajusta el tracking de ubicación del pasajero al nuevo estado.
-      _syncPassengerTracking(trip);
+      // Un programado que aún no llega su hora no necesita la ubicación.
+      _syncPassengerTracking(trip != null && trip.isFutureScheduled ? null : trip);
 
       if (trip != null) {
         final key = _routeKeyFor(trip);
@@ -819,19 +855,30 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
 
   /// Abre el bottom sheet para que el pasajero proponga un monto distinto
   /// hacia un conductor específico.
-  Future<void> _counterPropose(Proposal p) async {
+  Future<void> _counterPropose(Proposal p, {double? quickFare}) async {
     if (_trip == null) return;
+    // Chip de contraoferta rápida: confirmación breve y se envía directo
+    // con la misma llamada que la hoja "Otro monto".
+    if (quickFare != null) {
+      final ok = await confirmQuickFare(context,
+          fare: quickFare, recipient: p.driverName);
+      if (!ok || !mounted) return;
+      await _sendCounter(p, quickFare);
+      return;
+    }
     final controller = TextEditingController(text: p.fare.toStringAsFixed(2));
     final result = await showModalBottomSheet<double>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
-        return Padding(
+        return SingleChildScrollView(
           padding: EdgeInsets.only(
             left: 16,
             right: 16,
             top: 16,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom +
+                MediaQuery.of(ctx).padding.bottom +
+                16,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -862,16 +909,18 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
+                    child: SecondaryActionButton(
+                      label: 'Cancelar',
+                      color: BugieColors.textMuted,
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancelar'),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.send, size: 16),
-                      label: const Text('Enviar'),
+                    child: PrimaryActionButton(
+                      icon: Icons.send_rounded,
+                      label: 'Enviar',
+                      color: BugieColors.primary,
                       onPressed: () {
                         final v = double.tryParse(
                             controller.text.replaceAll(',', '.'));
@@ -894,12 +943,18 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
       },
     );
 
-    if (result == null) return;
+    if (result == null || !mounted) return;
+    await _sendCounter(p, result);
+  }
+
+  /// Envía la contrapropuesta del pasajero a un conductor.
+  Future<void> _sendCounter(Proposal p, double fare) async {
+    if (_trip == null) return;
     try {
       await context.read<TripsRepository>().counterPropose(
             tripId: _trip!.id,
             driverId: p.driverId,
-            fare: result,
+            fare: fare,
           );
       // El próximo poll trae el nuevo card "pending + passenger".
       await _load();
@@ -908,28 +963,126 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     }
   }
 
-  Future<void> _cancel() async {
+  /// Viaje por id (programado): terminado o cancelado se trata como "sin viaje".
+  Future<Trip?> _loadById(TripsRepository repo, String id) async {
+    try {
+      final t = await repo.getTracking(id);
+      if (t.status == TripStatus.completed || t.status == TripStatus.cancelled) {
+        return null;
+      }
+      return t;
+    } on ApiException catch (e) {
+      if (e.status == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Programado cuyo conductor no llegó: vuelve a pendiente para otros
+  /// conductores (se quita al conductor y se le avisa).
+  Future<void> _republish() async {
     if (_trip == null) return;
-    final confirmed = await showDialog<bool>(
+    final noun = _trip!.isDelivery ? 'envío' : 'viaje';
+    final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Cancelar viaje'),
-        content: const Text('¿Estás seguro de cancelar este viaje?'),
+        title: Text('Republicar el $noun'),
+        content: const Text(
+            'Quitaremos a tu conductor y otros conductores podrán enviarte propuestas de nuevo.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('No')),
+              child: const Text('No, esperar')),
           ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: BugieColors.danger),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sí, cancelar')),
+              child: const Text('Sí, republicar')),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (ok != true || !mounted) return;
+    setState(() => _republishing = true);
     try {
-      await context.read<TripsRepository>().cancel(_trip!.id);
+      final t = await context.read<TripsRepository>().republish(_trip!.id);
+      if (!mounted) return;
+      setState(() => _trip = t);
+      showSuccessSnack('Listo: los conductores ya pueden verlo de nuevo.');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _republishing = false);
+    }
+  }
+
+  /// El pasajero cancela. Se pide el motivo (mismo patrón que el conductor:
+  /// opciones rápidas + texto libre) y se envía al backend (máx. 200).
+  Future<void> _cancel() async {
+    if (_trip == null) return;
+    final noun = _trip!.isDelivery ? 'envío' : 'viaje';
+    final late = _trip!.driverLate;
+    const otro = 'Otro motivo';
+    final motivos = [
+      // Conductor tarde en un programado: el motivo propio va primero.
+      if (late) 'El conductor no llegó a la hora programada',
+      'Ya no necesito el $noun',
+      'El conductor tarda mucho',
+      'Encontré otra opción',
+      'Me equivoqué en los datos',
+      otro,
+    ];
+    String elegido = motivos.first;
+    final otroCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Cancelar $noun'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(late
+                    ? 'Tu conductor no llegó a la hora programada: puedes cancelar sin penalidad. ¿Por qué cancelas?'
+                    : '¿Por qué cancelas este $noun?'),
+                const SizedBox(height: 8),
+                for (final m in motivos)
+                  RadioListTile<String>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(m),
+                    value: m,
+                    groupValue: elegido,
+                    onChanged: (v) => setD(() => elegido = v!),
+                  ),
+                if (elegido == otro)
+                  TextField(
+                    controller: otroCtrl,
+                    maxLength: 200,
+                    decoration:
+                        const InputDecoration(hintText: 'Escribe el motivo'),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Volver')),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: BugieColors.danger),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Sí, cancelar')),
+          ],
+        ),
+      ),
+    );
+    var motivo = elegido == otro ? otroCtrl.text.trim() : elegido;
+    otroCtrl.dispose();
+    if (confirmed != true || !mounted) return;
+    if (motivo.isEmpty) motivo = otro;
+    if (motivo.length > 200) motivo = motivo.substring(0, 200);
+    try {
+      await context.read<TripsRepository>().cancel(_trip!.id, reason: motivo);
       if (!mounted) return;
       context.go('/passenger');
     } on ApiException catch (e) {
@@ -991,11 +1144,42 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                       textAlign: TextAlign.center,
                       style: TextStyle(color: BugieColors.textMuted)),
                   const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.add_location_alt),
-                    label: const Text('Solicitar viaje'),
+                  PrimaryActionButton(
+                    icon: Icons.add_location_alt,
+                    label: 'Solicitar viaje',
+                    color: BugieColors.primary,
                     onPressed: () => context.go('/passenger/request'),
                   ),
+                  // Programados que todavía no empiezan
+                  if (_scheduled.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Tus programados',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final s in _scheduled)
+                      Card(
+                        child: ListTile(
+                          leading: Icon(
+                              s.isDelivery ? Icons.inventory_2 : Icons.directions_car,
+                              color: s.driverId != null
+                                  ? BugieColors.success
+                                  : BugieColors.warning),
+                          title: Text(Schedule.format(s.scheduledAt!),
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                              '${s.driverId != null ? 'Conductor asignado' : (s.status == TripStatus.negotiating ? 'Recibiendo propuestas' : 'Buscando conductor')}'
+                              '\n${s.originAddress} → ${s.destAddress}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push('/passenger/tracking?trip=${s.id}'),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -1050,10 +1234,139 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
         ? waitingConfirmation.first.driverName
         : '';
 
+    // Oferta del pasajero: lo que él ofreció (estimatedFare). No usar
+    // proposedFare: es la primera propuesta de un conductor.
+    final myOffer = t.passengerOfferFare ?? t.estimatedFare;
+    // "Buscando conductores…": viaje pendiente/negociando sin conductor.
+    final searching = t.driverId == null &&
+        (t.status == TripStatus.pending ||
+            t.status == TripStatus.negotiating);
+
     // Botón "Rechazar todas" solo si hay 2+ pending del conductor (sin contar mías).
     final actionablePending = visible
         .where((p) => p.status == 'pending' && !p.isCounterFromMe)
         .length;
+
+    // Resumen del viaje: estado, conductor, direcciones, tarifa (+ envío).
+    List<Widget> statusSection() => [
+              // ── Estado ─────────────────────────────────────────────
+              BugieCard(
+                title: 'Estado',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Estado + tipo de servicio (Viaje / Envío).
+                    Row(
+                      children: [
+                        Flexible(
+                          child: AnimatedSwitcher(
+                            duration: motionDuration(context, 300),
+                            transitionBuilder: (child, a) => FadeTransition(
+                              opacity: a,
+                              child: ScaleTransition(
+                                  scale: Tween(begin: 0.9, end: 1.0).animate(a),
+                                  child: child),
+                            ),
+                            child: Container(
+                              key: ValueKey(_statusLabel(t)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _statusColor(t.status)
+                                    .withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                _statusLabel(t),
+                                style: TextStyle(
+                                  color: _statusColor(t.status),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ServiceBadge(isDelivery: t.isDelivery),
+                      ],
+                    ),
+                    // ── Conductor asignado: foto, nombre, auto, placa ──
+                    if ((t.status == TripStatus.accepted ||
+                            t.status == TripStatus.inProgress ||
+                            t.status == TripStatus.sosActive) &&
+                        (t.driverName != null || t.vehiclePlate != null)) ...[
+                      const SizedBox(height: 12),
+                      _AssignedDriverCard(trip: t),
+                    ],
+                    const SizedBox(height: 14),
+                    _AddressRow(
+                      color: BugieColors.mapOrigin,
+                      label: 'Origen',
+                      address: t.originAddress,
+                    ),
+                    ...sortedWp.asMap().entries.map((e) => Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _AddressRow(
+                            color: BugieColors.mapWaypoint,
+                            label: 'Parada ${e.key + 1}',
+                            address: e.value.address,
+                          ),
+                        )),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: _AddressRow(
+                        color: BugieColors.mapDestination,
+                        label: 'Destino',
+                        address: t.destAddress,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Cupon aplicado a este viaje, si lo hay. Va antes de la
+                    // tarifa porque cambia lo que el pasajero va a pagar.
+                    _CouponRow(trip: t, onChanged: _reloadTrip),
+
+                    Row(
+                      children: [
+                        _Kpi(
+                          label: t.discountAmount != null ? 'Pagas' : 'Tarifa',
+                          value: 'S/ ${(t.discountAmount != null
+                              ? (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!
+                              : t.estimatedFare).toStringAsFixed(2)}',
+                        ),
+                        const SizedBox(width: 8),
+                        _Kpi(
+                          label: 'Conductor',
+                          value:
+                              t.driverId != null ? 'Asignado' : 'Buscando…',
+                          icon: t.driverId != null ? Icons.check : null,
+                          iconColor: BugieColors.success,
+                        ),
+                        if (sortedWp.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          _Kpi(
+                            label: 'Paradas',
+                            value: '${sortedWp.length}',
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // ── Tu envío: paquete, destinatario, estado y fotos ──────────
+              if (t.isDelivery) ...[
+                BugieCard(
+                  title: 'Tu envío',
+                  child: DeliveryInfo(trip: t),
+                ),
+                const SizedBox(height: 14),
+              ],
+
+    ];
 
     return Scaffold(
       appBar: _appBar(),
@@ -1090,6 +1403,9 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                   : const [],
               center: LatLng(t.originLat, t.originLng),
               fitBoundsOnMarkers: true,
+              fitOnReady: true,
+              fitPadding: EdgeInsets.fromLTRB(
+                  48, 110, 72, MediaQuery.of(context).size.height * 0.46),
             ),
           ),
 
@@ -1197,9 +1513,9 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                         color: Colors.transparent,
                         child: Container(
                           width: 44,
-                          height: 4,
+                          height: 5,
                           decoration: BoxDecoration(
-                            color: BugieColors.textMuted.withOpacity(0.4),
+                            color: BugieColors.textMuted.withValues(alpha: 0.45),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -1227,7 +1543,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                         onRefresh: _load,
                         child: ListView(
                           controller: scrollController,
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 48),
+                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 48),
                           children: [
               // Banner "sin conexión" — aparece tras 2+ fallos seguidos.
               // Mantiene los últimos datos visibles, pero avisa al usuario.
@@ -1251,97 +1567,88 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                 const SizedBox(height: 12),
               ],
 
-              // ── Estado ─────────────────────────────────────────────
-              BugieCard(
-                title: 'Estado',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _statusColor(t.status).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          TripStatus.labelForPassenger(t.status),
-                          style: TextStyle(
-                            color: _statusColor(t.status),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
+              // ── Programado ─────────────────────────────────────────
+              if (t.isScheduled && !t.driverLate) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: BugieColors.primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: BugieColors.primary.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.event_available, color: BugieColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Programado para el ${Schedule.format(t.scheduledAt!)}',
+                                style: const TextStyle(fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 2),
+                            Text(
+                              t.status == TripStatus.accepted
+                                  ? (t.isFutureScheduled
+                                      ? 'Tu conductor ya está asignado. Te recordaremos 30 y 10 minutos antes.'
+                                      : 'Ya casi es la hora: tu conductor se prepara para ir.')
+                                  : 'Los conductores pueden enviarte propuestas desde ahora.',
+                              style: const TextStyle(
+                                  fontSize: 12, color: BugieColors.textMuted),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    // ── Conductor asignado: foto, nombre, auto, placa ──
-                    if ((t.status == TripStatus.accepted ||
-                            t.status == TripStatus.inProgress ||
-                            t.status == TripStatus.sosActive) &&
-                        (t.driverName != null || t.vehiclePlate != null)) ...[
-                      const SizedBox(height: 12),
-                      _AssignedDriverCard(trip: t),
                     ],
-                    const SizedBox(height: 14),
-                    _AddressRow(
-                      color: BugieColors.mapOrigin,
-                      label: 'Origen',
-                      address: t.originAddress,
-                    ),
-                    ...sortedWp.asMap().entries.map((e) => Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: _AddressRow(
-                            color: BugieColors.mapWaypoint,
-                            label: 'Parada ${e.key + 1}',
-                            address: e.value.address,
-                          ),
-                        )),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: _AddressRow(
-                        color: BugieColors.mapDestination,
-                        label: 'Destino',
-                        address: t.destAddress,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Cupon aplicado a este viaje, si lo hay. Va antes de la
-                    // tarifa porque cambia lo que el pasajero va a pagar.
-                    _CouponRow(trip: t, onChanged: _reloadTrip),
-
-                    Row(
-                      children: [
-                        _Kpi(
-                          label: t.discountAmount != null ? 'Pagas' : 'Tarifa',
-                          value: 'S/ ${(t.discountAmount != null
-                              ? (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!
-                              : t.estimatedFare).toStringAsFixed(2)}',
-                        ),
-                        const SizedBox(width: 8),
-                        _Kpi(
-                          label: 'Conductor',
-                          value:
-                              t.driverId != null ? 'Asignado' : 'Buscando…',
-                          icon: t.driverId != null ? Icons.check : null,
-                          iconColor: BugieColors.success,
-                        ),
-                        if (sortedWp.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          _Kpi(
-                            label: 'Paradas',
-                            value: '${sortedWp.length}',
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 12),
+              ],
 
+              // ── El conductor del programado no llegó ───────────────
+              if (t.driverLate) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: BugieColors.danger.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: BugieColors.danger.withOpacity(0.35)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text('Tu conductor no llegó a la hora programada',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: BugieColors.danger)),
+                      const SizedBox(height: 4),
+                      Text(
+                          'Era para el ${Schedule.format(t.scheduledAt!)}. Puedes cancelar sin penalidad '
+                          'o republicarlo para que lo tome otro conductor.',
+                          style: const TextStyle(fontSize: 12)),
+                      const SizedBox(height: 10),
+                      PrimaryActionButton(
+                        label: 'Republicar',
+                        icon: Icons.refresh,
+                        loading: _republishing,
+                        onPressed: _republishing ? null : _republish,
+                      ),
+                      const SizedBox(height: 4),
+                      DestructiveTextButton(
+                        expand: true,
+                        label: 'Cancelar sin penalidad',
+                        onPressed: _republishing ? null : _cancel,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // ── (Va primero: es lo que más importa mientras esperas.)
               // ── Distancia del conductor (solo cuando ESTÁ EN CAMINO al pasajero,
               // es decir status accepted). Una vez "pasajero a bordo" (inProgress)
               // ya no tiene sentido mostrar distancia entre ellos: el conductor
@@ -1355,6 +1662,11 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                 const SizedBox(height: 14),
               ],
 
+              // ── Estado (resumen del viaje) ─────────────────────────
+              // Con conductor asignado va arriba; mientras se busca
+              // conductor va DESPUÉS de las ofertas (lo urgente primero).
+              if (!searching) ...statusSection(),
+
               // ── Banner de desvío de ruta (solo durante inProgress) ────────
               // Aparece si el conductor se aleja >500m de la ruta planificada.
               // Acompaña a la línea roja punteada que se dibuja en el mapa
@@ -1364,121 +1676,173 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                 const SizedBox(height: 14),
               ],
 
+              // ── "Buscando conductores…" (radar) ─────────────────────
+              // Mientras el viaje espera conductor y nadie fue aceptado aún.
+              AnimatedSwitcher(
+                duration: motionDuration(context, 300),
+                child: (searching && !hasWaitingConfirmation)
+                    ? Padding(
+                        key: const ValueKey('searching'),
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: PulseSearching(
+                          text: visible.isEmpty
+                              ? 'Buscando conductores…'
+                              : 'Esperando más ofertas…',
+                          subtitle: visible.isEmpty
+                              ? 'Te avisaremos cuando un conductor te haga una oferta.'
+                              : 'Puedes aceptar una oferta cuando quieras.',
+                          icon: t.isDelivery
+                              ? Icons.inventory_2_rounded
+                              : Icons.local_taxi_rounded,
+                        ),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-search')),
+              ),
+
               // ── Cards de propuestas ────────────────────────────────
               if (visible.isNotEmpty) ...[
                 // Banner especial: si hay una propuesta esperando confirmación
                 // del conductor, lo mostramos arriba con info clara y le
                 // bloqueamos al pasajero el botón "Aceptar" de las demás cards.
-                if (hasWaitingConfirmation) ...[
-                  BugieCard(
-                    title: 'Esperando confirmación del conductor',
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                AnimatedSize(
+                  duration: motionDuration(context, 250),
+                  alignment: Alignment.topCenter,
+                  child: hasWaitingConfirmation
+                      ? Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const Icon(Icons.hourglass_top,
-                                  color: BugieColors.warning, size: 22),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Aceptaste a $waitingDriverName.',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold, fontSize: 14),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      'En cuanto el conductor confirme, empieza el viaje. '
-                                      'Si tarda demasiado, puedes cambiar de opinión.',
-                                      style: TextStyle(
-                                          fontSize: 12.5,
-                                          color: BugieColors.textMuted),
-                                    ),
-                                  ],
-                                ),
+                              NegotiationStatusBanner(
+                                state: NegotiationState.waiting,
+                                title: 'Aceptaste a $waitingDriverName',
+                                message:
+                                    'En cuanto el conductor confirme, empieza el ${t.isDelivery ? 'envío' : 'viaje'}. '
+                                    'Si tarda demasiado, puedes cambiar de opinión.',
+                              ),
+                              const SizedBox(height: 8),
+                              // "Cambiar de opinión": vuelve la propuesta a
+                              // pending y libera al pasajero para aceptar otra.
+                              // Se guarda en la tabla histórica (auditoría).
+                              SecondaryActionButton(
+                                label: 'Cambiar de opinión',
+                                icon: Icons.undo,
+                                color: BugieColors.warning,
+                                onPressed: () => _cancelAcceptance(
+                                    waitingConfirmation.first.id),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          // Botón "Cambiar de opinión": vuelve la propuesta a
-                          // pending y libera al pasajero para aceptar otra.
-                          // Se guarda en la tabla histórica para auditoría.
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () =>
-                                  _cancelAcceptance(waitingConfirmation.first.id),
-                              icon: const Icon(Icons.undo, size: 18),
-                              label: const Text('Cambiar de opinión'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: BugieColors.warning,
-                                side: const BorderSide(color: BugieColors.warning),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                // Solo el TÍTULO (sin card contenedor): así cada card de
-                // conductor usa todo el ancho disponible.
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+                // Encabezado: "Ofertas para tu viaje" + "Tu oferta: S/ X".
                 Padding(
-                  padding: const EdgeInsets.only(left: 2, bottom: 8),
-                  child: Text(
-                    visible.length > 1
-                        ? '${visible.length} conductores quieren llevarte'
-                        : '1 conductor quiere llevarte',
+                  padding: const EdgeInsets.only(left: 2, bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(
+                    t.isDelivery
+                        ? 'Ofertas para tu envío'
+                        : 'Ofertas para tu viaje',
                     style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
                         color: context.bugie.text),
                   ),
-                ),
-                ...visible.map((p) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ProposalCard(
-                        proposal: p,
-                        acceptDisabled: hasWaitingConfirmation,
-                        favoriteDriverIds: _favoriteDriverIds,
-                        onAccept: () => p.isDirectAccept
-                            ? _confirmDriverAcceptance(p.id)
-                            : _acceptProposal(p.id),
-                        onReject: () => _rejectOne(p.id),
-                        onCounter: () => _counterPropose(p),
-                        onHide: () => setState(() => _hiddenIds.add(p.id)),
-                        onShowHistory: () =>
-                            _openHistory(p.driverId, p.driverName),
+                  const SizedBox(height: 2),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AnimatedSwitcher(
+                              duration: motionDuration(context, 250),
+                              child: Text(
+                                visible.length == 1
+                                    ? '1 conductor te respondió'
+                                    : '${visible.length} conductores te respondieron',
+                                key: ValueKey(visible.length),
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: context.bugie.textMuted),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    )),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: PriceTag(
+                          amount: myOffer,
+                          label: 'Tu oferta',
+                          fontSize: 20,
+                          alignment: CrossAxisAlignment.end,
+                        ),
+                      ),
+                    ],
+                  ),
+                    ],
+                  ),
+                ),
+                AnimatedItemsColumn<Proposal>(
+                  items: visible,
+                  keyOf: (p) => p.id,
+                  spacing: 12,
+                  itemBuilder: (ctx, p, _) => _ProposalCard(
+                    proposal: p,
+                    acceptDisabled: hasWaitingConfirmation,
+                    favoriteDriverIds: _favoriteDriverIds,
+                    myOffer: myOffer,
+                    // Chips: -1, +1, +2 sobre el precio que propone el conductor.
+                    quickFares: quickFares(
+                      base: p.fare,
+                      deltas: const [-1, 1, 2],
+                    ),
+                    onAccept: () => p.isDirectAccept
+                        ? _confirmDriverAcceptance(p.id)
+                        : _acceptProposal(p.id),
+                    onReject: () => _rejectOne(p.id),
+                    onCounter: () => _counterPropose(p),
+                    onQuickCounter: (fare) =>
+                        _counterPropose(p, quickFare: fare),
+                    onHide: () => setState(() => _hiddenIds.add(p.id)),
+                    onShowHistory: () =>
+                        _openHistory(p.driverId, p.driverName),
+                  ),
+                ),
                 if (actionablePending > 1)
-                  OutlinedButton.icon(
-                    onPressed: _rejectAll,
-                    icon: const Icon(Icons.close, size: 16),
-                    label: const Text('Rechazar todas'),
+                  Center(
+                    child: DestructiveTextButton(
+                      label: 'Rechazar todas',
+                      icon: Icons.clear_all_rounded,
+                      onPressed: _rejectAll,
+                    ),
                   ),
                 const SizedBox(height: 14),
               ],
+
+              if (searching) ...statusSection(),
 
               // (El mapa ahora vive en el Stack de fondo, no acá.
               //  La info de ruta — distancia/duración — quedó dentro del
               //  sheet, arriba del scroll, para no perderla.)
 
+              // Un programado aceptado también se puede cancelar mientras el
+              // conductor no haya llegado (si no llegó, desde el aviso de arriba).
               if (t.status == TripStatus.pending ||
-                  t.status == TripStatus.negotiating)
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  icon: const Icon(Icons.close),
-                  label: const Text('Cancelar viaje'),
+                  t.status == TripStatus.negotiating ||
+                  (t.isScheduled &&
+                      t.status == TripStatus.accepted &&
+                      t.driverArrivedAt == null &&
+                      !t.driverLate))
+                DestructiveTextButton(
+                  expand: true,
+                  icon: Icons.close_rounded,
+                  label: t.isDelivery ? 'Cancelar envío' : 'Cancelar viaje',
                   onPressed: _cancel,
                 ),
 
@@ -1493,15 +1857,19 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                   ),
                 ),
                 const SizedBox(height: 6),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: BugieColors.danger,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: BugieColors.danger,
+                    minimumSize: const Size(0, 52),
+                    side: const BorderSide(
+                        color: BugieColors.danger, width: 1.4),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
                   onPressed: () => context.push('/passenger/sos'),
-                  icon: const Icon(Icons.warning),
+                  icon: const Icon(Icons.warning_amber_rounded),
                   label: const Text('SOS — Emergencia',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ],
               const SizedBox(height: 40),
@@ -1517,6 +1885,17 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
         ],
       ),
     );
+  }
+
+  /// Estado para el pasajero. En envíos dice "envío" en vez de "viaje".
+  String _statusLabel(Trip t) {
+    if (t.isDelivery) {
+      switch (t.status) {
+        case TripStatus.accepted:   return 'Conductor en camino al recojo';
+        case TripStatus.inProgress: return 'Envío en curso';
+      }
+    }
+    return TripStatus.labelForPassenger(t.status);
   }
 
   Color _statusColor(int s) {
@@ -1537,11 +1916,14 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
 // Card de propuesta — adapta su apariencia según estado
 // ─────────────────────────────────────────────────────────────────────────
 
-class _ProposalCard extends StatelessWidget {
+class _ProposalCard extends StatefulWidget {
   final Proposal proposal;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  /// Abre la hoja "Otro monto" (contrapropuesta libre).
   final VoidCallback onCounter;
+  /// Contraoferta rápida con un monto de los chips.
+  final ValueChanged<double> onQuickCounter;
   final VoidCallback onHide;
   final VoidCallback onShowHistory;
   /// Si true, el botón "Aceptar" se deshabilita porque otra propuesta de
@@ -1551,34 +1933,48 @@ class _ProposalCard extends StatelessWidget {
   /// El padre lo carga una vez y lo pasa acá. Si el conductor de esta
   /// propuesta está en este set, mostramos la corona junto al nombre.
   final Set<String> favoriteDriverIds;
+  /// Oferta vigente del pasajero (el precio se resalta si difiere).
+  final double myOffer;
+  /// Montos rápidos de contraoferta ya calculados (pueden ser vacíos).
+  final List<double> quickFares;
 
   const _ProposalCard({
     required this.proposal,
     required this.onAccept,
     required this.onReject,
     required this.onCounter,
+    required this.onQuickCounter,
     required this.onHide,
     required this.onShowHistory,
+    required this.myOffer,
+    required this.quickFares,
     this.acceptDisabled = false,
     this.favoriteDriverIds = const {},
   });
 
   @override
+  State<_ProposalCard> createState() => _ProposalCardState();
+}
+
+class _ProposalCardState extends State<_ProposalCard> {
+  /// Muestra la fila de chips de contraoferta.
+  bool _countering = false;
+
+  @override
   Widget build(BuildContext context) {
-    final p = proposal;
+    final p = widget.proposal;
     final isMine = p.isCounterFromMe;
     final isDeclined = p.isDeclinedByDriver;
+    final c = context.bugie;
 
     // Color de borde/avatar según estado
     final accentColor = isDeclined
         ? BugieColors.danger
         : isMine
-            ? Colors.orange
+            ? BugieColors.warning
             : BugieColors.proposal;
 
-    // Iniciales del conductor para el avatar. Como el backend no devuelve
-    // foto de perfil del conductor en el modelo Proposal, usamos sus
-    // iniciales sobre un círculo de color.
+    // Iniciales del conductor para el avatar (si no tiene foto).
     final initials = p.driverName
         .trim()
         .split(RegExp(r'\s+'))
@@ -1586,361 +1982,173 @@ class _ProposalCard extends StatelessWidget {
         .map((s) => s.isEmpty ? '' : s[0].toUpperCase())
         .join();
 
-    // Etiqueta legible del vehículo: "Toyota Yaris · Rojo"
-    final vehicleParts = <String>[
-      if (p.vehicleBrand != null) p.vehicleBrand!,
-      if (p.vehicleModel != null) p.vehicleModel!,
-    ];
-    final vehicleSummary = vehicleParts.join(' ');
-    final c = context.bugie;
+    // Etiqueta legible del vehículo: "Toyota Yaris Rojo"
+    final vehicleSummary = p.vehicleSummary;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: (isDeclined || isMine)
-              ? accentColor.withOpacity(0.5)
-              : c.border,
-          width: 1,
+    // Chips de estado / tiempo (izquierda de la fila del precio).
+    final meta = <Widget>[
+      InfoChip(icon: Icons.access_time, text: _timeAgo(p.createdAt)),
+      if (p.isDirectAccept)
+        const InfoChip(
+          icon: Icons.check_circle,
+          text: 'Aceptó tu precio',
+          color: BugieColors.success,
+        )
+      else if (!isDeclined && p.trend != ProposalTrend.isNew)
+        _TrendBadge(trend: p.trend),
+      if (isMine && !isDeclined)
+        const InfoChip(
+          icon: Icons.hourglass_top,
+          text: 'Esperando respuesta',
+          color: BugieColors.warning,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+      if (isDeclined)
+        const InfoChip(
+          icon: Icons.block,
+          text: 'Declinada',
+          color: BugieColors.danger,
+        ),
+    ];
+
+    Widget? footer;
+    if (!isMine && !isDeclined) {
+      footer = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PrimaryActionButton(
+            label: widget.acceptDisabled
+                ? 'Esperando otro conductor'
+                : 'Aceptar ${formatSoles(p.fare)}',
+            icon: Icons.check_rounded,
+            onPressed: widget.acceptDisabled ? null : widget.onAccept,
+          ),
+          const SizedBox(height: 8),
+          AnimatedSize(
+            duration: motionDuration(context, 220),
+            alignment: Alignment.topCenter,
+            child: _countering
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text('Elige tu contraoferta',
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: c.textMuted)),
+                        const SizedBox(height: 6),
+                        FareChips(
+                          fares: widget.quickFares,
+                          referenceFare: p.fare,
+                          onSelected: widget.onQuickCounter,
+                          onOther: widget.onCounter,
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: SecondaryActionButton(
+                  label: _countering ? 'Ocultar' : 'Contraofertar',
+                  icon: _countering ? Icons.expand_less : Icons.swap_horiz,
+                  color: BugieColors.warning,
+                  onPressed: () =>
+                      setState(() => _countering = !_countering),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: DestructiveTextButton(
+                  expand: true,
+                  label: 'Rechazar',
+                  icon: Icons.close_rounded,
+                  onPressed: widget.onReject,
+                ),
+              ),
+            ],
           ),
         ],
-      ),
-      child: Stack(
-        children: [
-          // X para ocultar (solo si está declinado por el conductor)
-          if (isDeclined)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Ocultar',
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: onHide,
+      );
+    } else if (isMine && !isDeclined) {
+      // Mi contraoferta a este conductor (el monto que le envié).
+      footer = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: BugieColors.warning.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.swap_horiz, size: 18, color: BugieColors.warning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Tu contraoferta: ${formatSoles(p.fare)}',
+                maxLines: 2,
+                style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: BugieColors.warning),
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── HEADER: avatar grande + nombre/vehículo + precio ──
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Foto del conductor (o iniciales si no tiene / falla).
-                    _DriverAvatar(
-                      photoUrl: p.driverPhotoUrl,
-                      initials: initials,
-                      accentColor: accentColor,
-                    ),
-                    const SizedBox(width: 12),
-                    // Nombre + vehículo
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              // ⭐ Corona si está en favoritos del pasajero
-                              if (favoriteDriverIds.contains(p.driverId)) ...[
-                                Tooltip(
-                                  message: 'Conductor favorito',
-                                  child: Icon(
-                                    Icons.star,
-                                    size: 16,
-                                    color: Colors.amber.shade600,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                              Flexible(
-                                child: Text(
-                                  p.driverName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 15,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (vehicleSummary.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              vehicleSummary,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: BugieColors.textMuted,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                          if (p.vehiclePlate != null) ...[
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: BugieColors.textMuted.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                p.vehiclePlate!,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    // Botón histórico (el precio se movió abajo, a lo ancho).
-                    if (!isDeclined)
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                            minWidth: 28, minHeight: 28),
-                        tooltip: 'Histórico',
-                        icon: Icon(Icons.history, size: 18, color: c.textMuted),
-                        onPressed: onShowHistory,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+          ],
+        ),
+      );
+    } else if (isDeclined) {
+      // Para "declinada": acceso al histórico abajo (la X va arriba).
+      footer = SecondaryActionButton(
+        label: 'Ver histórico',
+        icon: Icons.history,
+        color: c.textMuted,
+        onPressed: widget.onShowHistory,
+      );
+    }
 
-                // ── Izq: tiempo + subió/bajó | Der: monto actual + anterior ──
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Izquierda
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.access_time,
-                                size: 14,
-                                color: c.textMuted.withOpacity(0.7)),
-                            const SizedBox(width: 4),
-                            Text(_timeAgo(p.createdAt),
-                                style: TextStyle(
-                                    fontSize: 12, color: c.textMuted)),
-                          ],
-                        ),
-                        if (p.isDirectAccept) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.check_circle,
-                                  size: 14, color: BugieColors.success),
-                              SizedBox(width: 4),
-                              Text('Aceptó tu viaje',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: BugieColors.success,
-                                      fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ] else if (!isDeclined &&
-                            p.trend != ProposalTrend.isNew) ...[
-                          const SizedBox(height: 4),
-                          _TrendBadge(trend: p.trend),
-                        ],
-                      ],
-                    ),
-                    const Spacer(),
-                    // Derecha: monto actual (arriba) + anterior (abajo)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          'S/ ${p.fare.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: accentColor,
-                            letterSpacing: -0.5,
-                            decoration: isDeclined
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
-                        ),
-                        if (p.previousFare != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'antes S/ ${p.previousFare!.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: c.textMuted,
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-
-                // ── Estado (esperando respuesta / declinada), si aplica ──
-                if (isMine && !isDeclined) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text('Esperando respuesta',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.orange,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-                if (isDeclined) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: BugieColors.danger.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.block,
-                              size: 11, color: BugieColors.danger),
-                          SizedBox(width: 3),
-                          Text('Declinada',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: BugieColors.danger,
-                                  fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-
-                // ── Acciones (solo si es pending del conductor) ──────
-                if (!isMine && !isDeclined) ...[
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: BugieColors.success,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: acceptDisabled ? null : onAccept,
-                      icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                      label: Text(
-                        acceptDisabled
-                            ? 'Esperando otro conductor'
-                            : 'Aceptar viaje',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.orange,
-                            side: const BorderSide(color: Colors.orange),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          onPressed: onCounter,
-                          icon: const Icon(Icons.swap_horiz, size: 16),
-                          label: const Text('Contraproponer',
-                              style: TextStyle(fontSize: 12),
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: BugieColors.danger,
-                            side: const BorderSide(color: BugieColors.danger),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          onPressed: onReject,
-                          icon: const Icon(Icons.close, size: 16),
-                          label: const Text('Rechazar',
-                              style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-
-                // Para "declinada": acceso al histórico abajo (la X ocupa
-                // la esquina superior derecha).
-                if (isDeclined) ...[
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: BugieColors.textMuted,
-                        side: const BorderSide(color: BugieColors.border),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      onPressed: onShowHistory,
-                      icon: const Icon(Icons.history, size: 16),
-                      label: const Text('Ver histórico',
-                          style: TextStyle(fontSize: 12)),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+    return ProposalCard(
+      avatar: _DriverAvatar(
+        photoUrl: p.driverPhotoUrl,
+        initials: initials,
+        accentColor: accentColor,
       ),
+      name: p.driverName,
+      nameLeading: widget.favoriteDriverIds.contains(p.driverId)
+          ? Tooltip(
+              message: 'Conductor favorito',
+              child: Icon(Icons.star, size: 16, color: Colors.amber.shade600),
+            )
+          : null,
+      subtitle: vehicleSummary,
+      plate: p.vehiclePlate,
+      rating: p.driverRating,
+      ratingCount: p.driverRatingCount,
+      showNewWhenNoRating: true,
+      fare: p.fare,
+      referenceFare: isDeclined ? null : widget.myOffer,
+      previousFare: p.previousFare,
+      strike: isDeclined,
+      borderColor:
+          (isDeclined || isMine) ? accentColor.withValues(alpha: 0.5) : null,
+      topRight: isDeclined
+          ? IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Ocultar',
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: widget.onHide,
+            )
+          : IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Histórico',
+              icon: Icon(Icons.history, size: 20, color: c.textMuted),
+              onPressed: widget.onShowHistory,
+            ),
+      meta: meta,
+      footer: footer,
     );
   }
 
@@ -1955,8 +2163,7 @@ class _ProposalCard extends StatelessWidget {
 
 class _TrendBadge extends StatelessWidget {
   final ProposalTrend trend;
-  final double? previousFare;
-  const _TrendBadge({required this.trend, this.previousFare});
+  const _TrendBadge({required this.trend});
 
   @override
   Widget build(BuildContext context) {
@@ -1973,14 +2180,6 @@ class _TrendBadge extends StatelessWidget {
         Text(label,
             style: TextStyle(
                 color: color, fontSize: 11, fontWeight: FontWeight.w600)),
-        if (previousFare != null) ...[
-          const SizedBox(width: 4),
-          Text(
-            '(antes S/ ${previousFare!.toStringAsFixed(2)})',
-            style:
-                const TextStyle(fontSize: 10, color: BugieColors.textMuted),
-          ),
-        ],
       ],
     );
   }
@@ -2545,12 +2744,11 @@ class _DriverAvatar extends StatelessWidget {
   final String? photoUrl;
   final String initials;
   final Color accentColor;
-  final double size;
+  final double size = 48;
   const _DriverAvatar({
     required this.photoUrl,
     required this.initials,
     required this.accentColor,
-    this.size = 48,
   });
 
   @override
@@ -2883,7 +3081,9 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
     if (!mounted) return;
     Navigator.of(context).pop();
     context.go('/passenger');
-    showSuccessSnack('¡Viaje completado! Gracias por viajar con Bugie.');
+    showSuccessSnack(t.isDelivery
+        ? '¡Envío completado! Gracias por confiar en Bugie.'
+        : '¡Viaje completado! Gracias por viajar con Bugie.');
   }
 
   @override
@@ -2903,7 +3103,7 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
               const Icon(Icons.check_circle,
                   color: BugieColors.success, size: 52),
               const SizedBox(height: 10),
-              Text('¡Viaje completado!',
+              Text(widget.trip.isDelivery ? '¡Envío completado!' : '¡Viaje completado!',
                   style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
@@ -2916,14 +3116,22 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(5, (i) {
                   final filled = i < _stars;
+                  // Zona táctil de 48 dp y un pequeño "salto" al marcarla.
                   return IconButton(
                     onPressed:
                         _busy ? null : () => setState(() => _stars = i + 1),
-                    iconSize: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    constraints: const BoxConstraints(),
-                    icon: Icon(filled ? Icons.star : Icons.star_border,
-                        color: filled ? Colors.amber : c.textMuted),
+                    iconSize: 40,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    icon: AnimatedScale(
+                      scale: filled ? 1.0 : 0.9,
+                      duration: motionDuration(context, 180),
+                      curve: Curves.easeOutBack,
+                      child: Icon(
+                          filled ? Icons.star_rounded : Icons.star_border_rounded,
+                          color: filled ? Colors.amber : c.textMuted),
+                    ),
                   );
                 }),
               ),
@@ -3081,22 +3289,13 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ElevatedButton(
+                    flex: 2,
+                    child: PrimaryActionButton(
+                      label: 'Enviar',
+                      loading: _busy,
                       onPressed: (_busy || _stars == 0)
                           ? null
                           : () => _finish(rate: true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: BugieColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: _busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Text('Enviar'),
                     ),
                   ),
                 ],
@@ -3127,9 +3326,53 @@ class _CouponRow extends StatefulWidget {
 class _CouponRowState extends State<_CouponRow> {
   bool _busy = false;
 
+  /// Aviso de cupones de nivel: beneficios por reclamar este mes o cupones
+  /// de nivel ya reclamados y vigentes. Solo informa; no cambia el cupón.
+  bool _avisoPedido = false;
+  bool _puedeReclamar = false;
+  bool _tieneCuponNivel = false;
+
+  /// Tipos que descuentan sobre la tarifa (los mismos de la hoja de cupones).
+  static const _aplicables = {'discount_amount', 'free_trip', 'discount_period'};
+
   bool get _puedeUsar =>
       widget.trip.status == TripStatus.accepted ||
       widget.trip.status == TripStatus.inProgress;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_puedeUsar) _cargarAviso();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CouponRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_avisoPedido && _puedeUsar) _cargarAviso();
+  }
+
+  /// Consulta si hay cupones de nivel. Si falla, simplemente no hay aviso.
+  Future<void> _cargarAviso() async {
+    _avisoPedido = true;
+    final repo = context.read<RewardsRepository>();
+    try {
+      final r = await Future.wait([
+        repo.getLevelBenefits().then<bool>((b) => b.eligible && b.canClaim)
+            .catchError((_) => false),
+        repo.getMyRedemptions(status: 'active', pageSize: 50)
+            .then<bool>((p) => p.items.any((c) =>
+                c.isLevelBenefit && _aplicables.contains(c.rewardType)))
+            .catchError((_) => false),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _puedeReclamar   = r[0];
+        _tieneCuponNivel = r[1];
+      });
+    } catch (_) {
+      // El aviso es complementario.
+    }
+  }
 
   double get _tarifa =>
       widget.trip.fareBeforeDiscount ?? widget.trip.estimatedFare;
@@ -3141,6 +3384,7 @@ class _CouponRowState extends State<_CouponRow> {
       fare: _tarifa,
     );
     if (r == null || !mounted) return;
+    _cargarAviso();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -3160,6 +3404,7 @@ class _CouponRowState extends State<_CouponRow> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cupón quitado. Vuelve a estar disponible.')),
       );
+      _cargarAviso();
       await widget.onChanged();
     } on ApiException catch (e) {
       if (mounted) {
@@ -3179,18 +3424,59 @@ class _CouponRowState extends State<_CouponRow> {
 
     final descuento = widget.trip.discountAmount;
 
-    // Sin cupon: solo el boton para elegir uno.
+    // Sin cupon: el boton para elegir uno (y el aviso de cupones de nivel).
     if (descuento == null) {
+      final aviso = _puedeReclamar || _tieneCuponNivel;
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
-        child: OutlinedButton.icon(
-          onPressed: _elegir,
-          icon: const Icon(Icons.local_offer_outlined, size: 17),
-          label: const Text('Usar un cupón'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(42),
-            side: BorderSide(color: c.border),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (aviso)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: BugieColors.primary.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    // Con cupon ya reclamado se elige aqui mismo; si falta
+                    // reclamarlo, se va a Mis puntos.
+                    onTap: _tieneCuponNivel
+                        ? _elegir
+                        : () => context.push('/passenger/rewards?tab=summary'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      child: Row(children: [
+                        const Icon(Icons.workspace_premium,
+                            size: 18, color: BugieColors.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _tieneCuponNivel
+                                ? 'Tienes cupones de tu nivel disponibles'
+                                : 'Tienes cupones de tu nivel disponibles. '
+                                  'Reclámalos en Mis puntos.',
+                            style: const TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right, size: 18, color: c.textMuted),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            OutlinedButton.icon(
+              onPressed: _elegir,
+              icon: const Icon(Icons.local_offer_outlined, size: 17),
+              label: const Text('Usar un cupón'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(42),
+                side: BorderSide(color: c.border),
+              ),
+            ),
+          ],
         ),
       );
     }

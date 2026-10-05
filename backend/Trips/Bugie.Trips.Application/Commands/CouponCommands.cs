@@ -24,6 +24,7 @@ namespace Bugie.Trips.Application.Commands;
 public record ApplyCouponCommand(Guid TripId, Guid PassengerId, string Code)
     : IRequest<CouponAppliedDto>;
 
+/// <param name="Warning">Aviso cuando se aplicó menos de lo que valía el cupón.</param>
 public record CouponAppliedDto(
     Guid     TripId,
     string   Code,
@@ -31,7 +32,6 @@ public record CouponAppliedDto(
     decimal  FareBeforeDiscount,
     decimal  DiscountAmount,
     decimal  AmountToPay,
-    /// <summary>Aviso cuando se aplicó menos de lo que valía el cupón.</summary>
     string?  Warning);
 
 public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppliedDto>

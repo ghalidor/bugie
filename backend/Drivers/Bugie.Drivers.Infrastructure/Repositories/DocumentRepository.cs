@@ -76,9 +76,9 @@ public class DocumentRepository : IDocumentRepository
     public Task DeleteAsync(Guid id, CancellationToken ct = default) =>
         _db.ExecuteAsync("DELETE FROM drivers.Documents WHERE Id = @Id", new { Id = id });
 
-    public async Task<List<ExpiringDocumentDto>> GetExpiringSoonAsync(CancellationToken ct = default)
+    public async Task<List<ExpiringDocumentDto>> GetExpiringSoonAsync(IReadOnlyList<int> days, CancellationToken ct = default)
     {
-        // Para el job: docs aprobados de conductores Approved que caducan en 0, 3 o 6 días
+        // Para el job: docs aprobados de conductores Approved que caducan en alguno de los días indicados (doc_expiry_alert_days)
         const string sql = @"
             SELECT
                 d.Id        AS DocumentId,
@@ -93,9 +93,9 @@ public class DocumentRepository : IDocumentRepository
               AND dr.Status = 3
               AND d.DocType IN ('license', 'soat', 'revision_tecnica')
               AND d.ExpiresAt IS NOT NULL
-              AND (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) IN (0, 3, 6);";
+              AND (CAST(d.ExpiresAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima' AS DATE) - CAST((now() AT TIME ZONE 'America/Lima') AS DATE)) = ANY(@Days);";
 
-        var rows = await _db.QueryAsync<ExpiringDocumentDto>(sql);
+        var rows = await _db.QueryAsync<ExpiringDocumentDto>(sql, new { Days = days.ToArray() });
         return rows.ToList();
     }
 

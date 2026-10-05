@@ -1,3 +1,4 @@
+using Bugie.Api.Theming;
 using Bugie.Drivers.Infrastructure.Time;
 using System.Data;
 using System.Text;
@@ -33,11 +34,23 @@ Bugie.Drivers.Application.Email.DriverEmailTemplates.AdminUrl =
 // ── Repositorios ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDriverRepository, DriverRepository>();
 builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
+builder.Services.AddScoped<IVehiclePhotoRepository, VehiclePhotoRepository>();
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 builder.Services.AddScoped<IDocumentNotificationRepository, DocumentNotificationRepository>();
 builder.Services.AddScoped<ILocationHistoryRepository, LocationHistoryRepository>();
-builder.Services.AddScoped<IReviewRepository, ReviewRepository>();
 builder.Services.AddScoped<IDriverPresenceCheckInRepository, DriverPresenceCheckInRepository>();
+builder.Services.AddScoped<IApprovalAuditRepository, ApprovalAuditRepository>();
+builder.Services.AddScoped<IDriverReviewRequestRepository, DriverReviewRequestRepository>();
+
+// ── Aprobación por excepción: plazo de 3 días para completar documentos ──
+// El servicio tiene las reglas; el job revisa cada hora y desactiva a los vencidos.
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.DriverDocumentsDeadlineService>();
+builder.Services.AddHostedService<DocumentsDeadlineService>();
+
+// ── Rechazo / suspensión / reactivación del conductor ────────────────────
+// El servicio tiene las reglas; el job (cada 30 min) termina las suspensiones con fecha.
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.DriverAccountService>();
+builder.Services.AddHostedService<DriverSuspensionEndService>();
 
 // ── Almacenamiento ───────────────────────────────────────────────────────
 builder.Services.Configure<LocalStorageOptions>(
@@ -49,17 +62,14 @@ builder.Services.Configure<SmtpOptions>(
     builder.Configuration.GetSection("Smtp"));
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 
-// ── Job de notificación de caducidad [DESACTIVADO durante pruebas] ───────
-// Este job revisa los documentos de los conductores. Si un documento vence
-// HOY (DaysUntilExpiry == 0), cambia el conductor a ExpiredDocs + IsOnline=FALSE.
-// Durante pruebas causaba que el conductor se desconectara solo porque sus
-// documentos de prueba tenían fechas de vencimiento ya pasadas o de hoy.
-//
-// Para reactivar en producción, descomentar y asegurarse de que los
-// documentos tengan fechas de vencimiento futuras válidas.
+// ── Job de notificación de caducidad [ACTIVO] ───────────────────────────
+// Una vez al día (DocumentExpiration:NotificationHour, hora Perú) avisa por
+// correo y push los documentos por vencer. Si un documento vence HOY
+// (DaysUntilExpiry == 0), pasa al conductor a ExpiredDocs + IsOnline=FALSE.
+// En pruebas: los documentos deben tener fechas de vencimiento futuras.
 builder.Services.Configure<DocumentExpirationOptions>(
     builder.Configuration.GetSection("DocumentExpiration"));
-// builder.Services.AddHostedService<DocumentExpirationNotifierService>();
+builder.Services.AddHostedService<DocumentExpirationNotifierService>();
 
 // ── Heartbeat-timeout de conductores [DESACTIVADO] ───────────────────────
 // Este servicio marcaba offline automáticamente a los conductores que
@@ -109,6 +119,13 @@ builder.Services.AddHttpClient<ITripsNotifyClient, TripsNotifyClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(3);
 });
 
+// Avisos al Centro de avisos del panel admin (vía Trips, fire-and-forget).
+builder.Services.AddHttpClient<IAdminEventsPublisher, AdminEventsPublisher>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002");
+    c.Timeout = TimeSpan.FromSeconds(3);
+});
+
 // ── Cliente HTTP a Landing.Api (para leer default_city) ─────────────────
 builder.Services.Configure<LandingSettingsClientOptions>(
     builder.Configuration.GetSection("LandingSettingsClient"));
@@ -138,13 +155,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
+        // Sesion: claim "sst" vs sello vigente (cierre de sesiones). Ver Security/SessionState.cs.
+        Bugie.Security.SessionValidation.Configure(o);
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
+// URLs firmadas de /uploads: el filtro firma las URLs sensibles de toda respuesta JSON.
+Bugie.Api.Security.SignedUploads.Configure(builder.Configuration);
+// Filtro [RequirePermission]: permisos del admin pedidos a Auth (cache corta).
+Bugie.Security.AdminPermissions.AddBugieAdminPermissionsFromAuth(builder.Services);
+// Estado de sesion pedido a Auth (cache corta) para validar el JWT.
+Bugie.Security.SessionValidation.AddBugieSessionStateFromAuth(builder.Services);
+builder.Services.AddControllers(o => o.Filters.Add<Bugie.Api.Security.SignUploadUrlsFilter>())
+    .AddJsonOptions(o => { o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()); o.AllowInputFormatterExceptionMessages = false; }); // JSON mal formado: error generico, sin nombres internos de clases
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddBugieSwagger("Drivers",
+    "Conductores: registro y perfil, documentos y vencimientos, vehículos y fotos, disponibilidad (en línea, check-in) y recorrido de viajes. Panel admin: aprobación con auditoría, notificaciones y recorridos. Endpoints internos para otras APIs.");
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
     p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [])
      .AllowAnyHeader().AllowAnyMethod()));
@@ -160,19 +186,19 @@ var absoluteStoragePath = Path.IsPathRooted(storagePath)
     : Path.Combine(AppContext.BaseDirectory, storagePath);
 Directory.CreateDirectory(absoluteStoragePath);
 
+// Archivos sensibles (documentos, selfies, fotos de envios) solo con firma valida.
+Bugie.Api.Security.SignedUploads.UseSignedUploads(app);
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(absoluteStoragePath),
     RequestPath = publicUrl,
+    OnPrepareResponse = Bugie.Api.Security.SignedUploads.PrepareResponse,
 });
 
+// Errores sin detalles internos (ver Middleware/ExceptionMiddleware.cs).
+app.UseMiddleware<Bugie.Drivers.Api.Middleware.ExceptionMiddleware>();
 app.UseCors();
-if(app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(c =>
-{
-    c.DocumentTitle = "Bugie API - Drivers";
-    c.HeadContent = Bugie.Api.Theming.BugieSwaggerTheme.HeadContent;
-    c.DefaultModelsExpandDepth(-1); // oculta la seccion Schemas/Models
-}); }
+if(app.Environment.IsDevelopment()) { app.UseBugieSwagger("Drivers"); }
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

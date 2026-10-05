@@ -190,6 +190,8 @@ public class DriversClient : IDriversClient
             var url = $"api/drivers/nearby?lat={lat.ToString(inv)}&lng={lng.ToString(inv)}" +
                       $"&radiusKm={radiusKm.ToString(inv)}&maxResults={maxResults}";
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            // nearby ya no es anonimo: Trips se identifica como modulo interno.
+            req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
 
             using var res = await _http.SendAsync(req, ct);
             if(!res.IsSuccessStatusCode) return new List<Guid>();
@@ -221,6 +223,30 @@ public class DriversClient : IDriversClient
     {
         var token = _httpContext.HttpContext?.Request.Headers["Authorization"].ToString();
         if(!string.IsNullOrEmpty(token)) req.Headers.Add("Authorization", token);
+        // Drivers restringe detalle y ubicacion al propio conductor/admin; Trips
+        // ya autorizo al usuario, asi que se identifica como modulo interno.
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+    }
+
+    /// <summary>
+    /// GET /api/drivers/internal/trips/{tripId}/path (X-Internal-Token).
+    /// </summary>
+    public async Task<List<TripPathPointDto>> GetTripPathAsync(Guid tripId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"api/drivers/internal/trips/{tripId}/path");
+            req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+            using var res = await _http.SendAsync(req, ct);
+            if(!res.IsSuccessStatusCode) return new List<TripPathPointDto>();
+            return await res.Content.ReadFromJsonAsync<List<TripPathPointDto>>(cancellationToken: ct)
+                ?? new List<TripPathPointDto>();
+        }
+        catch(Exception e)
+        {
+            Console.WriteLine($"GetTripPathAsync error: {e.Message}");
+            return new List<TripPathPointDto>();
+        }
     }
 
     private record DriverDetailResponse(DriverPayload? Driver);

@@ -1,3 +1,4 @@
+using Bugie.Api.Theming;
 using Bugie.Payments.Infrastructure.Time;
 using System.Data;
 using System.Text;
@@ -22,10 +23,21 @@ builder.Services.AddScoped<IPlatformFeeRepository, PlatformFeeRepository>();
 builder.Services.AddScoped<IWalletRepository,  WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
 builder.Services.AddScoped<IUserNames, UserNames>();
+// Lee trips.trips para validar que un pago corresponde a su viaje
+builder.Services.AddScoped<ITripLookup, TripLookup>();
 
 // Aviso al conductor cuando se le registra un pago: lo envia Rewards (push + correo)
 builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutNotifier,
                                Bugie.Payments.Infrastructure.External.RewardsPayoutNotifier>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://localhost:5006");
+    c.DefaultRequestHeaders.Add("X-Internal-Token", builder.Configuration["InternalToken"] ?? "");
+    c.Timeout = TimeSpan.FromSeconds(10);
+});
+
+// Cobro con codigo: consulta y cierra canjes/premios en Rewards
+builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutCodeClient,
+                               Bugie.Payments.Infrastructure.External.RewardsPayoutCodeClient>(c =>
 {
     c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://localhost:5006");
     c.DefaultRequestHeaders.Add("X-Internal-Token", builder.Configuration["InternalToken"] ?? "");
@@ -49,25 +61,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience            = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey         = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtKey))
         };
+        // Sesion: claim "sst" vs sello vigente (cierre de sesiones). Ver Security/SessionState.cs.
+        Bugie.Security.SessionValidation.Configure(o);
     });
 
 builder.Services.AddAuthorization();
+// Filtro [RequirePermission]: permisos del admin pedidos a Auth (cache corta).
+Bugie.Security.AdminPermissions.AddBugieAdminPermissionsFromAuth(builder.Services);
+// Estado de sesion pedido a Auth (cache corta) para validar el JWT.
+Bugie.Security.SessionValidation.AddBugieSessionStateFromAuth(builder.Services);
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
+    .AddJsonOptions(o => { o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()); o.AllowInputFormatterExceptionMessages = false; }); // JSON mal formado: error generico, sin nombres internos de clases
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddBugieSwagger("Payments",
+    "Pagos de viajes, ganancias y billetera del conductor. Panel admin: billeteras, pagos de comisión y liquidaciones (payouts) por código.");
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
     p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [])
      .AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+// Errores sin detalles internos (ver Middleware/ExceptionMiddleware.cs).
+app.UseMiddleware<Bugie.Payments.Api.Middleware.ExceptionMiddleware>();
 app.UseCors();
-if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(c =>
-{
-    c.DocumentTitle = "Bugie API - Payments";
-    c.HeadContent = Bugie.Api.Theming.BugieSwaggerTheme.HeadContent;
-    c.DefaultModelsExpandDepth(-1); // oculta la seccion Schemas/Models
-}); }
+if (app.Environment.IsDevelopment()) { app.UseBugieSwagger("Payments"); }
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='drivers-filters']",
+      "title": "Filtra por estado",
+      "text": "Cada filtro muestra cuántos conductores hay en ese estado. «Por vencer» lista a quienes tienen SOAT, licencia o revisión técnica a punto de caducar."
+    },
+    {
+      "selector": "[data-tour='drivers-list']",
+      "title": "Abre la ficha",
+      "text": "Toca una fila para ver sus documentos, vehículos, calificaciones, pagos y el historial de aprobación."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Solo quieres revisar pendientes?",
+      "text": "Usa «Bandeja de verificación»: muestra únicamente a los conductores que esperan revisión. Repite esta guía con «?»."
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
+import { useConfirm, useToast } from '../../components/ui';
 import {
   rewardsApi, ActivePromotion, UserRaffle,
   RAFFLE_TYPE_LABEL, fmtDate, daysToDraw,
@@ -17,10 +18,40 @@ import {
    ────────────────────────────────────────────────────────────────────────── */
 
 export default function RewardsExtras() {
+  const confirm = useConfirm();
+  const toast   = useToast();
   const [promos,  setPromos]  = useState<ActivePromotion[]>([]);
   const [raffles, setRaffles] = useState<UserRaffle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  // Sorteo donde se esta usando un cupon de ticket.
+  const [usingIn, setUsingIn] = useState<string | null>(null);
+
+  async function spendTicketCoupon(r: UserRaffle) {
+    const ok = await confirm({
+      title: '¿Usar tu cupón de ticket?',
+      message: <>Se sumará a tus tickets del sorteo <strong>{r.name}</strong> y el cupón quedará como usado.</>,
+      confirmText: 'Usar cupón',
+    });
+    if (!ok) return;
+
+    setUsingIn(r.id);
+    try {
+      const res = await rewardsApi.applyTicketCoupon(r.id, r.nextTicketCouponId);
+      const nums = res.ticketNumbers.join(', ');
+      toast.show({
+        tone: 'success',
+        title: `${res.ticketsAdded} ticket${res.ticketsAdded === 1 ? '' : 's'} en ${res.raffleName}`,
+        message: nums ? `Tus números: ${nums}. Ahora tienes ${res.myTickets} en este sorteo.` : `Ahora tienes ${res.myTickets} en este sorteo.`,
+        duration: 8000,
+      });
+      setRaffles(await rewardsApi.raffles());
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo usar el cupón de ticket.');
+    } finally {
+      setUsingIn(null);
+    }
+  }
 
   useEffect(() => {
     Promise.all([rewardsApi.promotions(), rewardsApi.raffles()])
@@ -90,7 +121,15 @@ export default function RewardsExtras() {
                 </div>
               ) : (
                 <div className="d-grid gap-2">
-                  {raffles.map(r => <RaffleCard key={r.id} r={r} />)}
+                  {raffles.map(r => (
+                    <RaffleCard
+                      key={r.id}
+                      r={r}
+                      using={usingIn === r.id}
+                      disabled={usingIn !== null}
+                      onUseCoupon={() => spendTicketCoupon(r)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -136,7 +175,12 @@ function PromoCard({ p }: { p: ActivePromotion }) {
   );
 }
 
-function RaffleCard({ r }: { r: UserRaffle }) {
+function RaffleCard({ r, using, disabled, onUseCoupon }: {
+  r: UserRaffle;
+  using: boolean;
+  disabled: boolean;
+  onUseCoupon: () => void;
+}) {
   const sorteado = r.status === 'drawn';
 
   return (
@@ -183,6 +227,15 @@ function RaffleCard({ r }: { r: UserRaffle }) {
             {daysToDraw(r.drawDate)} · {fmtDate(r.drawDate)}
           </span>
         </div>
+      )}
+
+      {!r.iWon && !sorteado && r.canUseTicketCoupon && (
+        <button type="button" className="btn btn-sm btn-bugie-outline rounded-pill mt-2"
+                disabled={disabled} onClick={onUseCoupon}>
+          {using
+            ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Usando...</>
+            : <><i className="fa-solid fa-ticket me-1" aria-hidden="true" />Usar mi cupón de ticket ({r.ticketCouponsAvailable})</>}
+        </button>
       )}
     </div>
   );

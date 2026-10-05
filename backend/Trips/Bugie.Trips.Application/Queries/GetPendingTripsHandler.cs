@@ -15,7 +15,9 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
     private readonly IDriversClient _drivers;
     private readonly ILandingClient _landing;
     private readonly IAuthClient _auth;
+    private readonly ITripPhotoRepository _photos;
     private readonly TripFilteringOptions _options;
+    private readonly ProposalExpirationWindowOptions _expiration;
 
     public GetPendingTripsHandler(
         ITripRepository trips,
@@ -23,14 +25,18 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         IDriversClient drivers,
         ILandingClient landing,
         IAuthClient auth,
-        IOptions<TripFilteringOptions> options)
+        ITripPhotoRepository photos,
+        IOptions<TripFilteringOptions> options,
+        IOptions<ProposalExpirationWindowOptions> expiration)
     {
         _trips = trips;
         _proposals = proposals;
         _drivers = drivers;
         _landing = landing;
         _auth = auth;
+        _photos = photos;
         _options = options.Value;
+        _expiration = expiration.Value;
     }
 
     public async Task<List<TripDto>> Handle(GetPendingTripsQuery q, CancellationToken ct)
@@ -38,9 +44,9 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         // 1. Traer posición actual del conductor.
         //    Si no la tenemos (acaba de conectarse, sin GPS), devolvemos
         //    lista vacía: regla decidida con el cliente.
+        //    Los ENVIOS no dependen de la posicion (le llegan a todos los
+        //    conductores), asi que sin GPS se siguen mostrando.
         var driverLoc = await _drivers.GetDriverLocationByUserIdAsync(q.DriverUserId, ct);
-        if(driverLoc is null)
-            return new List<TripDto>();
 
         // 2. TripIds donde el conductor ya envió propuesta no-rejected.
         //    Estos viajes los vemos siempre, aunque estén fuera del radio.
@@ -63,6 +69,11 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         var visible = new List<Bugie.Trips.Domain.Entities.Trip>();
         foreach(var trip in all)
         {
+            // Envio sin fotos del paquete todavia: no se muestra (se estan guardando).
+            if(trip.ServiceType == Bugie.Trips.Domain.Enums.ServiceType.Delivery &&
+               !(await _photos.GetByTripAsync(trip.Id, ct)).Any(p => p.Kind == Bugie.Trips.Domain.Enums.TripPhotoKind.RequestPackage))
+                continue;
+
             // Excepción: el conductor ya negoció este viaje ? mostrar siempre
             if(withProposalSet.Contains(trip.Id))
             {
@@ -70,7 +81,15 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
                 continue;
             }
 
-            // Caso normal: filtrar por distancia
+            // Envios: a TODOS los conductores conectados, sin filtro de distancia.
+            if(trip.ServiceType == Bugie.Trips.Domain.Enums.ServiceType.Delivery)
+            {
+                visible.Add(trip);
+                continue;
+            }
+
+            // Viajes: filtrar por distancia (sin GPS no se muestran)
+            if(driverLoc is null) continue;
             var dist = HaversineMeters(
                 driverLoc.Lat, driverLoc.Lng,
                 trip.OriginLat, trip.OriginLng);
@@ -78,6 +97,10 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
             if(dist <= radius)
                 visible.Add(trip);
         }
+
+        // Mapa de demanda: solo hace falta la lista visible (sin datos del pasajero).
+        if(q.SkipDetails)
+            return visible.Select(t => CreateTripHandler.ToDto(t)).ToList();
 
         // 4. Traer datos de los pasajeros (nombre + foto) para mostrarlos
         //    en la solicitud del conductor.
@@ -94,17 +117,58 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
                 .Select(w => new WaypointDto(w.Id, w.Address, w.Lat, w.Lng, w.SortOrder))
                 .ToList();
             var pax = passengers.GetValueOrDefault(trip.PassengerId);
-            result.Add(CreateTripHandler.ToDto(trip, wpDtos,
+            var dto = CreateTripHandler.ToDto(trip, wpDtos,
                 passengerName: pax?.FullName,
-                passengerPhotoUrl: pax?.ProfilePhotoUrl));
-        }
+                passengerPhotoUrl: pax?.ProfilePhotoUrl);
+            dto = dto with
+            {
+                PassengerShortName = TripDto.BuildPassengerShortName(pax?.FirstNames, pax?.LastNamePaternal)
+            };
 
-        // DIAGNOSTICO TEMPORAL
-        Console.WriteLine($"[PENDING_DEBUG] driverUserId={q.DriverUserId} | driverLoc=({driverLoc.Lat},{driverLoc.Lng}) | withProposalIds={withProposalIds.Count} | allPending={all.Count} | visible={visible.Count} | result={result.Count}");
-        foreach(var id in withProposalIds)
-            Console.WriteLine($"[PENDING_DEBUG] withProposalId: {id}");
-        foreach(var t in all)
-            Console.WriteLine($"[PENDING_DEBUG] pendingTrip: {t.Id} Status={t.Status} Origin=({t.OriginLat},{t.OriginLng})");
+            // Datos agregados (no cambian los campos existentes):
+            // oferta vigente del pasajero hacia ESTE conductor y vencimiento.
+            decimal? passengerCounter = null;
+            DateTime? expiresAt = null;
+            string? expiresReason = null;
+
+            if(withProposalSet.Contains(trip.Id))
+            {
+                // Historial entre este conductor y el viaje, mas reciente primero.
+                var history = await _proposals.GetHistoryByDriverAsync(trip.Id, q.DriverUserId, ct);
+
+                // Ultima contraoferta del pasajero hacia este conductor.
+                passengerCounter = history
+                    .FirstOrDefault(h => h.ProposedByRole == "passenger")?.Fare;
+
+                // Regla real (ProposalExpirationService): la propuesta aceptada por
+                // el pasajero vence CreatedAt + ExpireAfterMinutes si el conductor
+                // no la confirma.
+                var waiting = history.FirstOrDefault(h => h.Status == "accepted_by_passenger");
+                if(waiting is not null)
+                {
+                    expiresAt = AsUtc(waiting.CreatedAt).AddMinutes(_expiration.ExpireAfterMinutes);
+                    expiresReason = "proposal_confirm";
+                }
+            }
+
+            // Regla real (ScheduledTripReminderService): un programado sin conductor
+            // se cancela al llegar su hora (ScheduledAt).
+            if(trip.ScheduledAt.HasValue && trip.DriverId is null)
+            {
+                var scheduledAt = AsUtc(trip.ScheduledAt.Value);
+                if(expiresAt is null || scheduledAt < expiresAt)
+                {
+                    expiresAt = scheduledAt;
+                    expiresReason = "scheduled_time";
+                }
+            }
+
+            // PassengerRating / PassengerRatingCount quedan null: no existe
+            // calificacion de pasajeros en el sistema.
+            result.Add(passengerCounter.HasValue
+                ? dto with { PassengerOfferFare = passengerCounter.Value, ExpiresAt = expiresAt, ExpiresReason = expiresReason }
+                : dto with { ExpiresAt = expiresAt, ExpiresReason = expiresReason });
+        }
 
         return result;
     }
@@ -126,4 +190,8 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
     }
 
     private static double ToRad(double deg) => deg * Math.PI / 180.0;
+
+    // Las fechas de la base llegan como UTC; si no traen zona se asume UTC.
+    private static DateTime AsUtc(DateTime d) =>
+        d.Kind == DateTimeKind.Utc ? d : DateTime.SpecifyKind(d, DateTimeKind.Utc);
 }

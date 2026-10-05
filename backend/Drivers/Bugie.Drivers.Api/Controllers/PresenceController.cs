@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
+using Bugie.Drivers.Domain.Common;
 using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
@@ -69,11 +71,18 @@ public class PresenceController : ControllerBase
         if(file.Length > 5 * 1024 * 1024)
             return BadRequest(new { error = "La imagen no puede pesar más de 5 MB." });
 
+        if(Bugie.Drivers.Api.Security.UploadCheck.Error(file) is { } fileError)
+            return BadRequest(new { error = fileError });
+
         // El conductor debe existir y estar aprobado para poder hacer check-in.
         // Aunque go-online ya valida esto, lo chequeamos acá también para no
         // gastar storage en conductores no aprobados (defensa en profundidad).
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
+
+        // Rechazado o suspendido: no puede conectarse (no se guarda la selfie).
+        var blocked = Bugie.Drivers.Application.Commands.GoOnlineHandler.ConnectBlockedMessage(driver.Status);
+        if(blocked is not null) return Conflict(new { error = blocked });
 
         // Defensa: si por algún motivo había un check-in activo (cliente que se
         // colgó sin avisar checkout, o doble check-in), lo cerramos primero.
@@ -148,32 +157,88 @@ public class PresenceController : ControllerBase
         });
     }
 
+    // ── Historial de conexiones ─────────────────────────────────────────────
+
+    public record PresenceHistoryItemDto(
+        Guid Id, string PhotoUrl, DateTime CheckedInAt, DateTime? CheckedOutAt,
+        int DurationMinutes, bool Active, decimal? FaceQualityScore);
+
+    public record PresenceSummaryDto(int Today, int Last7Days, int Last30Days);
+
+    public record PresenceHistoryDto(
+        List<PresenceHistoryItemDto> Items, int Total, int Page, int PageSize, PresenceSummaryDto Summary);
+
     /// <summary>
-    /// GET /api/drivers/me/presence/history?skip=0&take=20
+    /// GET /api/drivers/me/presence/history?page=1&amp;pageSize=20&amp;from=yyyy-MM-dd&amp;to=yyyy-MM-dd
     ///
-    /// Historial paginado del conductor: cada vez que se conectó/desconectó.
-    /// Pensado para que el conductor pueda ver su propio historial. Si
-    /// queremos exponer al admin, va por otro endpoint /api/drivers/{id}/presence/history.
+    /// Conexiones ("Conectarme" con selfie) del conductor actual, más reciente primero.
+    /// from/to: fechas de Perú, inclusivas y opcionales. pageSize máximo 100.
+    /// summary: conexiones de hoy, últimos 7 y 30 días (fechas de Perú).
     /// </summary>
     [HttpGet("history")]
-    public async Task<IActionResult> GetHistory(
-        [FromQuery] int skip = 0,
-        [FromQuery] int take = 20,
+    public Task<IActionResult> History(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] DateOnly? from = null, [FromQuery] DateOnly? to = null,
+        CancellationToken ct = default) =>
+        BuildHistory(CurrentUserId, page, pageSize, from, to, ct);
+
+    /// <summary>
+    /// GET /api/drivers/admin/{driverId}/presence?page=1&amp;pageSize=20&amp;from=yyyy-MM-dd&amp;to=yyyy-MM-dd
+    ///
+    /// Mismo historial para el admin. driverId = Id del conductor (el del detalle);
+    /// también acepta el UserId del conductor.
+    /// </summary>
+    [HttpGet("~/api/drivers/admin/{driverId:guid}/presence")]
+    [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewDrivers)]
+    public async Task<IActionResult> AdminHistory(
+        Guid driverId,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] DateOnly? from = null, [FromQuery] DateOnly? to = null,
         CancellationToken ct = default)
     {
-        if(take > 100) take = 100;  // límite duro defensivo
-        if(skip < 0) skip = 0;
+        var driver = await _drivers.GetByIdAsync(driverId, ct)
+                  ?? await _drivers.GetByUserIdAsync(driverId, ct);
+        if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
+        return await BuildHistory(driver.UserId, page, pageSize, from, to, ct);
+    }
 
-        var rows = await _checkIns.GetHistoryAsync(CurrentUserId, skip, take, ct);
-        return Ok(rows.Select(r => new
-        {
-            id = r.Id,
-            photoUrl = r.PhotoUrl,
-            checkedInAt = r.CheckedInAt,
-            checkedOutAt = r.CheckedOutAt,
-            durationMinutes = r.CheckedOutAt.HasValue
-                ? (int)(r.CheckedOutAt.Value - r.CheckedInAt).TotalMinutes
-                : (int?)null,
-        }));
+    private async Task<IActionResult> BuildHistory(
+        Guid driverUserId, int page, int pageSize, DateOnly? from, DateOnly? to, CancellationToken ct)
+    {
+        if(from.HasValue && to.HasValue && from > to)
+            return BadRequest(new { error = "La fecha «desde» no puede ser mayor que «hasta»." });
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        // Fechas de Perú -> límites en UTC (to inclusivo: hasta el inicio del día siguiente).
+        DateTime? fromUtc = from.HasValue ? BugieTime.PeruToUtc(from.Value.ToDateTime(TimeOnly.MinValue)) : null;
+        DateTime? toUtc = to.HasValue ? BugieTime.PeruToUtc(to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue)) : null;
+
+        var (items, total) = await _checkIns.GetHistoryAsync(driverUserId, fromUtc, toUtc, page, pageSize, ct);
+
+        var today = BugieTime.Today;
+        var (cToday, c7, c30) = await _checkIns.CountSinceAsync(
+            driverUserId,
+            BugieTime.PeruToUtc(today),
+            BugieTime.PeruToUtc(today.AddDays(-6)),
+            BugieTime.PeruToUtc(today.AddDays(-29)),
+            ct);
+
+        var now = DateTime.UtcNow;
+        var dto = new PresenceHistoryDto(
+            items.Select(c =>
+            {
+                var end = c.CheckedOutAt ?? now;
+                var minutes = (int)Math.Max(0, Math.Floor((end - c.CheckedInAt).TotalMinutes));
+                return new PresenceHistoryItemDto(
+                    c.Id, c.PhotoUrl, c.CheckedInAt, c.CheckedOutAt,
+                    minutes, c.CheckedOutAt is null, c.FaceQualityScore);
+            }).ToList(),
+            total, page, pageSize,
+            new PresenceSummaryDto(cToday, c7, c30));
+
+        return Ok(dto);
     }
 }

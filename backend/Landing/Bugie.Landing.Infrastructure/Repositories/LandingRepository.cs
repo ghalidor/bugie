@@ -33,11 +33,6 @@ public class LandingRepository : ILandingRepository
         return rows.ToList();
     }
 
-    public Task AddSectionAsync(LandingSection s, CancellationToken ct = default) =>
-        _db.ExecuteAsync(
-            @"INSERT INTO landing.Sections (Id,SectionKey,SortOrder,IsVisible,UpdatedAt)
-              VALUES (@Id,@SectionKey,@SortOrder,@IsVisible,@UpdatedAt)", s);
-
     public Task AddContentAsync(SectionContent c, CancellationToken ct = default) =>
         _db.ExecuteAsync(
             @"INSERT INTO landing.SectionContents (Id,SectionId,Lang,ContentJson,UpdatedAt)

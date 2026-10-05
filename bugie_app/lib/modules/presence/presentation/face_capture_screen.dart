@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../../../core/theme/bugie_theme.dart';
 
 /// Resultado de la captura facial. Se devuelve cuando la pantalla se cierra
 /// con éxito (Navigator.pop con esto).
@@ -41,7 +40,6 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   late final FaceDetector _faceDetector;
   /// True mientras un frame se está analizando — evita acumular trabajo.
   bool _processingFrame = false;
-  int _dbgFrames = 0; // diagnóstico temporal
 
   // ── Estado de validación facial ──────────────────────────────────────
   /// Lista ordenada de checks que pueden estar OK o NO según el frame actual.
@@ -144,26 +142,13 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     if (_processingFrame || _capturing) return;
     _processingFrame = true;
 
-    // Diagnóstico: primeros 5 frames y luego cada 60. Busca [FACE_DEBUG] en logcat.
-    final dbg = _dbgFrames < 5 || _dbgFrames % 60 == 0;
-    _dbgFrames++;
-
     try {
-      if (dbg) {
-        debugPrint('[FACE_DEBUG] frame#$_dbgFrames '
-            '${image.width}x${image.height} raw=${image.format.raw} '
-            'planes=${image.planes.length} '
-            'p0=${image.planes.first.bytes.length}b '
-            'bpr=${image.planes.first.bytesPerRow}');
-      }
       final input = _toInputImage(image);
       if (input == null) {
-        if (dbg) debugPrint('[FACE_DEBUG] _toInputImage devolvió NULL');
         _processingFrame = false;
         return;
       }
       final faces = await _faceDetector.processImage(input);
-      if (dbg) debugPrint('[FACE_DEBUG] faces=${faces.length}');
       final checks = _evaluateFaces(faces, image.width, image.height);
 
       if (!mounted) return;
@@ -174,9 +159,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       } else {
         _cancelCountdown();
       }
-    } catch (e, st) {
-      debugPrint('[FACE_DEBUG] EXCEPCIÓN: $e');
-      debugPrint('$st');
+    } catch (_) {
+      // Si un frame falla lo ignoramos y seguimos con el siguiente.
     } finally {
       _processingFrame = false;
     }

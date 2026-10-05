@@ -21,15 +21,18 @@ public class ProposalsActionsController : ControllerBase
     private readonly ITripRepository _trips;
     private readonly ITripProposalRepository _proposals;
     private readonly ITripNotificationService _notify;
+    private readonly IDriversClient _drivers;
 
     public ProposalsActionsController(
         ITripRepository trips,
         ITripProposalRepository proposals,
-        ITripNotificationService notify)
+        ITripNotificationService notify,
+        IDriversClient drivers)
     {
         _trips = trips;
         _proposals = proposals;
         _notify = notify;
+        _drivers = drivers;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -60,7 +63,7 @@ public class ProposalsActionsController : ControllerBase
         await _proposals.UpdateStatusAsync(proposalId, "rejected", "passenger", ct);
 
         // Notificar al conductor que su propuesta fue rechazada.
-        _ = _notify.NotifyDriverProposalRejectedAsync(proposal.DriverId, tripId);
+        _ = _notify.NotifyDriverProposalRejectedAsync(proposal.DriverId, tripId, trip.ServiceType);
 
         return Ok(new { message = "Propuesta rechazada." });
     }
@@ -112,7 +115,7 @@ public class ProposalsActionsController : ControllerBase
         await _proposals.AddAsync(counter, ct);
 
         // Notificar al conductor que recibió una contrapropuesta del pasajero.
-        _ = _notify.NotifyDriverPassengerCounterAsync(req.DriverId, tripId, req.Fare);
+        _ = _notify.NotifyDriverPassengerCounterAsync(req.DriverId, tripId, req.Fare, trip.ServiceType);
 
         return Ok(new
         {
@@ -130,13 +133,28 @@ public class ProposalsActionsController : ControllerBase
     [HttpPut("{tripId:guid}/decline-by-driver")]
     public async Task<IActionResult> DeclineByDriver(Guid tripId, CancellationToken ct)
     {
+        // Solo un conductor aprobado (403 si no es conductor, 409 si no está aprobado).
+        var denied = await Bugie.Trips.Api.Security.DriverAccess.EnsureApprovedDriverAsync(
+            this, _drivers, CurrentUserId, ct);
+        if(denied is not null) return denied;
+
         var trip = await _trips.GetByIdAsync(tripId, ct);
         if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
 
+        // Solo si el conductor negoció este viaje (tiene propuestas) o si la
+        // solicitud sigue abierta (es la que ve en su lista).
+        var hasProposal = (await _proposals.GetByTripAsync(tripId, ct))
+            .Any(p => p.DriverId == CurrentUserId);
+        var isOpen = trip.Status == TripStatus.Pending || trip.Status == TripStatus.Negotiating;
+        if(!hasProposal && !isOpen)
+            return Conflict(new { error = "Este viaje ya no está disponible." });
+
         var affected = await _proposals.RejectAllBetweenAsync(tripId, CurrentUserId, ct);
 
-        // Notificar al pasajero que el conductor declinó el viaje.
-        _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, tripId, "driver");
+        // Notificar al pasajero que el conductor declinó el viaje, solo si de
+        // verdad había negociación con él (si no, el pasajero no sabe de él).
+        if(affected > 0)
+            _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, tripId, "driver", null, trip.ServiceType);
 
         return Ok(new
         {

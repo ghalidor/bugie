@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ApiError } from '../../state/api';
 import { rewardsApi, FriendsRanking, fmtPoints, LEVEL_COLOR } from '../../state/rewards';
 
 /* ──────────────────────────────────────────────────────────────────────────

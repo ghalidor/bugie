@@ -2,26 +2,30 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../../core/theme/bugie_theme.dart';
+import '../../../../core/widgets/negotiation/negotiation.dart';
+import '../../../../core/widgets/service_badge.dart';
+import '../../../../core/widgets/schedule_picker.dart';
 import '../../../trips/domain/trip_model.dart';
 import '../../../trips/domain/proposal_model.dart';
 
 /// Card compacto para la lista de solicitudes entrantes.
 ///
-/// NO renderiza mapa — solo origen → destino con timeline visual, tarifa,
-/// estado de negociación (badge), distancia al conductor y tiempo. Al
-/// tocar, el callback `onTap` lleva al detalle (donde sí hay mapa
-/// fullscreen).
-///
-/// Se usa en `IncomingRequestsScreen` reemplazando la card vieja gigante.
+/// NO renderiza mapa. Muestra: PRECIO grande, chips (distancia al pasajero
+/// y "a X min", forma de pago, envío/fotos, paradas), origen → destino y
+/// el botón "Ver". Tocar la tarjeta o "Ver" lleva al detalle (con mapa
+/// fullscreen), donde están las acciones (aceptar, proponer, rechazar).
 class TripRequestCardCompact extends StatelessWidget {
   final Trip trip;
   final DriverCounterInfo? counter;
   /// Distancia del conductor al origen, en KILÓMETROS. Si es null no se
-  /// muestra la pill "a X km".
+  /// muestra el chip "a X km".
   final double? distanceToOriginKm;
-  /// Si la lista detectó esta solicitud como "nueva" (apareció en el
-  /// último poll y antes no estaba), le ponemos un punto pulsante.
+  /// Si la lista detectó esta solicitud como "nueva" (apareció en un
+  /// poll reciente), se muestra el badge "Nuevo" animado.
   final bool isNew;
+  /// Cantidad de fotos del paquete (solo envíos). Null = aún no se sabe;
+  /// 0 = sin fotos. Si es mayor a 0 se muestra el chip "N fotos".
+  final int? photoCount;
   final VoidCallback onTap;
 
   const TripRequestCardCompact({
@@ -31,6 +35,7 @@ class TripRequestCardCompact extends StatelessWidget {
     required this.onTap,
     this.distanceToOriginKm,
     this.isNew = false,
+    this.photoCount,
   });
 
   static String _timeAgo(DateTime d) {
@@ -42,178 +47,259 @@ class TripRequestCardCompact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ── Badge derecho según estado de negociación ──────────────────
-    Widget rightBadge;
-    Color borderTint = Colors.transparent;
+    final c = context.bugie;
+
+    // ── Estado de negociación (pill + color del borde) ──
+    _Pill? statusPill;
+    Color? borderTint;
     if (counter?.isMyPending == true) {
-      rightBadge = const _Pill(
+      statusPill = const _Pill(
         icon: Icons.hourglass_top,
         text: 'Esperando respuesta',
-        color: Color(0xFFF59E0B),
+        color: BugieColors.warning,
       );
-      borderTint = const Color(0xFFF59E0B).withOpacity(0.5);
+      borderTint = BugieColors.warning;
     } else if (counter?.isCounterFromPassenger == true) {
-      rightBadge = const _Pill(
+      statusPill = const _Pill(
         icon: Icons.swap_horiz,
         text: 'Pasajero responde',
         color: BugieColors.primary,
       );
-      borderTint = BugieColors.primary.withOpacity(0.5);
+      borderTint = BugieColors.primary;
     } else if (counter?.isWaitingMyConfirmation == true) {
-      rightBadge = const _Pill(
+      statusPill = _Pill(
         icon: Icons.check_circle,
-        text: 'Confirmar viaje',
-        color: Color(0xFF22C55E),
+        text: trip.isDelivery ? 'Confirmar envío' : 'Confirmar viaje',
+        color: BugieColors.success,
       );
-      borderTint = const Color(0xFF22C55E);
-    } else if (distanceToOriginKm != null) {
-      final dStr = distanceToOriginKm! < 1
-          ? '${(distanceToOriginKm! * 1000).toStringAsFixed(0)} m'
-          : '${distanceToOriginKm!.toStringAsFixed(1)} km';
-      rightBadge = _Pill(
-        icon: Icons.location_on,
-        text: 'a $dStr',
-        color: BugieColors.primary,
+      borderTint = BugieColors.success;
+    } else if (counter?.isRejected == true) {
+      statusPill = const _Pill(
+        icon: Icons.block,
+        text: 'Rechazó tu oferta',
+        color: BugieColors.danger,
       );
-    } else {
-      rightBadge = const SizedBox.shrink();
     }
 
-    // Tarifa: si hay negociación usa counter.fare, sino estimada/solicitada.
-    final fare = counter?.fare ?? trip.proposedFare ?? trip.estimatedFare;
+    // Tarifa: si hay negociación usa counter.fare, sino lo que ofrece el
+    // pasajero (estimatedFare). proposedFare es la primera propuesta de
+    // algún conductor: no es lo que ofrece el pasajero.
+    final fare = counter?.fare ?? trip.estimatedFare;
+    final fareLabel = counter?.isMyPending == true
+        ? 'Tu propuesta'
+        : counter?.isCounterFromPassenger == true
+            ? 'Te propone'
+            : counter?.isWaitingMyConfirmation == true
+                ? 'Aceptó'
+                : 'Ofrece';
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1F2B),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: borderTint == Colors.transparent
-                  ? Colors.white.withOpacity(0.08)
-                  : borderTint,
-              width: borderTint == Colors.transparent ? 0.5 : 1,
-            ),
+    String? distText;
+    if (distanceToOriginKm != null) {
+      final d = distanceToOriginKm!;
+      final dStr = d < 1
+          ? '${(d * 1000).toStringAsFixed(0)} m'
+          : '${d.toStringAsFixed(1)} km';
+      final min = (d / 22.0 * 60.0).round();
+      distText = min < 1 ? 'a $dStr' : 'a $dStr · $min min';
+    }
+    final stops = trip.waypoints.length;
+
+    return AnimatedContainer(
+      duration: motionDuration(context, 250),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: borderTint?.withValues(alpha: 0.7) ??
+              (isNew ? BugieColors.primary.withValues(alpha: 0.5) : c.border),
+          width: borderTint != null || isNew ? 1.4 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header: tiempo + badge derecho
-              Row(
-                children: [
-                  if (isNew) ...[
-                    Container(
-                      width: 8, height: 8,
-                      decoration: const BoxDecoration(
-                        color: BugieColors.primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  Icon(Icons.access_time,
-                      size: 12,
-                      color: Colors.white.withOpacity(0.5)),
-                  const SizedBox(width: 4),
-                  Text(
-                    _timeAgo(trip.createdAt),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white.withOpacity(0.5),
-                    ),
-                  ),
-                  if (trip.isDelivery) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: BugieColors.accent.withOpacity(0.20),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text('Envio',
-                          style: TextStyle(color: BugieColors.accent, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                  const Spacer(),
-                  rightBadge,
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // Origen → Destino con timeline visual
-              _OriginDestTimeline(
-                origin: trip.originAddress,
-                destination: trip.destAddress,
-              ),
-
-              const SizedBox(height: 10),
-
-              // Footer: tarifa + botón Ver
-              Container(
-                padding: const EdgeInsets.only(top: 10),
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(color: Colors.white.withOpacity(0.08)),
-                  ),
-                ),
-                child: Row(
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Cabecera: Nuevo + servicio + tiempo | estado ──
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            'S/ ${fare.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
+                          AnimatedSwitcher(
+                            duration: motionDuration(context, 250),
+                            transitionBuilder: (child, a) =>
+                                ScaleTransition(scale: a, child: child),
+                            child: isNew
+                                ? const NewBadge(key: ValueKey('new'))
+                                : const SizedBox.shrink(
+                                    key: ValueKey('old')),
+                          ),
+                          _Pill(
+                            icon: serviceIcon(trip.isDelivery),
+                            text: serviceLabel(trip.isDelivery),
+                            color: serviceColor(trip.isDelivery),
                           ),
                           Text(
-                            counter?.isMyPending == true
-                                ? 'Tu propuesta'
-                                : counter?.isCounterFromPassenger == true
-                                    ? 'Propuesta del pasajero'
-                                    : _payLabel(trip.paymentMethod),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.white.withOpacity(0.5),
-                            ),
+                            _timeAgo(trip.createdAt),
+                            style:
+                                TextStyle(fontSize: 11.5, color: c.textMuted),
                           ),
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: BugieColors.primary,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Text('Ver',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              )),
-                          SizedBox(width: 4),
-                          Icon(Icons.chevron_right,
-                              size: 16, color: Colors.white),
-                        ],
-                      ),
-                    ),
+                    if (statusPill != null) ...[
+                      const SizedBox(width: 6),
+                      Flexible(child: statusPill),
+                    ],
                   ],
                 ),
-              ),
-            ],
+                // Programado: fecha y hora del recojo.
+                if (trip.scheduledAt != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child:
+                        ScheduledBadge(at: trip.scheduledAt!, compact: true),
+                  ),
+                ],
+                // Vencimiento (confirmar propuesta aceptada / hora del programado).
+                if (trip.expiresAt != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ExpiryCountdown(
+                      expiresAt: trip.expiresAt!,
+                      reason: trip.expiresReason,
+                    ),
+                  ),
+                ],
+                // Calificación del pasajero (hoy siempre null: no se pinta).
+                if (trip.passengerRating != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: PassengerRatingChip(
+                      rating: trip.passengerRating,
+                      count: trip.passengerRatingCount,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+
+                // ── PRECIO grande ──
+                PriceTag(
+                  amount: fare,
+                  label: fareLabel,
+                  fontSize: 28,
+                  highlight: counter?.isCounterFromPassenger == true,
+                ),
+                const SizedBox(height: 8),
+
+                // ── Chips ──
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (distText != null)
+                      InfoChip(
+                        icon: Icons.near_me_outlined,
+                        text: distText,
+                        color: BugieColors.primary,
+                      ),
+                    InfoChip(
+                      icon: trip.paymentMethod == 'cash'
+                          ? Icons.payments_outlined
+                          : Icons.qr_code_2_rounded,
+                      text: _payLabel(trip.paymentMethod),
+                    ),
+                    if (stops > 0)
+                      InfoChip(
+                        icon: Icons.more_vert,
+                        text: stops == 1 ? '1 parada' : '$stops paradas',
+                        color: BugieColors.mapWaypoint,
+                      ),
+                    if (trip.isDelivery && trip.packageIsFragile)
+                      const InfoChip(
+                        icon: Icons.warning_amber_rounded,
+                        text: 'Frágil',
+                        color: BugieColors.danger,
+                      ),
+                    if (trip.isDelivery && (photoCount ?? 0) > 0)
+                      InfoChip(
+                        icon: Icons.photo_library_outlined,
+                        text: photoCount == 1 ? '1 foto' : '$photoCount fotos',
+                        color: BugieColors.accent,
+                      ),
+                  ],
+                ),
+
+                // Envío: qué paquete es.
+                if (trip.isDelivery &&
+                    (trip.packageDescription ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.inventory_2,
+                          size: 15, color: BugieColors.accent),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          trip.packageDescription!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: c.text,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+
+                // Origen → Destino con timeline visual
+                _OriginDestTimeline(
+                  origin: trip.originAddress,
+                  destination: trip.destAddress,
+                ),
+                const SizedBox(height: 14),
+
+                // ── Botón "Ver": abre el detalle (igual que tocar la tarjeta) ──
+                // Tonal (suave) para que la lista no sea una pared de botones
+                // azules; lleno y verde solo cuando hay que confirmar.
+                _SeeButton(
+                  label: counter?.isWaitingMyConfirmation == true
+                      ? 'Ver y confirmar'
+                      : counter?.isCounterFromPassenger == true
+                          ? 'Ver y responder'
+                          : 'Ver solicitud',
+                  color: counter?.isWaitingMyConfirmation == true
+                      ? BugieColors.success
+                      : BugieColors.primary,
+                  filled: counter?.isWaitingMyConfirmation == true,
+                  onTap: onTap,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -249,6 +335,56 @@ double haversineKm(LatLng a, LatLng b) {
 
 double _toRad(double deg) => deg * math.pi / 180.0;
 
+/// Botón "Ver solicitud ›" de la tarjeta: 48 dp, texto + flecha a la derecha.
+class _SeeButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool filled;
+  final VoidCallback onTap;
+  const _SeeButton({
+    required this.label,
+    required this.color,
+    required this.filled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = filled ? Colors.white : color;
+    return Material(
+      color: filled ? color : color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: fg,
+                    ),
+                  ),
+                ),
+                Icon(Icons.arrow_forward_rounded, size: 20, color: fg),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Píldora reutilizable arriba a la derecha.
 class _Pill extends StatelessWidget {
   final IconData icon;
@@ -261,20 +397,24 @@ class _Pill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 11, color: color),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(text,
-              style: TextStyle(
-                fontSize: 11,
-                color: color,
-                fontWeight: FontWeight.w500,
-              )),
+          Flexible(
+            child: Text(text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                )),
+          ),
         ],
       ),
     );
@@ -309,7 +449,7 @@ class _OriginDestTimeline extends StatelessWidget {
                 child: Container(
                   width: 2,
                   margin: const EdgeInsets.symmetric(vertical: 3),
-                  color: Colors.white.withOpacity(0.15),
+                  color: context.bugie.border,
                 ),
               ),
               Container(
@@ -332,10 +472,10 @@ class _OriginDestTimeline extends StatelessWidget {
                   origin,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: context.bugie.text,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -343,10 +483,10 @@ class _OriginDestTimeline extends StatelessWidget {
                   destination,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: context.bugie.text,
                   ),
                 ),
               ],

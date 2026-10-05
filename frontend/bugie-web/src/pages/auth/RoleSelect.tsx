@@ -40,7 +40,7 @@ export default function RoleSelect() {
           <button className="bugie-feature text-start w-100 h-100" type="button" onClick={() => choose('driver')}>
             <div className="bugie-mini-icon mb-3"><i className="fa-solid fa-car-side" /></div>
             <div className="fw-bold mb-2">Conductor</div>
-            <div className="small bugie-muted">Disponibilidad, solicitudes, documentos y ganancias.</div>
+            <div className="small bugie-muted">Estado, documentos, ganancias e historial.</div>
           </button>
         </div>
       </div>

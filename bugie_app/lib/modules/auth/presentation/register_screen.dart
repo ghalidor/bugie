@@ -7,6 +7,8 @@ import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_theme_toggle.dart';
 import '../../../core/widgets/signature_pad.dart';
 import '../data/auth_repository.dart';
+import '../domain/identity_validators.dart';
+import 'widgets/identity_form_fields.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -19,8 +21,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // Clave del Form para poder llamar a validate() antes de enviar.
   final _formKey = GlobalKey<FormState>();
 
-  final _firstNameCtrl = TextEditingController();
-  final _lastNameCtrl  = TextEditingController();
+  final _firstNamesCtrl = TextEditingController();
+  final _paternalCtrl   = TextEditingController();
+  final _maternalCtrl   = TextEditingController();
+  final _docNumberCtrl  = TextEditingController();
+  String _docType = 'DNI';
   final _emailCtrl     = TextEditingController();
   final _phoneCtrl     = TextEditingController();
   final _passwordCtrl  = TextEditingController();
@@ -36,13 +41,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // Validadores. Cada uno devuelve null si está OK, o un mensaje de
   // error si está mal. El Form pinta el mensaje debajo del campo.
   // ─────────────────────────────────────────────────────────────────
-
-  String? _required(String? value, String campo) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Ingresa tu $campo';
-    }
-    return null;
-  }
 
   String? _validateEmail(String? value) {
     final v = value?.trim() ?? '';
@@ -95,7 +93,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final signature = await _sigController
           .toBase64DataUrl(box?.size ?? const Size(600, 160));
       final auth = await repo.register(
-        fullName: '${_firstNameCtrl.text} ${_lastNameCtrl.text}'.trim(),
+        docType: _docType,
+        docNumber: normalizeDocNumber(_docNumberCtrl.text),
+        firstNames: _firstNamesCtrl.text.trim(),
+        lastNamePaternal: _paternalCtrl.text.trim(),
+        lastNameMaternal: _maternalCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
         phone: _phoneCtrl.text.trim(),
@@ -111,6 +113,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         context.go('/passenger');
       }
     } on ApiException catch (e) {
+      // 400/409 (documento usado, correo de cuenta eliminada, etc.): el
+      // mensaje del backend tal cual.
       setState(() => _error = e.message);
     } catch (_) {
       setState(() => _error = 'No se pudo conectar con el servidor.');
@@ -121,8 +125,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _firstNameCtrl.dispose();
-    _lastNameCtrl.dispose();
+    _firstNamesCtrl.dispose();
+    _paternalCtrl.dispose();
+    _maternalCtrl.dispose();
+    _docNumberCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
     _passwordCtrl.dispose();
@@ -177,29 +183,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             color: BugieColors.danger, fontSize: 13)),
                   ),
 
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _firstNameCtrl,
-                        textCapitalization: TextCapitalization.words,
-                        decoration:
-                            const InputDecoration(labelText: 'Nombre'),
-                        validator: (v) => _required(v, 'nombre'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _lastNameCtrl,
-                        textCapitalization: TextCapitalization.words,
-                        decoration:
-                            const InputDecoration(labelText: 'Apellido'),
-                        validator: (v) => _required(v, 'apellido'),
-                      ),
-                    ),
-                  ],
+                NameFormFields(
+                  firstNames: _firstNamesCtrl,
+                  lastNamePaternal: _paternalCtrl,
+                  lastNameMaternal: _maternalCtrl,
+                ),
+                const SizedBox(height: 14),
+
+                DocumentFormFields(
+                  docType: _docType,
+                  onDocTypeChanged: (v) => setState(() => _docType = v),
+                  docNumber: _docNumberCtrl,
                 ),
                 const SizedBox(height: 14),
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { API, apiFetch } from '../state/api';
+import { EmptyState, Page, PageLoading, SectionCard } from '../components/ui';
 
 interface UserStatus {
   isActive:   boolean;
@@ -15,45 +16,55 @@ interface UserStatus {
 export default function RequireVerified() {
   const [status,  setStatus]  = useState<UserStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed,  setFailed]  = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    setLoading(true); setFailed(false);
     apiFetch<UserStatus>(`${API.auth}/auth/users/me/status`)
       .then(setStatus)
-      .catch(() => setStatus({ isActive: false, isVerified: false }))
+      // Sin conexión no sabemos si está verificado: no decirle que no lo está.
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [attempt]);
 
-  if (loading) {
+  if (loading) return <PageLoading />;
+
+  if (failed) {
     return (
-      <div className="d-flex justify-content-center py-5">
-        <span className="spinner-border" />
-      </div>
+      <Page title="Sin conexión" subtitle="No pudimos comprobar tu verificación." icon="fa-wifi">
+        <SectionCard>
+          <EmptyState
+            icon="fa-plug-circle-exclamation"
+            title="No pudimos conectar con Bugie"
+            text="Revisa tu conexión a internet e inténtalo de nuevo."
+            action={
+              <button className="btn btn-bugie" onClick={() => setAttempt(a => a + 1)}>
+                <i className="fa-solid fa-rotate-right" aria-hidden="true" />Reintentar
+              </button>
+            }
+          />
+        </SectionCard>
+      </Page>
     );
   }
 
   if (!status?.isVerified) {
     return (
-      <div className="container py-4">
-        <div className="bugie-card p-4 text-center" style={{ maxWidth: 520, margin: '0 auto' }}>
-          <div
-            className="d-inline-flex align-items-center justify-content-center mb-3"
-            style={{
-              width: 64, height: 64, borderRadius: '50%',
-              background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
-            }}
-          >
-            <i className="fa-solid fa-shield-halved fa-2x" />
-          </div>
-          <h3 className="bugie-h4 mb-2">Tu cuenta aún no está verificada</h3>
-          <p className="bugie-muted mb-4">
-            Para solicitar viajes necesitamos verificar tu identidad.
-            Sube tu DNI y nuestro equipo lo revisará en 24 a 48 horas.
-          </p>
-          <Link className="btn btn-bugie text-white" to="/app/pasajero/verificacion">
-            <i className="fa-solid fa-id-card me-2" />Completar verificación
-          </Link>
-        </div>
-      </div>
+      <Page title="Verifica tu cuenta" subtitle="Es un paso único para cuidar a todos en Bugie." icon="fa-shield-halved">
+        <SectionCard>
+          <EmptyState
+            icon="fa-id-card"
+            title="Tu cuenta aún no está verificada"
+            text="Para pedir viajes necesitamos verificar tu identidad. Sube tu DNI y tu foto de perfil, y nuestro equipo los revisará en 24 a 48 horas."
+            action={
+              <Link className="btn btn-bugie" to="/app/pasajero/verificacion">
+                <i className="fa-solid fa-id-card" aria-hidden="true" />Completar verificación
+              </Link>
+            }
+          />
+        </SectionCard>
+      </Page>
     );
   }
 

@@ -148,15 +148,18 @@ public class AdjustUserPointsHandler
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IMediator                 _mediator;
 
     public AdjustUserPointsHandler(
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
-        IRewardSettingsRepository settings)
+        IRewardSettingsRepository settings,
+        IMediator mediator)
     {
         _profiles = profiles;
         _levels   = levels;
         _settings = settings;
+        _mediator = mediator;
     }
 
     public async Task<AdjustmentResultDto> Handle(
@@ -205,6 +208,7 @@ public class AdjustUserPointsHandler
         }
 
         // El nivel se recalcula: un ajuste grande puede cambiarlo.
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -225,6 +229,9 @@ public class AdjustUserPointsHandler
         if (!ok)
             throw new InvalidOperationException(
                 "El saldo cambió mientras hacías el ajuste. Vuelve a cargar y repítelo.");
+
+        // Si subió de nivel, aviso de los cupones del nivel (solo pasajero).
+        await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
 
         var aviso = cmd.Points < 0 && aplicados < -cmd.Points
             ? $"Solo se pudieron restar {aplicados} puntos: era todo lo que tenía disponible."

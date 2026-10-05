@@ -58,7 +58,16 @@ public interface IDriversClient
     Task<List<Guid>> GetNearbyDriverUserIdsAsync(
         double lat, double lng, double radiusKm, int maxResults = 20,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Recorrido real (puntos GPS en orden) de un viaje. Lista vacia si no hay
+    /// puntos o si Drivers no responde.
+    /// </summary>
+    Task<List<TripPathPointDto>> GetTripPathAsync(Guid tripId, CancellationToken ct = default);
 }
+
+/// <summary>Un punto GPS del recorrido real de un viaje.</summary>
+public record TripPathPointDto(double Lat, double Lng, DateTime RecordedAt);
 
 /// <summary>
 /// Última posición de un conductor (lat/lng) con timestamp del último update.

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
 import { rewardsApi, Redemption } from '../../state/rewards';
+import { EmptyState, Modal, Notice, Skeleton } from '../../components/ui';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Elegir un cupón para este viaje.
@@ -65,78 +66,62 @@ export default function ApplyCouponModal({ tripId, fare, onClose, onApplied }: {
   }
 
   return (
-    <div className="modal d-block" style={{ background: 'rgba(0,0,0,.45)' }}
-         role="dialog" onClick={onClose}>
-      <div className="modal-dialog modal-dialog-centered" onClick={e => e.stopPropagation()}>
-        <div className="modal-content" style={{ borderRadius: 18 }}>
-          <div className="modal-header">
-            <h5 className="modal-title">Usar un cupón</h5>
-            <button type="button" className="btn-close" onClick={onClose} aria-label="Cerrar" />
+    <Modal
+      open
+      onClose={onClose}
+      busy={!!aplicando}
+
+      title="Usar un cupón"
+      description={<>Tarifa de este viaje: <strong>S/ {fare.toFixed(2)}</strong></>}
+      footer={
+        <>
+          <span className="small bx-muted me-auto">Si cancelas el viaje, el cupón vuelve a estar disponible.</span>
+          <button type="button" className="btn btn-bugie-outline" onClick={onClose} disabled={!!aplicando}>Cerrar</button>
+        </>
+      }
+    >
+      <div className="bx-stack">
+        {error && <Notice tone="bad">{error}</Notice>}
+
+        {loading ? (
+          <Skeleton height={56} count={3} />
+        ) : cupones.length === 0 ? (
+          <EmptyState
+            compact
+            icon="fa-tag"
+            title="No tienes cupones de descuento vigentes"
+            text={<>Cánjealos con tus puntos desde <strong>Mis puntos</strong>.</>}
+          />
+        ) : (
+          <div className="bx-rows" role="list">
+            {cupones.map(c => {
+              const dias = Math.ceil((new Date(c.expiresAt).getTime() - Date.now()) / 86400000);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="listitem"
+                  className="bx-row"
+                  disabled={aplicando !== null}
+                  onClick={() => aplicar(c)}
+                >
+                  <span className="bx-list-icon" aria-hidden="true"><i className="fa-solid fa-tag" /></span>
+                  <span className="bx-list-text">
+                    <span className="bx-list-title">{c.itemName}</span>
+                    <span className="d-block small fw-semibold bx-text-ok">{estimado(c)}</span>
+                    <span className="bx-list-sub d-block">
+                      {c.code} · {dias <= 0 ? 'vence hoy' : `vence en ${dias} día${dias === 1 ? '' : 's'}`}
+                    </span>
+                  </span>
+                  {aplicando === c.code
+                    ? <span className="spinner-border spinner-border-sm" aria-label="Aplicando" />
+                    : <i className="fa-solid fa-chevron-right bx-muted" aria-hidden="true" />}
+                </button>
+              );
+            })}
           </div>
-
-          <div className="modal-body">
-            <div className="small bugie-muted mb-3">
-              Tarifa de este viaje: <strong>S/ {fare.toFixed(2)}</strong>
-            </div>
-
-            {error && <div className="alert alert-danger small py-2">{error}</div>}
-
-            {loading ? (
-              <div className="d-flex justify-content-center py-4">
-                <span className="spinner-border spinner-border-sm" />
-              </div>
-            ) : cupones.length === 0 ? (
-              <div className="text-center py-4">
-                <i className="fa-solid fa-tag fa-2x d-block mb-3" style={{ opacity: .3 }} />
-                <div className="small bugie-muted">
-                  No tienes cupones de descuento vigentes.
-                  <br />Cánjealos con tus puntos desde <strong>Mis puntos</strong>.
-                </div>
-              </div>
-            ) : (
-              <div className="d-grid gap-2">
-                {cupones.map(c => {
-                  const dias = Math.ceil(
-                    (new Date(c.expiresAt).getTime() - Date.now()) / 86400000);
-                  return (
-                    <button key={c.id} type="button"
-                            className="d-flex align-items-center gap-3 p-3 text-start w-100"
-                            style={{
-                              background: 'transparent', color: 'inherit',
-                              border: '1px solid var(--bugie-border)', borderRadius: 12,
-                            }}
-                            disabled={aplicando !== null}
-                            onClick={() => aplicar(c)}>
-                      <i className="fa-solid fa-tag"
-                         style={{ color: 'var(--bugie-primary)', width: 18 }} />
-                      <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                        <div className="fw-semibold small">{c.itemName}</div>
-                        <div className="small" style={{ color: '#0d6e4a', fontWeight: 600 }}>
-                          {estimado(c)}
-                        </div>
-                        <div className="small bugie-muted">
-                          {c.code} · {dias <= 0 ? 'vence hoy' : `vence en ${dias} día${dias === 1 ? '' : 's'}`}
-                        </div>
-                      </div>
-                      {aplicando === c.code
-                        ? <span className="spinner-border spinner-border-sm" />
-                        : <i className="fa-solid fa-chevron-right bugie-muted" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="modal-footer">
-            <div className="small bugie-muted me-auto">
-              Si cancelas el viaje, el cupón vuelve a estar disponible.
-            </div>
-            <button type="button" className="btn btn-bugie-outline rounded-pill"
-                    onClick={onClose}>Cerrar</button>
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

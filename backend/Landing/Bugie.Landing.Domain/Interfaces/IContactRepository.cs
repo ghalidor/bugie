@@ -8,7 +8,6 @@ public interface IContactRepository
     Task AddAsync(ContactMessage msg, CancellationToken ct = default);
 
     /// <summary>Para el widget de Settings: solo los no leídos.</summary>
-    Task<List<ContactMessage>> GetUnreadAsync(CancellationToken ct = default);
 
     /// <summary>Detalle de un mensaje por Id.</summary>
     Task<ContactMessage?> GetByIdAsync(Guid id, CancellationToken ct = default);
@@ -25,6 +24,12 @@ public interface IContactRepository
 
     /// <summary>Marca un mensaje como NO leído. Idempotente.</summary>
     Task MarkAsUnreadAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mensajes sin atender: todavía sin ninguna respuesta (LastReplyAt NULL).
+    /// Para el recordatorio del Centro de avisos del panel.
+    /// </summary>
+    Task<int> CountUnattendedAsync(CancellationToken ct = default);
 
     /// <summary>Actualiza la columna LastReplyAt del mensaje.</summary>
     Task UpdateLastReplyAtAsync(Guid id, DateTime at, CancellationToken ct = default);

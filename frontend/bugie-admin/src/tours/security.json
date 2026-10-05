@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='sec-roles']",
+      "title": "Roles del panel",
+      "text": "Cada tarjeta es un rol: un conjunto de permisos que asignas a los administradores. La barra muestra cuántos permisos tiene."
+    },
+    {
+      "selector": "[data-tour='sec-new']",
+      "title": "Crea un rol a medida",
+      "text": "Por ejemplo «soporte» o «finanzas». Se abre un panel donde eliges los permisos por categoría."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "Roles del sistema",
+      "text": "Los roles con corona son del sistema: tienen todos los permisos y no se pueden editar ni borrar."
+    }
+  ]
+}

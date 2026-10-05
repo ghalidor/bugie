@@ -163,6 +163,7 @@ public class AccrueTripPointsHandler
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(userType));
 
+        var nivelAntes = profile.CurrentLevel;
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
         if (level is not null) profile.SetLevel(level.Name);
@@ -184,6 +185,9 @@ public class AccrueTripPointsHandler
 
         // false significa que el viaje ya se había acreditado antes.
         if (!applied) return 0;
+
+        // Si subió de nivel, aviso de los cupones del nivel (solo pasajero).
+        await LevelUpNotice.SendIfChangedAsync(_mediator, profile, nivelAntes, ct);
 
         // 4. Dejar constancia de cada promoción, para poder medir su costo.
         if (promo.Applied.Count > 0)

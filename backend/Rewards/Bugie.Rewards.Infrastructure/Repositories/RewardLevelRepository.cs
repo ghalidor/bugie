@@ -40,6 +40,8 @@ public class RewardLevelRepository : IRewardLevelRepository
                 MonthlyFreeTrips     = @MonthlyFreeTrips,
                 WeeklyRaffleTickets  = @WeeklyRaffleTickets,
                 MonthlyRaffleTickets = @MonthlyRaffleTickets,
+                MonthlyDiscountCoupons = @MonthlyDiscountCoupons,
+                FreeTripMaxAmount    = @FreeTripMaxAmount,
                 IsActive             = @IsActive,
                 UpdatedAt            = @UpdatedAt
             WHERE Id = @Id",

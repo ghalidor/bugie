@@ -45,6 +45,52 @@ public static class DriverEmailTemplates
         <p>¡Bienvenido al equipo de conductores Bugie!</p>");
 
     // ─────────────────────────────────────────────────────────────────────
+    // Correo al CONDUCTOR — aprobado por excepción (con plazo para completar)
+    // ─────────────────────────────────────────────────────────────────────
+    public static string DriverApprovedWithException(
+        string fullName, DateTime deadlinePeru, List<string> missingLabels, string city) => Wrap(city,
+        "Tu cuenta de conductor está activa (con documentos pendientes)",
+        $@"
+        <p>Hola <strong>{fullName}</strong>,</p>
+        <p>Tu cuenta de conductor en <strong>{Brand}</strong> fue <strong>aprobada</strong>,
+        pero todavía te faltan documentos por completar:</p>
+        <ul>{string.Concat(missingLabels.Select(l => $"<li>{l}</li>"))}</ul>
+        <p>Tienes plazo hasta el <strong style=""color:#ef4444"">{deadlinePeru:dd/MM/yyyy HH:mm}</strong>
+        para subirlos y que sean aprobados. Si no los completas a tiempo, tu cuenta se
+        <strong>desactivará automáticamente</strong> y se te registrará una falta.</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/app/conductor/documentos""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Completar mis documentos
+          </a>
+        </p>");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Correo al CONDUCTOR — desactivado por no completar documentos a tiempo
+    // ─────────────────────────────────────────────────────────────────────
+    public static string DriverDeactivatedMissingDocs(
+        string fullName, List<string> missingLabels, string city) => Wrap(city,
+        "Tu cuenta de conductor fue desactivada",
+        $@"
+        <p>Hola <strong>{fullName}</strong>,</p>
+        <p>Venció el plazo para completar tus documentos y tu cuenta de conductor en
+        <strong>{Brand}</strong> fue <strong style=""color:#ef4444"">desactivada automáticamente</strong>.
+        Se te registró una falta.</p>
+        {(missingLabels.Count > 0
+            ? $"<p>Documentos que faltaban:</p><ul>{string.Concat(missingLabels.Select(l => $"<li>{l}</li>"))}</ul>"
+            : "")}
+        <p>Para volver a activar tu cuenta, sube todos tus documentos. Nuestro equipo los revisará
+        y, cuando estén completos y aprobados, podrás volver a recibir viajes.</p>
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{AppUrl}/app/conductor/documentos""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            Ir a mis documentos
+          </a>
+        </p>");
+
+    // ─────────────────────────────────────────────────────────────────────
     // Correo al CONDUCTOR — documento por caducar o ya caducado
     // ─────────────────────────────────────────────────────────────────────
     public static string DocumentExpiringDriver(
@@ -56,8 +102,8 @@ public static class DriverEmailTemplates
         var (title, urgencia) = daysBefore switch
         {
             0 => ("Tu documento caducó hoy", "<strong style=\"color:#ef4444\">caducó hoy</strong>"),
-            3 => ("Tu documento caduca en 3 días", "caduca en <strong>3 días</strong>"),
-            _ => ("Tu documento caduca en 6 días", "caduca en <strong>6 días</strong>"),
+            1 => ("Tu documento caduca mañana", "caduca <strong>mañana</strong>"),
+            _ => ($"Tu documento caduca en {daysBefore} días", $"caduca en <strong>{daysBefore} días</strong>"),
         };
 
         return Wrap(city, title, $@"
@@ -97,8 +143,8 @@ public static class DriverEmailTemplates
         var (title, urgencia) = daysBefore switch
         {
             0 => ("Documento de conductor caducó hoy", "<strong style=\"color:#ef4444\">caducó hoy</strong>"),
-            3 => ("Documento de conductor caduca en 3 días", "caduca en <strong>3 días</strong>"),
-            _ => ("Documento de conductor caduca en 6 días", "caduca en <strong>6 días</strong>"),
+            1 => ("Documento de conductor caduca mañana", "caduca <strong>mañana</strong>"),
+            _ => ($"Documento de conductor caduca en {daysBefore} días", $"caduca en <strong>{daysBefore} días</strong>"),
         };
 
         return Wrap(city, title, $@"
@@ -137,6 +183,81 @@ public static class DriverEmailTemplates
           </a>
         </p>");
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Rechazo, suspensión, reactivación y respuesta a la solicitud de revisión
+    // (el motivo lo escribe el admin: se codifica para HTML).
+    // ─────────────────────────────────────────────────────────────────────
+    private static string Enc(string text) => System.Net.WebUtility.HtmlEncode(text);
+
+    private static string ReasonBox(string reason) =>
+        $@"<p style=""background:#f4f6fa;border-left:4px solid {Color};padding:12px 16px;border-radius:6px;"">{Enc(reason)}</p>";
+
+    private static string Button(string url, string text) => $@"
+        <p style=""text-align:center;margin:30px 0;"">
+          <a href=""{url}""
+             style=""background:{Color};color:#fff;padding:12px 30px;border-radius:8px;
+                    text-decoration:none;display:inline-block;font-weight:bold;"">
+            {text}
+          </a>
+        </p>";
+
+    /// <summary>Correo al CONDUCTOR — su registro no fue aceptado.</summary>
+    public static string DriverRejected(string fullName, string reason, string city) => Wrap(city,
+        "Tu registro como conductor no fue aceptado",
+        $@"
+        <p>Hola <strong>{Enc(fullName)}</strong>,</p>
+        <p>Revisamos tu registro como conductor en <strong>{Brand}</strong> y por ahora
+        <strong style=""color:#ef4444"">no fue aceptado</strong>. El motivo es:</p>
+        {ReasonBox(reason)}
+        <p>Si crees que es un error o ya corregiste lo indicado, puedes actualizar tus documentos
+        y <strong>solicitar una revisión</strong> desde la app o la web.</p>
+        {Button($"{AppUrl}/auth/login", "Ingresar a Bugie")}");
+
+    /// <summary>Correo al CONDUCTOR — cuenta suspendida (untilPeru NULL = indefinida).</summary>
+    public static string DriverSuspended(string fullName, string reason, DateTime? untilPeru, string city) => Wrap(city,
+        "Tu cuenta de conductor fue suspendida",
+        $@"
+        <p>Hola <strong>{Enc(fullName)}</strong>,</p>
+        <p>Tu cuenta de conductor en <strong>{Brand}</strong> fue
+        <strong style=""color:#ef4444"">suspendida</strong>. El motivo es:</p>
+        {ReasonBox(reason)}
+        <p>{(untilPeru is null
+            ? "La suspensión es <strong>indefinida</strong>: seguirá hasta que nuestro equipo la levante."
+            : $"La suspensión termina el <strong>{untilPeru.Value:dd/MM/yyyy}</strong> (al final del día). Después podrás volver a conectarte si tus documentos están vigentes.")}</p>
+        <p>Mientras tanto no puedes conectarte ni recibir viajes. Tus viajes, calificaciones,
+        billetera y puntos se conservan. Si no estás de acuerdo, puedes <strong>solicitar una revisión</strong>
+        desde la app o la web.</p>
+        {Button($"{AppUrl}/auth/login", "Ingresar a Bugie")}");
+
+    /// <summary>
+    /// Correo al CONDUCTOR — fue reactivado. statusLabel = nuevo estado
+    /// ("Aprobado", "En revisión", ...); auto = terminó la suspensión con fecha.
+    /// </summary>
+    public static string DriverReactivated(string fullName, bool approved, string statusLabel, bool auto, string city) => Wrap(city,
+        "Tu cuenta de conductor fue reactivada",
+        $@"
+        <p>Hola <strong>{Enc(fullName)}</strong>,</p>
+        <p>{(auto
+            ? $"Terminó la suspensión de tu cuenta de conductor en <strong>{Brand}</strong>."
+            : $"Nuestro equipo reactivó tu cuenta de conductor en <strong>{Brand}</strong>.")}</p>
+        <p>Estado actual de tu cuenta: <strong>{Enc(statusLabel)}</strong>.</p>
+        <p>{(approved
+            ? "Ya puedes conectarte y volver a recibir viajes."
+            : "Antes de conectarte revisa tus documentos: súbelos o renuévalos y nuestro equipo los revisará.")}</p>
+        {Button(approved ? $"{AppUrl}/auth/login" : $"{AppUrl}/app/conductor/documentos",
+                approved ? "Ingresar a Bugie" : "Ir a mis documentos")}");
+
+    /// <summary>Correo al CONDUCTOR — el admin revisó su solicitud y mantiene el rechazo/suspensión.</summary>
+    public static string DriverReviewKept(string fullName, bool suspended, string reason, string city) => Wrap(city,
+        "Respuesta a tu solicitud de revisión",
+        $@"
+        <p>Hola <strong>{Enc(fullName)}</strong>,</p>
+        <p>Revisamos tu solicitud y por ahora <strong>se mantiene {(suspended ? "la suspensión" : "el rechazo")}</strong>
+        de tu cuenta de conductor en <strong>{Brand}</strong>. El motivo es:</p>
+        {ReasonBox(reason)}
+        <p>Si tienes información nueva, puedes enviar otra solicitud de revisión desde la app o la web.</p>
+        {Button($"{AppUrl}/auth/login", "Ingresar a Bugie")}");
 
     // ─────────────────────────────────────────────────────────────────────
     private static string Wrap(string city, string title, string innerHtml) => $@"

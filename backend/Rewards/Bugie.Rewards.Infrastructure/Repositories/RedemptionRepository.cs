@@ -144,11 +144,12 @@ public class RedemptionRepository : IRedemptionRepository
             await _db.ExecuteAsync(InsertTransactionSql, movement, trx);
 
             // Devolver el stock si el item lo controlaba.
-            await _db.ExecuteAsync(@"
-                UPDATE rewards.CatalogItems
-                SET Stock = Stock + 1, UpdatedAt = now()
-                WHERE Id = @Id AND Stock IS NOT NULL",
-                new { Id = redemption.CatalogItemId }, trx);
+            if (redemption.CatalogItemId is not null)
+                await _db.ExecuteAsync(@"
+                    UPDATE rewards.CatalogItems
+                    SET Stock = Stock + 1, UpdatedAt = now()
+                    WHERE Id = @Id AND Stock IS NOT NULL",
+                    new { Id = redemption.CatalogItemId }, trx);
 
             trx.Commit();
             return true;
@@ -175,6 +176,26 @@ public class RedemptionRepository : IRedemptionRepository
     // ------------------------------------------------------------------------
     // Lecturas
     // ------------------------------------------------------------------------
+    public async Task<bool> CancelWithoutRefundAsync(
+        Redemption redemption, CancellationToken ct = default) =>
+        await _db.ExecuteAsync(@"
+            UPDATE rewards.Redemptions
+            SET Status = @Status, UsedNote = @UsedNote
+            WHERE Id = @Id AND Status = 'active'",
+            new { redemption.Id, redemption.Status, redemption.UsedNote }) > 0;
+
+    public async Task<List<Redemption>> GetActiveByTypeAsync(
+        Guid userId, string rewardType, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<Redemption>(@"
+            SELECT * FROM rewards.Redemptions
+            WHERE UserId = @UserId AND RewardType = @RewardType
+              AND Status = 'active' AND ExpiresAt > @Now
+            ORDER BY ExpiresAt, CreatedAt",
+            new { UserId = userId, RewardType = rewardType, Now = DateTime.UtcNow });
+        return rows.ToList();
+    }
+
     public Task<Redemption?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _db.QuerySingleOrDefaultAsync<Redemption>(
             "SELECT * FROM rewards.Redemptions WHERE Id = @Id", new { Id = id });

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
-import { API, apiFetch } from '../../state/api';
-
-interface UserProfile {
-  id: string; fullName: string; email: string; phone: string; createdAt: string;
-}
+import { Link } from 'react-router-dom';
+import EmergencyContactForm from '../../components/EmergencyContactForm';
+import DriverAccountStatus, { DriverAccountInfo } from '../../components/DriverAccountStatus';
+import ChangePasswordCard from '../../components/ChangePasswordCard';
+import { identityInfoItems } from '../../components/IdentityFields';
+import { MeProfile } from '../../state/identity';
+import { API, apiFetch, driversFileUrl } from '../../state/api';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
+import { InfoList, Notice, Page, PageLoading, SectionCard, StatCard, StatGrid, StatusBadge, Tone, useToast } from '../../components/ui';
 
 interface DriverProfile {
   id: string;
@@ -16,38 +19,53 @@ interface DriverProfile {
   faceIdPhotoUrl:  string | null;
 }
 
-const STATUS: Record<number, { label: string; color: string }> = {
-  1: { label: 'Pendiente de documentos', color: 'warning' },
-  2: { label: 'En revisión',             color: 'info'    },
-  3: { label: 'Aprobado',                color: 'success' },
-  4: { label: 'Suspendido',              color: 'danger'  },
-  5: { label: 'Rechazado',               color: 'danger'  },
-  6: { label: 'Documentos vencidos',     color: 'danger'  },
+const STATUS: Record<number, { label: string; tone: Tone }> = {
+  1: { label: 'Pendiente de documentos', tone: 'warn' },
+  2: { label: 'En revisión',             tone: 'info' },
+  3: { label: 'Aprobado',                tone: 'ok'   },
+  4: { label: 'Suspendido',              tone: 'bad'  },
+  5: { label: 'Rechazado',               tone: 'bad'  },
+  6: { label: 'Documentos vencidos',     tone: 'bad'  },
 };
 
+const LINKS = [
+  { to: '/app/conductor/vehiculos',  icon: 'fa-car',          label: 'Mis vehículos',          desc: 'Ver, agregar y activar vehículos' },
+  { to: '/app/conductor/documentos', icon: 'fa-id-card',      label: 'Actualizar documentos', desc: 'Subir o verificar documentos de habilitación' },
+  { to: '/app/conductor/sos',        icon: 'fa-shield-halved', label: 'SOS / Emergencia',     desc: 'Botón de emergencia en ruta', danger: true },
+];
+
 export default function DriverProfile() {
-  const [user,    setUser]    = useState<UserProfile | null>(null);
+  const { supportEmail } = usePlatformConfig();
+  const toast = useToast();
+  const [user,    setUser]    = useState<MeProfile | null>(null);
   const [driver,  setDriver]  = useState<DriverProfile | null>(null);
+  // Estado de la cuenta (motivo de suspensión/rechazo y solicitud de revisión)
+  const [account, setAccount] = useState<DriverAccountInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [u, d] = await Promise.allSettled([
-      apiFetch<UserProfile>(`${API.auth}/auth/me`),
+    const [u, d, a] = await Promise.allSettled([
+      apiFetch<MeProfile>(`${API.auth}/auth/me`),
       apiFetch<DriverProfile>(`${API.drivers}/drivers/profile/me`),
+      apiFetch<DriverAccountInfo>(`${API.drivers}/drivers/me`),
     ]);
     if (u.status === 'fulfilled') setUser(u.value);
     if (d.status === 'fulfilled') setDriver(d.value);
+    if (a.status === 'fulfilled') setAccount(a.value);
     if (u.status === 'rejected') setError('No se pudo cargar el perfil.');
     setLoading(false);
   }
 
+  function reloadAccount() {
+    apiFetch<DriverAccountInfo>(`${API.drivers}/drivers/me`).then(setAccount).catch(() => { /* se verá al recargar */ });
+  }
+
   async function uploadProfilePhoto(file: File) {
-    setError(null); setSuccess(null); setUploading(true);
+    setError(null); setUploading(true);
     try {
       const form = new FormData();
       form.append('file', file);
@@ -65,7 +83,7 @@ export default function DriverProfile() {
       setDriver(prev => prev
         ? { ...prev, profilePhotoUrl: data.profilePhotoUrl }
         : prev);
-      setSuccess('Foto de perfil actualizada.');
+      toast.success('Foto de perfil actualizada.');
     } catch (err: any) {
       setError(err.message ?? 'Error al subir la foto.');
     } finally {
@@ -73,58 +91,40 @@ export default function DriverProfile() {
     }
   }
 
-  if (loading) return (
-    <div className="d-flex justify-content-center py-5">
-      <span className="spinner-border" />
-    </div>
-  );
+  if (loading) return <PageLoading />;
 
   const si = driver ? STATUS[driver.status] : null;
 
   return (
-    <>
-      <PageHeader title="Mi perfil" subtitle="Datos personales y foto de perfil." icon="fa-solid fa-user" />
+    <Page title="Mi perfil" subtitle="Tu foto, tus datos y el estado de tu cuenta de conductor." icon="fa-user">
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {error   && <div className="alert alert-danger  small mb-3">{error}</div>}
-      {success && <div className="alert alert-success small mb-3"><i className="fa-solid fa-check me-2" />{success}</div>}
+      {account && <DriverAccountStatus driver={account} onChanged={reloadAccount} />}
 
-      {/* Foto de perfil */}
-      <div className="bugie-card mb-3">
-        <div className="bugie-card-header">
-          <i className="fa-solid fa-camera me-2 text-bugie-accent" />
-          Foto de perfil
-        </div>
-        <div className="bugie-card-body">
-          <div className="row g-3 align-items-center">
-            <div className="col-12 col-md-auto">
-              <div style={{
-                width: 140, height: 140, borderRadius: '50%',
-                overflow: 'hidden',
-                background: 'var(--bugie-bg-2)',
-                border: '3px solid var(--bugie-border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto',
-              }}>
-                {driver?.profilePhotoUrl ? (
-                  <img src={driver.profilePhotoUrl} alt="Perfil"
-                       style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <i className="fa-solid fa-user" style={{ fontSize: 56, color: 'var(--bugie-muted)' }} />
-                )}
-              </div>
+      {/* Cabecera con foto */}
+      <SectionCard>
+        <div className="bx-media-row">
+          <div className="bx-photo">
+            {driver?.profilePhotoUrl
+              ? <img src={driversFileUrl(driver.profilePhotoUrl)} alt="Tu foto de perfil" />
+
+              : <i className="fa-solid fa-user" aria-hidden="true" />}
+          </div>
+          <div className="grow bx-stack-sm">
+            <div>
+              <div className="fw-bold fs-5 text-break">{user?.fullName ?? '—'}</div>
+              <div className="small bx-muted text-break">{user?.email}</div>
             </div>
-            <div className="col-12 col-md">
-              <div className="small bugie-muted mb-2">
-                <i className="fa-solid fa-circle-info me-1" />
-                Esta foto se mostrará a los pasajeros en su historial cuando hayas hecho un viaje.
-                Es independiente de tu foto de verificación facial (Face ID). Máximo 5 MB.
-                Formatos: JPG, PNG, WEBP.
-              </div>
-              <label className="btn btn-bugie text-white rounded-pill" style={{ cursor: 'pointer' }}>
+            {si && <div><StatusBadge tone={si.tone} dot>{si.label}</StatusBadge></div>}
+            <p className="small bx-muted mb-0">
+              Los pasajeros ven esta foto en su historial. Es distinta de la selfie que te tomas al conectarte.
+              Máximo 5 MB · JPG, PNG o WEBP.
+            </p>
+            <div>
+              <label className={`btn btn-bugie ${uploading ? 'disabled' : ''}`} style={{ cursor: 'pointer' }}>
                 {uploading
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Subiendo…</>
-                  : <><i className="fa-solid fa-upload me-2" />
-                      {driver?.profilePhotoUrl ? 'Cambiar foto' : 'Subir foto'}</>}
+                  ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Subiendo…</>
+                  : <><i className="fa-solid fa-camera" aria-hidden="true" />{driver?.profilePhotoUrl ? 'Cambiar foto' : 'Subir foto'}</>}
                 <input type="file" accept="image/*" hidden disabled={uploading}
                   onChange={e => {
                     const f = e.target.files?.[0];
@@ -135,98 +135,45 @@ export default function DriverProfile() {
             </div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
-      {/* Información personal */}
-      <div className="bugie-card mb-3">
-        <div className="bugie-card-header">
-          <i className="fa-solid fa-id-card me-2 text-bugie-accent" />
-          Información personal
-        </div>
-        <div className="bugie-card-body">
-          <div className="row g-3">
-            <div className="col-md-6">
-              <div className="small bugie-muted mb-1">Nombre completo</div>
-              <div className="fw-semibold">{user?.fullName ?? '—'}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small bugie-muted mb-1">Correo</div>
-              <div className="fw-semibold">{user?.email ?? '—'}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small bugie-muted mb-1">Teléfono</div>
-              <div className="fw-semibold">{user?.phone ?? '—'}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small bugie-muted mb-1">Miembro desde</div>
-              <div className="fw-semibold">{user
-                ? new Date(user.createdAt).toLocaleDateString('es-PE')
-                : '—'}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Estado del conductor */}
       {driver && (
-        <div className="bugie-card mb-3">
-          <div className="bugie-card-header d-flex justify-content-between align-items-center">
-            <span><i className="fa-solid fa-circle-check me-2 text-bugie-accent" />Estado de la cuenta</span>
-            {si && <span className={`badge text-bg-${si.color}`}>{si.label}</span>}
-          </div>
-          <div className="bugie-card-body">
-            <div className="row g-3">
-              <div className="col-md-4">
-                <div className="small bugie-muted mb-1">Rating</div>
-                <div className="fw-semibold">
-                  <i className="fa-solid fa-star me-1" style={{ color: '#f59e0b' }} />
-                  {driver.rating.toFixed(1)}
-                  <span className="bugie-muted ms-2">({driver.totalRatings} viajes calificados)</span>
-                </div>
-              </div>
-              <div className="col-md-4">
-                <div className="small bugie-muted mb-1">Disponibilidad</div>
-                <div className="fw-semibold">
-                  {driver.isOnline
-                    ? <span style={{ color: '#34d399' }}><i className="fa-solid fa-circle-dot me-1" />En línea</span>
-                    : <span className="bugie-muted">Desconectado</span>}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <StatGrid min={160}>
+          <StatCard label="Calificación" value={<>{driver.rating.toFixed(1)} <i className="fa-solid fa-star" style={{ color: '#f59e0b', fontSize: '.8em' }} aria-hidden="true" /></>}
+                    icon="fa-star" tone="warn" hint={`${driver.totalRatings} viajes calificados`} to="/app/conductor/calificaciones" />
+          <StatCard label="Disponibilidad" value={driver.isOnline ? 'En línea' : 'Desconectado'}
+                    icon="fa-signal" tone={driver.isOnline ? 'ok' : 'neutral'} hint="Se cambia desde la app" pulse={driver.isOnline} />
+        </StatGrid>
       )}
 
-      {/* Acciones */}
-      <div className="bugie-card">
-        <div className="bugie-card-header">Acciones rápidas</div>
-        <div className="bugie-card-body d-grid gap-2">
-          <a className="bugie-list-item text-decoration-none" href="/app/conductor/vehiculos">
-            <div className="bugie-mini-icon"><i className="fa-solid fa-car" /></div>
-            <div className="flex-grow-1">
-              <div className="fw-semibold">Mis vehículos</div>
-              <div className="small bugie-muted">Ver, agregar y activar vehículos</div>
-            </div>
-            <i className="fa-solid fa-chevron-right bugie-muted" />
-          </a>
-          <a className="bugie-list-item text-decoration-none" href="/app/conductor/documentos">
-            <div className="bugie-mini-icon"><i className="fa-solid fa-id-card" /></div>
-            <div className="flex-grow-1">
-              <div className="fw-semibold">Actualizar documentos</div>
-              <div className="small bugie-muted">Subir o verificar documentos de habilitación</div>
-            </div>
-            <i className="fa-solid fa-chevron-right bugie-muted" />
-          </a>
-          <a className="bugie-list-item text-decoration-none" href="/app/conductor/sos">
-            <div className="bugie-mini-icon"><i className="fa-solid fa-shield-halved" /></div>
-            <div className="flex-grow-1">
-              <div className="fw-semibold">Configurar SOS</div>
-              <div className="small bugie-muted">Botón de emergencia en ruta</div>
-            </div>
-            <i className="fa-solid fa-chevron-right bugie-muted" />
-          </a>
+      <SectionCard title="Información personal" icon="fa-id-card" description={`Para corregirlos contacta a soporte${supportEmail ? ` (${supportEmail})` : ''}.`}>
+        <InfoList items={[
+          ...identityInfoItems(user),
+          { label: 'Correo', value: user?.email ?? '—' },
+          { label: 'Teléfono', value: user?.phone ?? '—' },
+          { label: 'Miembro desde', value: user ? new Date(user.createdAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' }) : '—' },
+        ]} />
+      </SectionCard>
+
+      {/* Contacto de emergencia (recomendado, no obligatorio) */}
+      <EmergencyContactForm />
+
+      <ChangePasswordCard />
+
+      <SectionCard title="Accesos rápidos" icon="fa-bolt" flush>
+        <div className="bx-list">
+          {LINKS.map(l => (
+            <Link key={l.to} className="bx-list-item" to={l.to}>
+              <span className={`bx-list-icon ${l.danger ? 'bx-tone-bad' : ''}`} aria-hidden="true"><i className={`fa-solid ${l.icon}`} /></span>
+              <span className="bx-list-text">
+                <span className="bx-list-title">{l.label}</span>
+                <span className="bx-list-sub d-block">{l.desc}</span>
+              </span>
+              <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+            </Link>
+          ))}
         </div>
-      </div>
-    </>
+      </SectionCard>
+    </Page>
   );
 }

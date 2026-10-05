@@ -92,7 +92,22 @@ public class GetEnrichedTripHistoryHandler
                 VehicleColor: driverInfo?.VehicleColor,
                 VehicleYear: driverInfo?.VehicleYear,
                 VehiclePhotoUrl: driverInfo?.VehiclePhotoUrl,
-                Category: "city_ride"));
+                Category: t.ServiceType == Bugie.Trips.Domain.Enums.ServiceType.Delivery ? "delivery" : "city_ride",
+                ServiceType: (int)t.ServiceType,
+                PackageDescription: t.PackageDescription,
+                PackageWeightKg: t.PackageWeightKg,
+                PackageIsFragile: t.PackageIsFragile,
+                PackageDetails: t.PackageDetails,
+                RecipientName: t.RecipientName,
+                RecipientPhone: t.RecipientPhone,
+                PickupVerified: t.PickupVerified,
+                DeliveryReceivedBy: t.DeliveryReceivedBy,
+                DeliveryConfirmedAt: t.DeliveryConfirmedAt,
+                CancelledBy: t.CancelledBy,
+                CancelReason: t.CancelReason,
+                ScheduledAt: t.ScheduledAt,
+                DriverArrivedAt: t.DriverArrivedAt,
+                DriverLate: t.IsDriverLate(DateTime.UtcNow)));
         }
 
         return result;

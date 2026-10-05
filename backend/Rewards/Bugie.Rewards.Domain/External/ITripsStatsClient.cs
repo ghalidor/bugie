@@ -3,6 +3,11 @@ namespace Bugie.Rewards.Domain.External;
 /// <summary>Actividad de un conductor en un día, tal como la reporta Trips.</summary>
 public record DriverDayStats(Guid DriverId, int Completed, int CancelledByDriver);
 
+/// <summary>Estado de un viaje y su calificación, según Trips.</summary>
+public record TripRatingCheck(
+    bool Exists, bool Completed, Guid? PassengerId, Guid? DriverId,
+    bool Rated, Guid? RatedBy, byte? Stars);
+
 /// <summary>
 /// Consulta a Trips el resumen diario de los conductores.
 ///
@@ -15,4 +20,10 @@ public interface ITripsStatsClient
     /// <summary>Null si Trips no responde. Nunca lanza excepción.</summary>
     Task<List<DriverDayStats>?> GetDriverDayAsync(
         DateTime localDate, CancellationToken ct = default);
+
+    /// <summary>
+    /// Pregunta a Trips si el viaje existe, está completado y fue calificado
+    /// por su pasajero. Null si Trips no responde. Nunca lanza excepción.
+    /// </summary>
+    Task<TripRatingCheck?> GetRatingCheckAsync(Guid tripId, CancellationToken ct = default);
 }

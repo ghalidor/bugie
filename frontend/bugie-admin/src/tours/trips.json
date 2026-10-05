@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='trips-stats']",
+      "title": "Resumen de viajes",
+      "text": "Pendientes, en curso, completados y lo facturado. «Con incidencias» cuenta solo los viajes de la página que estás viendo."
+    },
+    {
+      "selector": "[data-tour='trips-filters']",
+      "title": "Encuentra cualquier viaje",
+      "text": "Busca por pasajero o conductor (nombre, correo o documento), placa o dirección, y filtra por tipo, rango de fechas y, en «Todos los viajes», por estado."
+    },
+    {
+      "selector": "[data-tour='trips-list']",
+      "title": "Detalle y recorrido",
+      "text": "Toca una fila para ver la línea de tiempo y el recorrido GPS real del conductor. Los nombres del pasajero y del conductor abren su ficha. Si hay incidencias, ábrelas desde el menú «⋯»."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Exportar",
+      "text": "«Exportar CSV» descarga todos los viajes del filtro (por ejemplo, de un rango de fechas), no solo la página."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía con el botón «?»."
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='driver-tabs']",
+      "title": "La ficha está ordenada en pestañas",
+      "text": "Resumen, Viajes, Documentos, Vehículos, Calificaciones, Conexiones, Pagos, Notificaciones e Historial. El número en «Documentos» indica cuántos esperan tu revisión."
+    },
+    {
+      "selector": "[data-tour='driver-tabs'] [data-value='viajes']",
+      "title": "Sus viajes",
+      "text": "En «Viajes» ves los viajes y envíos que tomó este conductor, con estado, fecha y monto. Filtra por estado o fechas y toca uno para ver su detalle y recorrido."
+    },
+    {
+      "selector": "[data-tour='driver-approval']",
+      "title": "Qué falta para aprobar",
+      "text": "La lista se marca sola. Con documentos completos y revisados se activa «Aprobar registro». Si faltan documentos y no tiene faltas, puedes «Aprobar por excepción» con un motivo: tendrá 3 días para completarlos."
+    },
+    {
+      "selector": "[data-tour='driver-tabs']",
+      "title": "Revisa cada documento",
+      "text": "En «Documentos» abre cada archivo con «Ver», apruébalo o recházalo (el motivo es obligatorio) y marca «Revisado». «Histórico» muestra los archivos reemplazados."
+    },
+    {
+      "selector": "[data-tour='driver-tabs']",
+      "title": "Revisa sus conexiones",
+      "text": "En «Conexiones» ves cada vez que tocó «Conectarme» con su selfie: cuántas veces hoy, en 7 y en 30 días, la hora de entrada y salida y cuánto duró. Toca una selfie para verla junto a su foto de perfil, DNI y licencia y confirmar que es la misma persona."
+    },
+    {
+      "selector": "[data-tour='driver-tabs'] [data-value='notificaciones']",
+      "title": "Sus notificaciones",
+      "text": "En «Notificaciones» ves lo mismo que el conductor en la bandeja de la app (viajes, cuenta, pagos, desvíos…): cuáles leyó y cuándo. Útil para soporte; no cambia nada."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Rechazar, suspender o reactivar",
+      "text": "Arriba, según su estado, verás «Rechazar conductor» (mientras está en registro), «Suspender» (si está aprobado; eliges la duración) o «Reactivar» (si está suspendido o rechazado). Siempre pide un motivo y una confirmación, y el conductor recibe un aviso y un correo."
+    },
+    {
+      "selector": "[data-tour='driver-tabs']",
+      "title": "Historial y solicitudes de revisión",
+      "text": "En «Historial» ves cada cambio de estado: quién lo hizo, cuándo y con qué motivo. Si un conductor suspendido o rechazado pide una revisión, aparece una tarjeta arriba para «Reactivar» o «Mantener» la decisión con una respuesta."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

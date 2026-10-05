@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='nhist-filters']",
+      "title": "Filtra tus avisos",
+      "text": "Mira solo los no leídos, elige un tipo de aviso o un rango de fechas."
+    },
+    {
+      "selector": "[data-tour='nhist-list']",
+      "title": "Todos tus avisos",
+      "text": "Los no leídos se ven resaltados. Toca un aviso para ir a su sección (queda leído) o usa el check para marcarlo sin salir."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Campana en cero",
+      "text": "«Marcar todos como leídos» deja la campana en cero sin borrar ningún aviso."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

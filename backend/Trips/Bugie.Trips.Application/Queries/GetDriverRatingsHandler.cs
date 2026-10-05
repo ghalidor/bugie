@@ -11,8 +11,36 @@ namespace Bugie.Trips.Application.Queries;
 /// - El propio conductor (Flutter/web) para ver su historial.
 /// - El admin (DriverDetail) para auditar.
 /// </summary>
-public record GetDriverRatingsQuery(Guid DriverUserId, int Page, int PageSize)
+// ShortPassengerNames = true: el pasajero sale con nombre corto ("Nombre A.")
+// en vez del nombre completo (lo que ve el conductor). El admin ve el completo.
+public record GetDriverRatingsQuery(Guid DriverUserId, int Page, int PageSize,
+    bool ShortPassengerNames = false)
     : IRequest<TripRatingPageDto>;
+
+/// <summary>
+/// Nombre del pasajero en una calificacion: completo, o corto ("Nombre A.",
+/// como PassengerShortName de /pending) cuando lo ve el conductor.
+/// </summary>
+public static class RatingPassengerName
+{
+    public static string Resolve(UserInfoDto? u, bool shortName)
+    {
+        if(u is null) return "Pasajero";
+        if(!shortName) return u.FullName;
+
+        var name = TripDto.BuildPassengerShortName(u.FirstNames, u.LastNamePaternal);
+        if(name is not null) return name;
+
+        // Cuenta antigua sin nombres separados: primera palabra + inicial de la segunda.
+        var parts = (u.FullName ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "Pasajero",
+            1 => parts[0],
+            _ => $"{parts[0]} {char.ToUpperInvariant(parts[1][0])}.",
+        };
+    }
+}
 
 public class GetDriverRatingsHandler
     : IRequestHandler<GetDriverRatingsQuery, TripRatingPageDto>
@@ -42,7 +70,7 @@ public class GetDriverRatingsHandler
 
         var items = list.Select(r => new TripRatingDto(
             r.Id, r.TripId, r.PassengerId,
-            users.TryGetValue(r.PassengerId, out var u) ? u.FullName : "Pasajero",
+            RatingPassengerName.Resolve(users.GetValueOrDefault(r.PassengerId), q.ShortPassengerNames),
             r.DriverId, r.Stars, r.Comment, r.CreatedAt
         )).ToList();
 
@@ -54,14 +82,14 @@ public class GetDriverRatingsHandler
 /// Saber si un viaje específico ya tiene calificación (para que el frontend
 /// del pasajero muestre "Calificar" o "Ya calificaste" en el historial).
 /// </summary>
-public record GetTripRatingQuery(Guid TripId) : IRequest<TripRatingDto?>;
+public record GetTripRatingQuery(Guid TripId, bool ShortPassengerNames = false) : IRequest<TripRatingDto?>;
 
 /// <summary>
 /// Versión batch: devuelve Map {tripId → TripRatingDto} para todos los viajes
 /// dados. Evita N llamadas al cargar el historial.
 /// Los viajes sin calificación NO aparecen en el resultado (no como null).
 /// </summary>
-public record GetTripRatingsBatchQuery(List<Guid> TripIds)
+public record GetTripRatingsBatchQuery(List<Guid> TripIds, bool ShortPassengerNames = false)
     : IRequest<Dictionary<Guid, TripRatingDto>>;
 
 public class GetTripRatingsBatchHandler
@@ -90,8 +118,8 @@ public class GetTripRatingsBatchHandler
             kv => kv.Key,
             kv => {
                 var r = kv.Value;
-                var name = users.TryGetValue(r.PassengerId, out var u)
-                    ? u.FullName : "Pasajero";
+                var name = RatingPassengerName.Resolve(
+                    users.GetValueOrDefault(r.PassengerId), q.ShortPassengerNames);
                 return new TripRatingDto(
                     r.Id, r.TripId, r.PassengerId, name,
                     r.DriverId, r.Stars, r.Comment, r.CreatedAt);
@@ -117,7 +145,7 @@ public class GetTripRatingHandler
         if(r is null) return null;
 
         var users = await _auth.GetUsersByIdsAsync(new[] { r.PassengerId }, ct);
-        var name = users.TryGetValue(r.PassengerId, out var u) ? u.FullName : "Pasajero";
+        var name = RatingPassengerName.Resolve(users.GetValueOrDefault(r.PassengerId), q.ShortPassengerNames);
 
         return new TripRatingDto(
             r.Id, r.TripId, r.PassengerId, name,

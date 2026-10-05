@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
 import RewardsProgress from './RewardsProgress';
+import RewardsLevelBenefits from './RewardsLevelBenefits';
+import { CountUp, Skeleton, StatCard, StatGrid } from '../../components/ui';
 import {
   rewardsApi, PointsProfile, PointsTransaction, RewardLevel,
   TX_LABEL, SOURCE_LABEL, LEVEL_COLOR, fmtPoints, fmtDate, daysUntil,
@@ -8,7 +10,11 @@ import {
 
 const PAGE_SIZE = 10;
 
-export default function RewardsSummary({ onGoToCatalog }: { onGoToCatalog: () => void }) {
+export default function RewardsSummary({ onGoToCatalog, onCouponClaimed }: {
+  onGoToCatalog: () => void;
+  /** Se reclamo un beneficio de nivel: hay un cupon nuevo. */
+  onCouponClaimed?: () => void;
+}) {
   const [profile, setProfile] = useState<PointsProfile | null>(null);
   const [levels,  setLevels]  = useState<RewardLevel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +30,7 @@ export default function RewardsSummary({ onGoToCatalog }: { onGoToCatalog: () =>
   }, []);
 
   if (loading) {
-    return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
+    return <StatGrid min={160}>{[0, 1, 2].map(i => <Skeleton key={i} height={104} radius={18} />)}</StatGrid>;
   }
   if (error || !profile) {
     return <div className="alert alert-danger small">{error ?? 'No se encontró tu perfil de puntos.'}</div>;
@@ -59,7 +65,7 @@ export default function RewardsSummary({ onGoToCatalog }: { onGoToCatalog: () =>
             <div className="text-end">
               <div className="small bugie-muted mb-1">Puntos disponibles</div>
               <div className="fw-bold" style={{ fontSize: '2.2rem', lineHeight: 1 }}>
-                {fmtPoints(profile.availablePoints)}
+                <CountUp value={profile.availablePoints} format={fmtPoints} />
               </div>
             </div>
           </div>
@@ -81,23 +87,17 @@ export default function RewardsSummary({ onGoToCatalog }: { onGoToCatalog: () =>
         </div>
       </div>
 
+      {/* Cupones y viajes gratis del mes: solo pasajeros (el backend decide). */}
+      {profile.userType === 'passenger' && <RewardsLevelBenefits onClaimed={onCouponClaimed} />}
+
       <ExpiryNotice profile={profile} />
 
       {/* Totales */}
-      <div className="row g-3 mb-3">
-        {[
-          ['Disponibles',     fmtPoints(profile.availablePoints)],
-          ['Ganados en total', fmtPoints(profile.totalPoints)],
-          ['Canjeados',       fmtPoints(profile.redeemedPoints)],
-        ].map(([label, value]) => (
-          <div className="col-md-4" key={label}>
-            <div className="bugie-kpi">
-              <div className="label">{label}</div>
-              <div className="value">{value}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <StatGrid min={160} className="mb-3">
+        <StatCard label="Disponibles" value={<CountUp value={profile.availablePoints} format={fmtPoints} />} icon="fa-star" />
+        <StatCard label="Ganados en total" value={<CountUp value={profile.totalPoints} format={fmtPoints} />} icon="fa-arrow-trend-up" tone="ok" />
+        <StatCard label="Canjeados" value={<CountUp value={profile.redeemedPoints} format={fmtPoints} />} icon="fa-gift" tone="info" />
+      </StatGrid>
 
       <div className="row g-3">
         <div className="col-12 col-lg-7">
@@ -155,7 +155,7 @@ function LevelLadder({ levels, current }: { levels: RewardLevel[]; current: stri
           return (
             <div key={l.id} className="p-2" style={{
               borderRadius: 10,
-              background: isCurrent ? `${color}1f` : 'transparent',
+              background: isCurrent ? `color-mix(in srgb, ${color} 12%, transparent)` : 'transparent',
               border: `1px solid ${isCurrent ? color : 'var(--bugie-border)'}`,
             }}>
               <div className="d-flex align-items-center gap-2">

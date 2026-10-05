@@ -27,18 +27,9 @@ public class UserRepository : IUserRepository
         return n > 0;
     }
 
-    public async Task<List<User>> GetAllAsync(string? role = null, CancellationToken ct = default)
-    {
-        var sql = role is null
-            ? "SELECT * FROM auth.Users ORDER BY CreatedAt DESC"
-            : "SELECT * FROM auth.Users WHERE Role = @Role ORDER BY CreatedAt DESC";
-        var rows = await _db.QueryAsync<User>(sql, role is null ? null : new { Role = role });
-        return rows.ToList();
-    }
-
     public async Task<(List<User> Items, int Total)> GetPagedAsync(
         int page, int pageSize, string? search, string? role, bool? verified,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool? deleted = false)
     {
         // Clamp para seguridad: nunca más de 100 por página, mínimo 1.
         page = Math.Max(1, page);
@@ -62,9 +53,13 @@ public class UserRepository : IUserRepository
             where.Add("IsVerified = @Verified");
             p.Add("Verified", verified.Value);
         }
+        // Cuentas eliminadas: por defecto NO se incluyen (deleted=false).
+        // deleted=true -> solo eliminadas; null -> todas.
+        if(deleted.HasValue)
+            where.Add(deleted.Value ? "DeletedAt IS NOT NULL" : "DeletedAt IS NULL");
         if(!string.IsNullOrWhiteSpace(search))
         {
-            where.Add("(FullName LIKE @SearchLike OR Email LIKE @SearchLike)");
+            where.Add("(FullName LIKE @SearchLike OR Email LIKE @SearchLike OR DocNumber LIKE @SearchLike)");
             p.Add("SearchLike", $"%{search.Trim()}%");
         }
 
@@ -91,7 +86,7 @@ public class UserRepository : IUserRepository
 
     public async Task<(int Total, int Activos, int Pasajeros, int Conductores, int Verificados, int NoVerificados)>
         GetStatsAsync(string? search, string? role, bool? verified,
-            CancellationToken ct = default)
+            CancellationToken ct = default, bool? deleted = false)
     {
         // 6 COUNT(*) en una sola query usando SUM(CASE WHEN...) es más
         // eficiente que 6 round-trips separados (1 ida a BD vs 6).
@@ -110,9 +105,13 @@ public class UserRepository : IUserRepository
             where.Add("IsVerified = @Verified");
             p.Add("Verified", verified.Value);
         }
+        // Cuentas eliminadas: por defecto NO se incluyen (deleted=false).
+        // deleted=true -> solo eliminadas; null -> todas.
+        if(deleted.HasValue)
+            where.Add(deleted.Value ? "DeletedAt IS NOT NULL" : "DeletedAt IS NULL");
         if(!string.IsNullOrWhiteSpace(search))
         {
-            where.Add("(FullName LIKE @SearchLike OR Email LIKE @SearchLike)");
+            where.Add("(FullName LIKE @SearchLike OR Email LIKE @SearchLike OR DocNumber LIKE @SearchLike)");
             p.Add("SearchLike", $"%{search.Trim()}%");
         }
         var whereSql = where.Count == 0 ? "" : "WHERE " + string.Join(" AND ", where);
@@ -163,8 +162,10 @@ public class UserRepository : IUserRepository
 
     public Task AddAsync(User user, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
-            INSERT INTO auth.Users (Id, Email, PasswordHash, Role, FullName, Phone, IsActive, IsVerified, CreatedAt, TermsAccepted, TermsAcceptedAt, SignatureImage)
-            VALUES (@Id, @Email, @PasswordHash, @Role, @FullName, @Phone, @IsActive, @IsVerified, @CreatedAt, @TermsAccepted, @TermsAcceptedAt, @SignatureImage)",
+            INSERT INTO auth.Users (Id, Email, PasswordHash, Role, FullName, Phone, IsActive, IsVerified, CreatedAt, TermsAccepted, TermsAcceptedAt, SignatureImage,
+                                    DocType, DocNumber, FirstNames, LastNamePaternal, LastNameMaternal, SecurityStamp)
+            VALUES (@Id, @Email, @PasswordHash, @Role, @FullName, @Phone, @IsActive, @IsVerified, @CreatedAt, @TermsAccepted, @TermsAcceptedAt, @SignatureImage,
+                    @DocType, @DocNumber, @FirstNames, @LastNamePaternal, @LastNameMaternal, @SecurityStamp)",
             user);
 
     public Task UpdateAsync(User user, CancellationToken ct = default) =>
@@ -184,4 +185,78 @@ public class UserRepository : IUserRepository
 
     public Task DeleteAsync(Guid id, CancellationToken ct = default) =>
         _db.ExecuteAsync("DELETE FROM auth.Users WHERE Id = @Id", new { Id = id });
+
+    public Task<User?> GetActiveByDocumentAsync(string docType, string docNumber, Guid? excludeUserId = null,
+        CancellationToken ct = default) =>
+        _db.QueryFirstOrDefaultAsync<User>(@"
+            SELECT * FROM auth.Users
+            WHERE DocType = @DocType AND DocNumber = @DocNumber AND DeletedAt IS NULL
+              AND (@Exclude::uuid IS NULL OR Id <> @Exclude::uuid)
+            LIMIT 1",
+            new { DocType = docType, DocNumber = docNumber, Exclude = excludeUserId });
+
+    public Task UpdateDocumentAsync(Guid userId, string docType, string docNumber, CancellationToken ct = default) =>
+        _db.ExecuteAsync(
+            "UPDATE auth.Users SET DocType = @DocType, DocNumber = @DocNumber WHERE Id = @Id",
+            new { DocType = docType, DocNumber = docNumber, Id = userId });
+
+    public Task UpdateNamesAsync(User user, CancellationToken ct = default) =>
+        _db.ExecuteAsync(@"
+            UPDATE auth.Users SET
+                FirstNames = @FirstNames, LastNamePaternal = @LastNamePaternal,
+                LastNameMaternal = @LastNameMaternal, FullName = @FullName
+            WHERE Id = @Id",
+            new { user.FirstNames, user.LastNamePaternal, user.LastNameMaternal, user.FullName, user.Id });
+
+    public Task UpdatePasswordHashAsync(Guid userId, string passwordHash, CancellationToken ct = default) =>
+        _db.ExecuteAsync(
+            "UPDATE auth.Users SET PasswordHash = @Hash WHERE Id = @Id",
+            new { Hash = passwordHash, Id = userId });
+
+    public Task UpdateDeletionAsync(User user, CancellationToken ct = default) =>
+        _db.ExecuteAsync(@"
+            UPDATE auth.Users SET DeletedAt = @DeletedAt, DeletedReason = @DeletedReason, IsActive = @IsActive
+            WHERE Id = @Id",
+            new { user.DeletedAt, user.DeletedReason, user.IsActive, user.Id });
+
+    public async Task<bool> IsDeletedAsync(Guid userId, CancellationToken ct = default) =>
+        await _db.ExecuteScalarAsync<bool?>(
+            "SELECT DeletedAt IS NOT NULL FROM auth.Users WHERE Id = @Id", new { Id = userId }) == true;
+
+    public async Task<UserSessionState?> GetSessionStateAsync(Guid userId, CancellationToken ct = default)
+    {
+        var r = await _db.QuerySingleOrDefaultAsync<SessionRow>(@"
+            SELECT Id AS UserId, SecurityStamp, SecurityStampChangedAt, IsActive,
+                   DeletedAt IS NOT NULL AS IsDeleted, DeactivatedAt IS NOT NULL AS IsDeactivated, Role
+            FROM auth.Users WHERE Id = @Id",
+            new { Id = userId });
+        return r is null ? null
+            : new UserSessionState(r.UserId, r.SecurityStamp, r.SecurityStampChangedAt,
+                r.IsActive, r.IsDeleted, r.IsDeactivated, r.Role);
+    }
+
+    private class SessionRow
+    {
+        public Guid UserId { get; set; }
+        public Guid SecurityStamp { get; set; }
+        public DateTime? SecurityStampChangedAt { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsDeleted { get; set; }
+        public bool IsDeactivated { get; set; }
+        public string Role { get; set; } = string.Empty;
+    }
+
+    public Task<Guid> RotateSecurityStampAsync(Guid userId, CancellationToken ct = default) =>
+        _db.ExecuteScalarAsync<Guid>(@"
+            UPDATE auth.Users
+               SET SecurityStamp = gen_random_uuid(), SecurityStampChangedAt = (now() AT TIME ZONE 'utc')
+             WHERE Id = @Id
+            RETURNING SecurityStamp",
+            new { Id = userId });
+
+    public Task UpdateDeactivationAsync(User user, CancellationToken ct = default) =>
+        _db.ExecuteAsync(@"
+            UPDATE auth.Users SET IsActive = @IsActive, DeactivatedAt = @DeactivatedAt, DeactivatedReason = @DeactivatedReason
+            WHERE Id = @Id",
+            new { user.IsActive, user.DeactivatedAt, user.DeactivatedReason, user.Id });
 }

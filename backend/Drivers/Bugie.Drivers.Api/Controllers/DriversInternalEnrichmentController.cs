@@ -39,7 +39,7 @@ public class DriversInternalEnrichmentController : ControllerBase
         CancellationToken ct)
     {
         var expected = _cfg["InternalToken"];
-        if(string.IsNullOrEmpty(expected) || token != expected)
+        if(!Bugie.Drivers.Api.Security.InternalTokenCheck.Matches(token, expected))
             return Unauthorized(new { error = "Token interno inválido." });
 
         if(req?.UserIds is null || req.UserIds.Count == 0)

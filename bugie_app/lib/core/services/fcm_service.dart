@@ -3,25 +3,36 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
+import '../../modules/notifications/data/notifications_badge.dart';
 import '../api/api_client.dart';
 import '../api/api_config.dart';
+import '../session/session.dart';
+import 'active_trip_service.dart';
 import 'in_app_alert_service.dart';
+import 'notification_prefs.dart';
+import 'push_routes.dart';
+import 'request_alert_service.dart';
 
 /// Servicio centralizado de Firebase Cloud Messaging.
 ///
 /// Responsabilidades:
 ///   1. Pedir permisos de notificación al usuario (Android 13+ / iOS).
 ///   2. Obtener el token FCM del dispositivo y enviarlo al backend
-///      (POST /api/auth/me/fcm-token) para que cuando llegue una
-///      solicitud el backend sepa a quién mandarle el push.
+///      (POST /api/auth/me/fcm-token) al iniciar sesión, al abrir la app con
+///      sesión y cuando Firebase lo rota (onTokenRefresh). Al cerrar sesión
+///      se borra SOLO el de este celular (DELETE /api/auth/me/fcm-token?token=).
 ///   3. Escuchar mensajes entrantes:
-///        - background: el sistema muestra la notif nativa automáticamente.
-///        - foreground: mostramos un banner in-app (AlertBanner) sobre la
-///          UI actual, vía InAppAlertService.
-///   4. Manejar taps en la notificación: si trae `route`, navegamos ahí
-///      vía GoRouter (ej. al detalle del viaje o a la lista).
+///        - background/cerrada: el sistema muestra la notificación nativa
+///          (el backend manda notification + data; no mostramos otra local
+///          para que no salga duplicada).
+///        - foreground: Android/iOS NO muestran la notificación del sistema,
+///          así que mostramos un banner in-app (AlertBanner) vía
+///          InAppAlertService. Una sola alerta por push.
+///   4. Manejar taps en la notificación: navega a data.route normalizada al
+///      rol actual (ver push_routes.dart). Si la app estaba cerrada, espera a
+///      que termine el splash para navegar.
 ///
-/// Se llama una vez desde main.dart después de Firebase.initializeApp().
+/// Se llama desde main.dart después de Firebase.initializeApp().
 /// Aviso "tu conductor llego" recibido por push. La pantalla de seguimiento
 /// del pasajero lo escucha y muestra el popup.
 class DriverArrivedEvent {
@@ -38,88 +49,182 @@ class TripCancelledEvent {
   TripCancelledEvent(this.tripId) : at = DateTime.now();
 }
 
+/// Aviso de cuenta del conductor (type 'account'): aprobado, rechazado,
+/// documento rechazado o por vencer. Las pantallas del conductor (inicio,
+/// disponibilidad, documentos) lo escuchan para volver a pedir su estado.
+class DriverAccountEvent {
+  /// data.alert_type: 'driver_approved' | 'driver_rejected' |
+  /// 'driver_suspended' | 'driver_reactivated' | 'review_kept' |
+  /// 'document_rejected' | 'document_expiring'.
+  final String? alertType;
+  final DateTime at;
+  DriverAccountEvent(this.alertType) : at = DateTime.now();
+
+  bool get isApproved => alertType == 'driver_approved';
+
+  /// Cambió el estado de la cuenta (aprobada, rechazada, suspendida,
+  /// reactivada o respuesta a la solicitud de revisión).
+  bool get isStatusChange =>
+      alertType == 'driver_approved' ||
+      alertType == 'driver_rejected' ||
+      alertType == 'driver_suspended' ||
+      alertType == 'driver_reactivated' ||
+      alertType == 'review_kept';
+}
+
+/// true si el push es una SOLICITUD NUEVA para el conductor.
+///
+/// El backend (Trips: CreateTripHandler.NotifyDriversAsync) la manda SIN
+/// data.type, con alert_type = 'proposal' y route = '/driver/requests'
+/// (es el único aviso con esa ruta). También se acepta un futuro
+/// type = 'new_request'.
+bool isNewRequestPush(Map<String, dynamic> data) {
+  if (data['type'] == 'new_request') return true;
+  return (data['type'] == null || data['type'] == '') &&
+      data['route'] == '/driver/requests';
+}
+
+/// true si el push debe usar el canal "bugie_requests" (solicitud nueva al
+/// conductor o propuesta/contraoferta de precio). Es la misma regla que
+/// debería usar el backend para elegir el ChannelId.
+bool isRequestChannelPush(Map<String, dynamic> data) =>
+    isNewRequestPush(data) ||
+    (data['alert_type'] == 'proposal' &&
+        (data['route'] ?? '').toString().isNotEmpty);
+
 class FcmService {
+  /// Ultimo aviso de cuenta del conductor (aprobado, rechazado, documentos).
+  static final ValueNotifier<DriverAccountEvent?> driverAccount = ValueNotifier(null);
+
   /// Ultimo aviso de viaje cancelado.
   static final ValueNotifier<TripCancelledEvent?> tripCancelled = ValueNotifier(null);
 
   /// Ultimo aviso de llegada del conductor (lo escucha tracking_screen).
   static final ValueNotifier<DriverArrivedEvent?> driverArrived = ValueNotifier(null);
 
-  /// Canal Android de alta prioridad (el backend manda ChannelId=bugie_high_priority).
+  /// Canal Android de alta prioridad. Trips lo manda explícito
+  /// (ChannelId=bugie_high_priority); Rewards no lo manda, así que también
+  /// está declarado como canal por defecto en AndroidManifest.xml.
   static const _channel = AndroidNotificationChannel(
     'bugie_high_priority',
     'Avisos de viaje',
-    description: 'Solicitudes, llegada del conductor y avisos del viaje.',
+    description: 'Llegada del conductor, estado del viaje y otros avisos.',
     importance: Importance.high,
+    playSound: true,
+    enableVibration: true,
+  );
+
+  /// Canal Android para lo urgente: solicitudes nuevas al conductor y
+  /// propuestas/contraofertas al pasajero. Importancia máxima (sale como
+  /// aviso flotante), sonido propio (res/raw/bugie_request.wav) y vibración
+  /// insistente.
+  ///
+  /// LIMITACIÓN Android 8+: el sonido y la vibración de un canal quedan
+  /// fijos al crearlo; después solo el usuario puede cambiarlos desde los
+  /// ajustes del celular (Ajustes > Apps > Bugie > Notificaciones). Por eso
+  /// las preferencias de la app (NotificationPrefs) se aplican a los avisos
+  /// DENTRO de la app (primer plano); con la app cerrada manda lo que diga
+  /// el canal. Hoy el backend (Trips/FcmSender) envía todo con
+  /// ChannelId = "bugie_high_priority": para que las solicitudes usen este
+  /// canal con la app cerrada, FcmSender debe elegir el ChannelId según
+  /// el aviso (ver requestsChannelId).
+  static const requestsChannelId = 'bugie_requests';
+  static final _requestsChannel = AndroidNotificationChannel(
+    requestsChannelId,
+    'Solicitudes y ofertas',
+    description: 'Solicitudes nuevas (conductor) y ofertas de conductores '
+        '(pasajero).',
+    importance: Importance.max,
+    playSound: true,
+    sound: const RawResourceAndroidNotificationSound('bugie_request'),
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList(const [0, 400, 150, 400, 150, 600]),
   );
 
   static final FcmService _instance = FcmService._internal();
   factory FcmService() => _instance;
   FcmService._internal();
 
-  final _messaging = FirebaseMessaging.instance;
+  // Getter (no campo): si Firebase no se inicializó, FirebaseMessaging.instance
+  // lanza excepción; como getter solo falla dentro de los try, y así
+  // FcmService() se puede crear siempre (ej. en logout).
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
 
   // Router al que delegamos navegaciones desde notif taps.
-  // Lo setea main.dart después de crear el GoRouter.
   GoRouter? _router;
   // Cliente API para mandar el token al backend.
   ApiClient? _api;
+  // Sesión: para saber el rol (rutas) y si hay usuario logueado.
+  Session? _session;
 
-  /// Inicialización completa. Llamar UNA vez desde main.dart después
-  /// de Firebase.initializeApp() y de crear el ApiClient/router.
+  // Evita registrar los listeners dos veces si init() se llama de nuevo
+  // (eso duplicaba banners y navegaciones).
+  bool _initialized = false;
+
+  // Ruta pendiente de un push tocado con la app cerrada: se abre cuando el
+  // splash termina y el usuario ya está en su inicio.
+  String? _pendingRoute;
+
+  /// Inicialización completa. Es seguro llamarla más de una vez: las
+  /// siguientes llamadas solo actualizan router/api/sesión.
   Future<void> init({
     required ApiClient api,
     required GoRouter router,
+    Session? session,
   }) async {
     _api = api;
     _router = router;
+    _session = session ?? _session;
+    if (_initialized) return;
+    _initialized = true;
 
     // 0) Crear el canal de alta prioridad para que el aviso salga destacado.
     if (defaultTargetPlatform == TargetPlatform.android) {
       try {
-        await FlutterLocalNotificationsPlugin()
-            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-            ?.createNotificationChannel(_channel);
+        final android = FlutterLocalNotificationsPlugin()
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        await android?.createNotificationChannel(_channel);
+        await android?.createNotificationChannel(_requestsChannel);
       } catch (e) {
         debugPrint('FCM: no se pudo crear el canal: $e');
       }
     }
 
-    // 1) Pedir permiso (Android 13+ y iOS muestran prompt nativo).
-    final settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      // El usuario rechazó las notificaciones. No insistimos; el usuario
-      // podrá habilitarlas más tarde desde ajustes del sistema.
-      debugPrint('FCM: permiso denegado por el usuario');
-      return;
-    }
-
-    // 2) Foreground: mostrar banner in-app (estilo iOS).
-    //    Background: el sistema muestra la notif nativa automáticamente
-    //    (no hace falta flutter_local_notifications).
+    // 1) Listeners PRIMERO: así no se pierde un tap aunque el usuario aún
+    //    no haya respondido el permiso.
+    //    Foreground: banner in-app. Tap con app en background: navegar.
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-
-    // 3) Tap en notif cuando la app estaba en background.
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageOpenedApp);
 
-    // 4) Si la app se abrió DESDE una notif (estaba terminada).
-    final initialMsg = await _messaging.getInitialMessage();
-    if (initialMsg != null) {
-      // Delay para asegurar que el router ya esté listo.
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _handleMessageOpenedApp(initialMsg);
-      });
+    // 2) Si la app se abrió DESDE una notif (estaba terminada).
+    try {
+      final initialMsg = await _messaging.getInitialMessage();
+      if (initialMsg != null) _handleMessageOpenedApp(initialMsg);
+    } catch (e) {
+      debugPrint('FCM: getInitialMessage falló: $e');
     }
 
-    // 5) Obtener el token actual y mandarlo al backend (si ya hay sesion).
-    //    Si no hay sesion todavia, se registra al iniciar sesion (registerToken).
+    // 3) Pedir permiso (Android 13+ POST_NOTIFICATIONS e iOS muestran el
+    //    prompt nativo). Si lo niega, igual registramos el token: los
+    //    banners in-app con la app abierta siguen funcionando.
+    try {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        debugPrint('FCM: permiso de notificaciones denegado por el usuario');
+      }
+    } catch (e) {
+      debugPrint('FCM: requestPermission falló: $e');
+    }
+
+    // 4) Token actual al backend (si ya hay sesión). Si no hay sesión, se
+    //    registra al iniciar sesión (AuthRepository → registerToken).
     await _registerTokenWithBackend();
 
-    // 6) Escuchar rotación del token (Firebase puede rotarlo).
+    // 5) Rotación del token (Firebase puede rotarlo).
     _messaging.onTokenRefresh.listen((_) => _registerTokenWithBackend());
   }
 
@@ -129,11 +234,16 @@ class FcmService {
 
   /// Logout: borra SOLO el token de este celular, para que no le sigan
   /// llegando notificaciones aqui. Sus otros celulares siguen recibiendo.
+  /// Debe llamarse ANTES de borrar la sesión (el endpoint pide JWT).
   Future<void> unregister() async {
+    _pendingRoute = null;
     try {
       final token = await _messaging.getToken();
-      final query = token == null ? '' : '?token=${Uri.encodeQueryComponent(token)}';
-      await _api?.delete('${ApiConfig.auth}/auth/me/fcm-token$query');
+      // Sin token no llamamos: DELETE sin ?token= borra TODOS los
+      // celulares del usuario.
+      if (token == null || token.isEmpty) return;
+      await _api?.delete(
+          '${ApiConfig.auth}/auth/me/fcm-token?token=${Uri.encodeQueryComponent(token)}');
     } catch (_) {
       // No es crítico — si falla, el token quedará huérfano hasta que
       // sea reemplazado por el del próximo login.
@@ -143,12 +253,14 @@ class FcmService {
   // ─────────────────────────────────────────────────────────────────
 
   Future<void> _registerTokenWithBackend() async {
+    // Sin sesión el endpoint responde 401 (y el ApiClient limpiaría la
+    // sesión): no llamamos.
+    if (_session != null && !_session!.isLoggedIn) return;
     try {
       final token = await _messaging.getToken();
       if (token == null || _api == null) return;
       await _api!.post('${ApiConfig.auth}/auth/me/fcm-token', body: {
         'token': token,
-        // Solo Android por ahora. Si activamos iOS, distinguimos acá.
         'platform': defaultTargetPlatform == TargetPlatform.iOS
             ? 'ios' : 'android',
       });
@@ -157,82 +269,159 @@ class FcmService {
     }
   }
 
+  /// Ruta del push ya ajustada al rol actual y validada contra el router.
+  String? _routeOf(RemoteMessage msg) => resolvePushRoute(
+        router: _router,
+        role: _session?.role,
+        route: msg.data['route'] as String?,
+        pushType: msg.data['type'] as String?,
+        tripId: (msg.data['trip_id'] ?? msg.data['tripId']) as String?,
+      );
+
+  /// Id de la notificación guardada en el backend (solo la traen los
+  /// avisos que Trips guarda en la bandeja).
+  String? _notificationIdOf(RemoteMessage msg) {
+    final id = msg.data['notification_id'] as String?;
+    return (id == null || id.isEmpty) ? null : id;
+  }
+
   void _handleForegroundMessage(RemoteMessage msg) {
+    final pushType = msg.data['type'] as String?;
+
+    // Nuevo aviso guardado en la bandeja: sube el contador de la campana.
+    if (_notificationIdOf(msg) != null) NotificationsBadge().onPushReceived();
+
+    // Conductor: cualquier aviso puede cambiar su viaje activo (confirmado,
+    // cancelado...). Se vuelve a consultar para la franja "Viaje en curso".
+    if (_session?.role == UserRole.driver) ActiveTripService().refresh();
+
     // Llego el conductor: con la app abierta se va al seguimiento y se
     // muestra el popup (no hace falta el banner).
-    if (msg.data['type'] == 'driver_arrived') {
-      _router?.go('/passenger/tracking');
+    if (pushType == 'driver_arrived') {
+      final route = _routeOf(msg);
+      if (route != null) _router?.go(route);
       driverArrived.value = DriverArrivedEvent(msg.data['trip_id'] as String?);
       return;
     }
 
     // Viaje cancelado: las pantallas del viaje refrescan y muestran el motivo.
-    if (msg.data['type'] == 'trip_cancelled') {
+    if (pushType == 'trip_cancelled') {
       tripCancelled.value = TripCancelledEvent(msg.data['trip_id'] as String?);
+    }
+
+    // Cuenta del conductor: las pantallas del conductor refrescan su estado
+    // (ej. aprobado → se habilita "Conectarme" sin reiniciar la app).
+    if (pushType == 'account') {
+      driverAccount.value =
+          DriverAccountEvent(msg.data['alert_type'] as String?);
     }
 
     final notif = msg.notification;
     final title = notif?.title ?? msg.data['title'] as String? ?? 'Bugie';
     final body  = notif?.body  ?? msg.data['body']  as String? ?? '';
-    final route = msg.data['route'] as String?;
+    final route = _routeOf(msg);
 
-    // Tipo de alerta: lo trae el backend en data.alert_type. Si no viene,
-    // intentamos inferirlo desde la ruta. Default: trip.
-    final typeStr = msg.data['alert_type'] as String?;
-    final type = _parseType(typeStr) ?? _inferType(route);
+    // Solicitud nueva al conductor: panel grande con sonido en bucle. Si
+    // está desconectado y activó "No molestar", solo un aviso sin sonido.
+    var silent = false;
+    if (isNewRequestPush(msg.data) && _session?.role == UserRole.driver) {
+      // Con un viaje activo no puede aceptar otra: en vez del panel grande
+      // con sonido en bucle, sale como aviso normal sin sonido.
+      if (!ActiveTripService().hasActive &&
+          !NotificationPrefs().mutedForRequests) {
+        RequestAlertService().push(IncomingRequestAlert.fromPush(
+          data: msg.data,
+          title: title,
+          body: body,
+        ));
+        return;
+      }
+      silent = true;
+    }
 
-    // Texto del botón de acción según tipo (opcional).
-    final action = _actionLabelFor(type);
+    // Tipo visual: primero por data.type (avisos específicos), luego por
+    // data.alert_type y, si no viene, inferido desde la ruta.
+    final type = alertTypeFor(
+      type: pushType,
+      alertType: msg.data['alert_type'] as String?,
+      route: msg.data['route'] as String?,
+    );
 
     InAppAlertService().show(AlertData(
       type: type,
       title: title,
       body: body,
       route: route,
-      actionLabel: action,
+      actionLabel: alertActionLabel(type),
+      service: msg.data['service'] as String?,
+      from: (msg.data['from_role'] ?? msg.data['from']) as String?,
+      // Los avisos de push se van solos; los críticos se quedan hasta
+      // que el usuario los cierre.
+      autoDismiss: (type == AlertType.sos || type == AlertType.deviation)
+          ? null
+          : const Duration(seconds: 8),
+      notificationId: _notificationIdOf(msg),
+      silent: silent,
     ));
   }
 
-  AlertType? _parseType(String? s) {
-    switch (s) {
-      case 'trip':     return AlertType.trip;
-      case 'proposal': return AlertType.proposal;
-      case 'accepted': return AlertType.accepted;
-      case 'sos':      return AlertType.sos;
-      default:         return null;
-    }
-  }
-
-  AlertType _inferType(String? route) {
-    if (route == null) return AlertType.trip;
-    if (route.contains('sos'))               return AlertType.sos;
-    if (route.contains('proposal'))          return AlertType.proposal;
-    if (route.contains('trip-in-progress') ||
-        route.contains('trip-active'))       return AlertType.accepted;
-    return AlertType.trip;
-  }
-
-  String? _actionLabelFor(AlertType type) {
-    switch (type) {
-      case AlertType.trip:     return 'Ver';
-      case AlertType.proposal: return 'Responder';
-      case AlertType.accepted: return 'Abrir';
-      case AlertType.sos:      return 'Atender';
-      case AlertType.warning:  return 'Subir';
-    }
-  }
-
   void _handleMessageOpenedApp(RemoteMessage msg) {
-    final route = msg.data['route'] as String?;
-    if (route != null && route.isNotEmpty) {
-      _router?.go(route);
-    }
+    final pushType = msg.data['type'] as String?;
+
+    // Tocó el aviso del sistema: marcarlo como leído sin bloquear la navegación.
+    final notifId = _notificationIdOf(msg);
+    if (notifId != null) NotificationsBadge().markRead(notifId);
+    final route = _routeOf(msg);
+    if (route != null) _navigateWhenReady(route);
+
     // Toco el aviso "tu conductor llego": al abrir el seguimiento se muestra el popup.
-    if (msg.data['type'] == 'driver_arrived') {
+    if (pushType == 'driver_arrived') {
       driverArrived.value = DriverArrivedEvent(msg.data['trip_id'] as String?);
     }
-    if (msg.data['type'] == 'trip_cancelled') {
+    if (pushType == 'trip_cancelled') {
       tripCancelled.value = TripCancelledEvent(msg.data['trip_id'] as String?);
     }
+    // Cuenta del conductor: si las pantallas ya estaban abiertas, refrescan.
+    if (pushType == 'account') {
+      driverAccount.value =
+          DriverAccountEvent(msg.data['alert_type'] as String?);
+    }
+  }
+
+  // ── Navegación diferida (app abierta desde una notificación) ─────────
+
+  String _currentPath() =>
+      _router?.routerDelegate.currentConfiguration.uri.path ?? '';
+
+  /// true si el usuario ya está dentro de la app (no en splash/bienvenida/login).
+  bool _isInsideApp(String path) =>
+      path.startsWith('/driver') || path.startsWith('/passenger');
+
+  void _navigateWhenReady(String route) {
+    final router = _router;
+    if (router == null) return;
+    if (_isInsideApp(_currentPath())) {
+      router.go(route);
+      return;
+    }
+    // Splash aún corriendo: el splash hace go('/') al terminar y pisaría
+    // nuestra navegación. Esperamos a que el usuario llegue a su inicio.
+    _pendingRoute = route;
+    router.routerDelegate.removeListener(_flushPending);
+    router.routerDelegate.addListener(_flushPending);
+  }
+
+  void _flushPending() {
+    final router = _router;
+    final route = _pendingRoute;
+    if (router == null || route == null) {
+      router?.routerDelegate.removeListener(_flushPending);
+      return;
+    }
+    if (!_isInsideApp(_currentPath())) return; // seguir esperando
+    _pendingRoute = null;
+    router.routerDelegate.removeListener(_flushPending);
+    // Fuera del frame actual del router.
+    scheduleMicrotask(() => router.go(route));
   }
 }

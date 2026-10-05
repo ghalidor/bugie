@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Select, useConfirm } from './ui';
 
 interface Props {
   value: string;                         // HTML
@@ -22,6 +23,7 @@ export default function RichTextEditor({
   value, onChange, minHeight = 400, placeholder = 'Escribe aquí...',
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
 
   // Sincronizar el valor externo solo cuando cambia de verdad (evita perder el cursor)
   useEffect(() => {
@@ -40,9 +42,24 @@ export default function RichTextEditor({
     if (ref.current) onChange(ref.current.innerHTML);
   }
 
-  function insertLink() {
-    const url = window.prompt('URL del enlace:', 'https://');
-    if (url) exec('createLink', url);
+  // Pide la URL con el diálogo del panel (no window.prompt). El diálogo se
+  // lleva el foco, así que se guarda la selección y se restaura al volver.
+  async function insertLink() {
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+    const res = await confirm({
+      title: 'Insertar enlace',
+      message: 'Selecciona antes el texto que quieres convertir en enlace.',
+      confirmText: 'Insertar',
+      reason: 'required',
+      reasonLabel: 'Dirección del enlace',
+      reasonDefault: 'https://',
+    });
+    const url = res?.reason.trim();
+    if (!url || url === 'https://') return;
+    ref.current?.focus();
+    if (range && sel) { sel.removeAllRanges(); sel.addRange(range); }
+    exec('createLink', url);
   }
 
   function changeBlock(tag: string) {
@@ -131,7 +148,7 @@ export default function RichTextEditor({
         .bugie-rte-content h4 { font-size: 1.1rem; font-weight: 700; margin: .8rem 0 .3rem; }
         .bugie-rte-content p  { margin: 0 0 .75rem; line-height: 1.6; }
         .bugie-rte-content ul, .bugie-rte-content ol { margin: 0 0 .75rem 1.25rem; }
-        .bugie-rte-content a  { color: #4f46e5; text-decoration: underline; }
+        .bugie-rte-content a  { color: var(--bugie-link); text-decoration: underline; }
       `}</style>
     </div>
   );
@@ -143,6 +160,7 @@ function ToolbarButton({ icon, title, onClick }: { icon: string; title: string; 
       type="button"
       className="btn btn-sm btn-bugie-outline"
       title={title}
+      aria-label={title}
       onClick={onClick}
       style={{ padding: '0.3rem 0.6rem' }}
     >
@@ -158,18 +176,20 @@ function ToolbarSelect({
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
+  // Lista de acciones: no guarda valor, siempre muestra "Formato".
   return (
-    <select
-      className="form-select form-select-sm"
+    <Select
+      size="sm"
+      width="auto"
       title={title}
-      defaultValue=""
-      onChange={e => { if (e.target.value) { onChange(e.target.value); e.target.value = ''; } }}
-      style={{ width: 'auto', minWidth: 120 }}
-    >
-      <option value="" disabled>Formato</option>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+      aria-label={title}
+      placeholder="Formato"
+      value={null}
+      onChange={onChange}
+      options={options}
+    />
   );
+
 }
 
 function Divider() {

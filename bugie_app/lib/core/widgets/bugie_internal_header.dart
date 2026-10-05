@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../session/session.dart';
 import '../theme/bugie_theme.dart';
+import '../../modules/notifications/presentation/notifications_bell.dart';
 import 'bugie_theme_toggle.dart';
 
 /// Header compacto para pantallas internas (no dashboards).
@@ -12,7 +13,7 @@ import 'bugie_theme_toggle.dart';
 ///     hay pila de navegación, como cuando se entra con context.go).
 ///   - Hamburguesa [☰] → abre el drawer.
 ///   - Mini-logo Bugie + título.
-///   - Campanita [🔔] → por ahora no tiene lógica (placeholder).
+///   - Campanita [🔔] → abre la bandeja de notificaciones (con badge).
 class BugieInternalHeader extends StatelessWidget implements PreferredSizeWidget {
   final String title;
 
@@ -25,12 +26,20 @@ class BugieInternalHeader extends StatelessWidget implements PreferredSizeWidget
   final bool showBack;
   final IconData? leadingIcon;
 
+  /// Botones extra a la derecha, antes de la campana.
+  final List<Widget> actions;
+
+  /// Si es false, no muestra la campana (ej. en la propia bandeja).
+  final bool showBell;
+
   const BugieInternalHeader({
     super.key,
     required this.title,
     this.fallbackRoute,
     this.showBack = true,
     this.leadingIcon,
+    this.actions = const [],
+    this.showBell = true,
   });
 
   @override
@@ -104,19 +113,11 @@ class BugieInternalHeader extends StatelessWidget implements PreferredSizeWidget
           // Cambiar tema claro/oscuro (afecta a toda la app).
           BugieThemeToggle(color: c.text),
 
-          // Campanita: sin lógica aún (placeholder).
-          IconButton(
-            icon: Icon(Icons.notifications_none, color: c.text),
-            tooltip: 'Notificaciones',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notificaciones — próximamente'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          ),
+          // Acciones propias de la pantalla (ej. "Marcar todas como leídas").
+          ...actions,
+
+          // Campanita con el número de notificaciones sin leer.
+          if (showBell) NotificationsBell(color: c.text),
         ],
       ),
     );

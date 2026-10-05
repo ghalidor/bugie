@@ -151,7 +151,7 @@ class _DriverSosScreenState extends State<DriverSosScreen> {
           icon: Icons.warning,
           title: 'Solo para emergencias reales',
           subtitle:
-              'Tu ubicación se enviará al centro de monitoreo y a la Policía Nacional.',
+              'Tu ubicación se enviará al centro de monitoreo de Bugie, que intentará comunicarse con la Policía si es necesario.',
         ),
         const SizedBox(height: 16),
 
@@ -207,7 +207,7 @@ class _SosSent extends StatelessWidget {
                   fontSize: 20, fontWeight: FontWeight.bold, color: c.text)),
           const SizedBox(height: 8),
           Text(
-            'El centro de monitoreo recibió tu ubicación. Mantén la calma — ayuda está en camino.',
+            'Se alertó al centro de monitoreo de Bugie con tu ubicación. El equipo intentará comunicarse con la Policía si es necesario. Mantén la calma.',
             textAlign: TextAlign.center,
             style: TextStyle(color: c.textMuted),
           ),

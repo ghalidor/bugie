@@ -20,9 +20,6 @@ public interface IFavoriteDriverRepository {
 
     /// <summary>Quita el favorito. Si no existía, no falla.</summary>
     Task RemoveAsync(Guid passengerId, Guid driverUserId, CancellationToken ct = default);
-
-    /// <summary>Cuántos pasajeros tienen a este conductor como favorito (admin/stats).</summary>
-    Task<int> CountForDriverAsync(Guid driverUserId, CancellationToken ct = default);
 }
 
 /// <summary>

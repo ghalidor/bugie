@@ -33,3 +33,30 @@ void showSuccessSnack(String message) {
       ),
     );
 }
+
+/// Muestra un SnackBar de AVISO/ERROR (rojo) que sobrevive a la navegación
+/// (p. ej. "Esta cuenta fue eliminada…" al abrir la app).
+void showErrorSnack(String message) {
+  final m = rootMessengerKey.currentState;
+  if (m == null) return;
+  m
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message,
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        backgroundColor: BugieColors.danger,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+}

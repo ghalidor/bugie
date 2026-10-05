@@ -3,7 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { API, apiFetch, ApiError } from '../../state/api';
 import { saveSession, SessionUser } from '../../state/session';
 import { parse } from '../../hooks/useLanding';
+import { useCity } from '../../hooks/useCity';
 import SignaturePad, { SignaturePadHandle } from '../../components/SignaturePad';
+import IdentityFields from '../../components/IdentityFields';
+import { Checkbox, Field, FormGrid } from '../../components/ui';
+import { EMPTY_IDENTITY, IdentityForm, identityPayload, validateIdentity } from '../../state/identity';
 
 const LANDING_API = `${import.meta.env.VITE_API_LANDING}/landing`;
 
@@ -11,13 +15,12 @@ const FALLBACK = {
   eyebrow: 'Gana con Bugie',
   title: 'Regístrate como conductor.',
   subtitle: 'Después del registro podrás subir tus documentos para la verificación.',
-  firstNameLabel: 'Nombre', firstNamePlaceholder: 'Nombre',
-  lastNameLabel: 'Apellido', lastNamePlaceholder: 'Apellido',
   emailLabel: 'Correo', emailPlaceholder: 'correo@ejemplo.com',
   phoneLabel: 'Teléfono', phonePlaceholder: '999 999 999',
   passwordLabel: 'Contraseña', passwordPlaceholder: 'Mínimo 8 caracteres',
   cityLabel: 'Ciudad donde operarás',
-  cityPlaceholder: 'Trujillo',
+  /** Vacío: se usa la ciudad configurada (default_city). */
+  cityPlaceholder: '',
   submitLabel: 'Crear cuenta de conductor',
   loadingLabel: 'Creando cuenta…',
   hasAccountLabel: '¿Ya tienes cuenta?',
@@ -41,9 +44,17 @@ export default function RegisterDriver() {
   const navigate = useNavigate();
   const [d, setD] = useState(FALLBACK);
   const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', phone: '', password: '',
-    referralCode: '', city: 'Trujillo',
+    email: '', phone: '', password: '',
+    referralCode: '', city: '',
   });
+  // Ciudad configurada: se precarga en el campo si el usuario aún no escribió nada.
+  const configCity = useCity();
+  useEffect(() => {
+    if (configCity) setForm(prev => (prev.city ? prev : { ...prev, city: configCity }));
+  }, [configCity]);
+  const [identity, setIdentity] = useState<IdentityForm>(EMPTY_IDENTITY);
+  const [triedSubmit, setTriedSubmit] = useState(false);
+  const identityErrors = validateIdentity(identity);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
   const [loading,     setLoading]     = useState(false);
@@ -63,8 +74,7 @@ export default function RegisterDriver() {
   // Valida todo el formulario y devuelve la lista de errores (vacía si está OK).
   function validar(): string[] {
     const errs: string[] = [];
-    if (!form.firstName.trim())            errs.push('Ingresa tu nombre.');
-    if (!form.lastName.trim())             errs.push('Ingresa tu apellido.');
+    errs.push(...Object.values(identityErrors).filter((m): m is string => !!m));
     if (!form.email.trim())                errs.push('Ingresa tu correo.');
     else if (!emailRegex.test(form.email)) errs.push('El correo no tiene un formato válido.');
     if (!form.phone.trim())                errs.push('Ingresa tu teléfono.');
@@ -79,6 +89,7 @@ export default function RegisterDriver() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    setTriedSubmit(true);
     const errs = validar();
     if (errs.length > 0) { setErrors(errs); return; }
     setErrors([]);
@@ -89,7 +100,7 @@ export default function RegisterDriver() {
       const data = await apiFetch<AuthResponse>(`${API.auth}/auth/register`, {
         method: 'POST',
         body: JSON.stringify({
-          fullName: `${form.firstName} ${form.lastName}`.trim(),
+          ...identityPayload(identity),
           email: form.email, password: form.password,
           phone: form.phone, role: 'driver',
           acceptedTerms: true,
@@ -132,98 +143,50 @@ export default function RegisterDriver() {
         </div>
       )}
 
-      <form onSubmit={onSubmit} className="d-grid gap-3" noValidate>
-        <div className="row g-3">
-          <div className="col-md-6">
-            <label className="form-label">{d.firstNameLabel}</label>
-            <input className="form-control" placeholder={d.firstNamePlaceholder}
-              value={form.firstName} onChange={set('firstName')} />
-          </div>
-          <div className="col-md-6">
-            <label className="form-label">{d.lastNameLabel}</label>
-            <input className="form-control" placeholder={d.lastNamePlaceholder}
-              value={form.lastName} onChange={set('lastName')} />
-          </div>
-        </div>
-        <div>
-          <label className="form-label">{d.emailLabel}</label>
-          <input className="form-control" type="email" placeholder={d.emailPlaceholder}
-            value={form.email} onChange={set('email')} autoComplete="email" />
-        </div>
-        <div>
-          <label className="form-label">{d.phoneLabel}</label>
-          <input className="form-control" type="tel" placeholder={d.phonePlaceholder}
-            value={form.phone} onChange={set('phone')} />
-        </div>
-        <div>
-          <label className="form-label">{d.cityLabel}</label>
-          <input className="form-control" placeholder={d.cityPlaceholder}
-            value={form.city} onChange={set('city')} />
-        </div>
-        <div>
-          <label className="form-label">{d.passwordLabel}</label>
-          <input className="form-control" type="password" placeholder={d.passwordPlaceholder}
-            value={form.password} onChange={set('password')} autoComplete="new-password" />
-        </div>
+      <form onSubmit={onSubmit} className="bx-form" noValidate>
+        <IdentityFields value={identity} onChange={setIdentity}
+                        errors={identityErrors} showAll={triedSubmit} disabled={loading} />
+        <FormGrid>
+          <Field label={d.emailLabel} required>
+            <input className="form-control" type="email" placeholder={d.emailPlaceholder}
+                   value={form.email} onChange={set('email')} autoComplete="email" />
+          </Field>
+          <Field label={d.phoneLabel} required>
+            <input className="form-control" type="tel" placeholder={d.phonePlaceholder}
+                   value={form.phone} onChange={set('phone')} />
+          </Field>
+          <Field label={d.cityLabel}>
+            <input className="form-control" placeholder={d.cityPlaceholder || configCity || ''}
+                   value={form.city} onChange={set('city')} />
+          </Field>
+          <Field label={d.passwordLabel} required>
+            <input className="form-control" type="password" placeholder={d.passwordPlaceholder}
+                   value={form.password} onChange={set('password')} autoComplete="new-password" />
+          </Field>
+          {/* Código de invitación. Opcional: si alguien te invitó, al ponerlo esa persona gana puntos.
+              Va acá y no dentro de la app ya registrado, porque si no cualquiera se autorreferiría con una segunda cuenta. */}
+          <Field label="Código de invitación" optional span="full"
+                 help="Si alguien te invitó a Bugie, pon su código y le damos puntos por traerte.">
+            <input className="form-control text-uppercase" placeholder="Ej. ANA4K7MP" maxLength={12}
+                   value={form.referralCode}
+                   onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} />
+          </Field>
+        </FormGrid>
 
         {/* Aceptación de términos y condiciones */}
-        <div className="form-check">
-          <input
-            className="form-check-input"
-            type="checkbox"
-            id="acceptTermsDriver"
-            checked={acceptTerms}
-            onChange={e => setAcceptTerms(e.target.checked)}
-          />
-          <label className="form-check-label small" htmlFor="acceptTermsDriver">
-            Acepto los{' '}
-            <Link to="/terminos" target="_blank" rel="noreferrer" className="fw-semibold">
-              términos y condiciones
-            </Link>
-          </label>
-        </div>
-
-        {/* Código de invitación. Opcional: si alguien te invitó, al ponerlo
-
-            esa persona gana puntos. Va acá y no dentro de la app ya registrado,
-
-            porque si no cualquiera se autorreferiría con una segunda cuenta. */}
-
-        <div className="mb-3">
-
-          <label className="form-label">
-
-            Código de invitación <span className="bugie-muted">(opcional)</span>
-
-          </label>
-
-          <input className="form-control text-uppercase"
-
-                 placeholder="Ej. ANA4K7MP"
-
-                 maxLength={12}
-
-                 value={form.referralCode}
-
-                 onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} />
-
-          <div className="form-text">
-
-            Si alguien te invitó a Bugie, pon su código y le damos puntos por traerte.
-
-          </div>
-
-        </div>
-
+        <Checkbox id="acceptTermsDriver" size="sm" checked={acceptTerms} onChange={setAcceptTerms}
+                  label={<>Acepto los{' '}
+                    <Link to="/terminos" target="_blank" rel="noreferrer" className="fw-semibold">términos y condiciones</Link>
+                  </>} />
 
         {/* Firma digital */}
-        <div>
-          <label className="form-label mb-1">Firma digital</label>
-          <p className="bugie-muted small mb-2">
+        <div className="bx-field">
+          <span className="bx-field-label">Firma digital</span>
+          <p className="bugie-muted small mb-1">
             Firma dentro del recuadro con el mouse o con el dedo para completar tu registro.
           </p>
           <SignaturePad ref={sigRef} />
-          <div className="text-end mt-1">
+          <div className="text-end">
             <button type="button" className="btn btn-link btn-sm p-0"
               onClick={() => sigRef.current?.clear()}>
               <i className="fa-solid fa-eraser me-1" />Limpiar firma

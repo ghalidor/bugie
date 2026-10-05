@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../core/api/api_client.dart';
+import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/fcm_service.dart';
+import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_card.dart';
 import '../data/driver_repository.dart';
@@ -90,12 +94,54 @@ const List<_DocRequirement> _required = [
   ),
 ];
 
+/// Nombre visible de un tipo de documento. "profile_photo" no es un documento
+/// sino la foto de perfil (POST /api/drivers/profile/me/photo), pero el backend
+/// la incluye en missingDocuments cuando falta.
+String driverDocLabel(String key) {
+  if (key == 'profile_photo') return 'Foto de perfil';
+  for (final r in _required) {
+    if (r.key == key) return r.label;
+  }
+  return key;
+}
+
+/// Plazo para completar documentos (aprobación por excepción del admin).
+/// Viene en GET /api/drivers/me: documentsDeadline (hora de Perú, sin zona),
+/// strikes (faltas) y missingDocuments (tipos obligatorios que faltan).
+/// Se lee directo del JSON para no tocar el modelo Driver.
+class DriverDocsDeadline {
+  final DateTime? deadline;
+  final int strikes;
+  final List<String> missing;
+
+  const DriverDocsDeadline({this.deadline, this.strikes = 0, this.missing = const []});
+
+  factory DriverDocsDeadline.fromJson(Map<String, dynamic> j) => DriverDocsDeadline(
+        deadline: DateTime.tryParse(j['documentsDeadline']?.toString() ?? ''),
+        strikes: (j['strikes'] as num?)?.toInt() ?? 0,
+        missing: (j['missingDocuments'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      );
+
+  bool get hasDeadline => deadline != null;
+  List<String> get missingLabels => missing.map(driverDocLabel).toList();
+  String get deadlineText =>
+      deadline == null ? '' : DateFormat('dd/MM/yyyy HH:mm').format(deadline!);
+
+  /// Consulta GET /api/drivers/me y devuelve solo los datos del plazo.
+  static Future<DriverDocsDeadline?> fetch(ApiClient api) async {
+    final json = await api.get('${ApiConfig.drivers}/drivers/me');
+    if (json is! Map) return null;
+    return DriverDocsDeadline.fromJson(Map<String, dynamic>.from(json));
+  }
+}
+
 class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
   Driver? _driver;
+  DriverDocsDeadline? _deadline; // plazo por aprobación con excepción
   List<DriverDocument> _docs = [];
   bool _loading = true;
   bool _submitting = false;
-  String? _uploading; // docType actualmente subiendo
+  String? _uploading; // docType actualmente subiendo ('profile_photo' = foto)
   String? _error;
   String? _message;
 
@@ -105,18 +151,36 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
   void initState() {
     super.initState();
     _load();
+    // Push de cuenta (aprobado, rechazado, documento por vencer): recargar.
+    FcmService.driverAccount.addListener(_onAccountPush);
+  }
+
+  @override
+  void dispose() {
+    FcmService.driverAccount.removeListener(_onAccountPush);
+    super.dispose();
+  }
+
+  void _onAccountPush() {
+    if (mounted && _uploading == null && !_submitting) _load();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     final repo = context.read<DriverRepository>();
+    final api = context.read<ApiClient>();
     try {
       var d = await repo.getMyProfile();
       d ??= await repo.registerProfile();
       final docs = await repo.getMyDocuments();
+      DriverDocsDeadline? deadline;
+      try {
+        deadline = await DriverDocsDeadline.fetch(api);
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _driver = d;
+        _deadline = deadline;
         _docs = docs;
         _loading = false;
       });
@@ -181,6 +245,57 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     }
   }
 
+  /// Foto de perfil obligatoria: mismo flujo que en "Mi perfil"
+  /// (POST /api/drivers/profile/me/photo).
+  Future<void> _uploadProfilePhoto() async {
+    setState(() { _error = null; _message = null; });
+    final source = await _pickSource();
+    if (source == null) return;
+    final XFile? picked = await _picker.pickImage(
+      source: source,
+      maxWidth: 1200,
+      imageQuality: 85,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _uploading = 'profile_photo');
+    try {
+      final newUrl = await context
+          .read<DriverRepository>()
+          .uploadMyProfilePhoto(picked.path);
+      if (!mounted) return;
+      if (newUrl.isNotEmpty) {
+        final resolved = ApiConfig.resolveMediaUrl(newUrl);
+        context.read<Session>().setProfilePhotoUrl(resolved == null
+            ? null
+            : '$resolved?v=${DateTime.now().millisecondsSinceEpoch}');
+      }
+      setState(() {
+        _message = 'Foto de perfil subida correctamente.';
+        _uploading = null;
+      });
+      // Refrescar perfil y faltantes (missingDocuments) desde el backend.
+      try {
+        final repo = context.read<DriverRepository>();
+        final api = context.read<ApiClient>();
+        final d = await repo.getMyProfile();
+        final deadline = await DriverDocsDeadline.fetch(api);
+        if (mounted) {
+          setState(() {
+            if (d != null) _driver = d;
+            _deadline = deadline;
+          });
+        }
+      } catch (_) {}
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _error = e.message; _uploading = null; });
+    } catch (_) {
+      if (mounted) {
+        setState(() { _error = 'No se pudo subir la foto.'; _uploading = null; });
+      }
+    }
+  }
+
   Future<ImageSource?> _pickSource() async {
     return showModalBottomSheet<ImageSource>(
       context: context,
@@ -226,6 +341,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
         _message = 'Documentos enviados a revisión. Te avisaremos al aprobar.';
       });
     } on ApiException catch (e) {
+      // 409 "Sube tu foto de perfil antes de enviar…" u otro: tal cual.
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
       if (mounted) setState(() => _error = 'No se pudo enviar.');
@@ -247,6 +363,12 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     // y subió al menos algo (el backend decide si pasa o no, pero la UI lo
     // sugiere cuando hay un mínimo).
     final canSubmit = _driver?.status == DriverStatus.pendingDocs;
+    // Foto de perfil: falta si el backend la lista en missingDocuments o si
+    // el perfil no tiene URL.
+    final photoMissing = (_deadline?.missing.contains('profile_photo') ?? false) ||
+        (_driver != null &&
+            (_driver!.profilePhotoUrl == null ||
+                _driver!.profilePhotoUrl!.isEmpty));
 
     return Scaffold(
       appBar: const BugieInternalHeader(title: 'Documentos'),
@@ -268,6 +390,12 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+
+              // Aviso: aprobado por excepción, con plazo para completar
+              if (_deadline?.hasDeadline == true) ...[
+                _DeadlineBanner(info: _deadline!),
+                const SizedBox(height: 12),
+              ],
 
               if (_error != null)
                 Padding(
@@ -302,6 +430,12 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                 padding: EdgeInsets.zero,
                 child: Column(
                   children: [
+                    _ProfilePhotoRow(
+                      missing: photoMissing,
+                      uploading: _uploading == 'profile_photo',
+                      onUpload: _uploadProfilePhoto,
+                    ),
+                    const Divider(height: 1, indent: 70),
                     for (var i = 0; i < _required.length; i++) ...[
                       _DocRow(
                         req: _required[i],
@@ -373,6 +507,131 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
       case DriverStatus.underReview: return Icons.hourglass_top;
       default:                       return Icons.upload_file;
     }
+  }
+}
+
+/// Banner con la fecha límite y los documentos que faltan.
+class _DeadlineBanner extends StatelessWidget {
+  final DriverDocsDeadline info;
+  const _DeadlineBanner({required this.info});
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = info.missingLabels;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BugieColors.warning.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(BugieRadius.md),
+        border: Border.all(color: BugieColors.warning.withOpacity(0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.hourglass_top, color: BugieColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tienes hasta el ${info.deadlineText} para completar tus documentos',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: context.bugie.text)),
+                if (labels.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('Te faltan (subidos y aprobados): ${labels.join(', ')}.',
+                      style: TextStyle(fontSize: 13, color: context.bugie.text)),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  'Si no los completas a tiempo, tu cuenta se desactivará automáticamente y se te registrará una falta.',
+                  style: TextStyle(fontSize: 12, color: context.bugie.textMuted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fila "Foto de perfil" (obligatoria para enviar a revisión).
+class _ProfilePhotoRow extends StatelessWidget {
+  final bool missing;
+  final bool uploading;
+  final VoidCallback onUpload;
+
+  const _ProfilePhotoRow({
+    required this.missing,
+    required this.uploading,
+    required this.onUpload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = missing ? BugieColors.danger : BugieColors.success;
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: BugieColors.primary.withOpacity(0.1),
+            child: const Icon(Icons.account_circle, color: BugieColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Flexible(
+                      child: Text('Foto de perfil',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(missing ? 'Falta' : 'Subida',
+                          style: TextStyle(fontSize: 10, color: color)),
+                    ),
+                  ],
+                ),
+                const Text(
+                    'Una foto tuya de frente, con buena luz. La verán tus pasajeros.',
+                    style: TextStyle(fontSize: 12, color: BugieColors.textMuted)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onPressed: uploading ? null : onUpload,
+            icon: uploading
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2),
+                  )
+                : Icon(missing ? Icons.upload : Icons.refresh, size: 14),
+            label: Text(
+              uploading ? 'Subiendo' : (missing ? 'Subir' : 'Cambiar'),
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='dash-stats']",
+      "title": "Lo más importante, de un vistazo",
+      "text": "Estos indicadores se actualizan solos cada 30 segundos. Toca cualquiera para ir directo a su módulo."
+    },
+    {
+      "selector": "[data-tour='dash-pending']",
+      "title": "Tu bandeja de pendientes",
+      "text": "Aquí ves lo que necesita tu atención: alertas SOS, conductores por verificar y viajes sin conductor."
+    },
+    {
+      "selector": "[data-tour='dash-services']",
+      "title": "Estado de los servicios",
+      "text": "Si algún servicio aparece «Sin conexión», algunas pantallas pueden no cargar datos. Avisa a soporte técnico."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?» de la cabecera."
+    }
+  ]
+}

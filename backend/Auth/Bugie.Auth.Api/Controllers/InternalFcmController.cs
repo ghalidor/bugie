@@ -53,7 +53,7 @@ public class InternalFcmController : ControllerBase
             return false;
         }
         var received = Request.Headers["X-Internal-Token"].ToString();
-        if(string.IsNullOrEmpty(received) || received != expected)
+        if(!Bugie.Auth.Api.Security.InternalTokenCheck.Matches(received, expected))
         {
             errorResult = Unauthorized(new { error = "Token interno inválido." });
             return false;
@@ -63,7 +63,7 @@ public class InternalFcmController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/internal/fcm-tokens/by-users?ids=GUID&ids=GUID
+    /// GET /api/internal/fcm-tokens/by-users?ids=GUID&amp;ids=GUID
     /// Devuelve los tokens FCM de varios usuarios.
     /// </summary>
     [HttpGet("by-users")]

@@ -3,10 +3,13 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/theme/bugie_theme.dart';
+import '../../../core/utils/auto_refresh.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/incident_model.dart';
 import '../../trips/domain/trip_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../passenger/presentation/trip_detail_screen.dart';
 
 /// Historial de viajes del conductor con opción de reportar/ver incidencias.
 /// Misma lógica que el web bugie-web/driver/Trips.tsx:
@@ -21,7 +24,8 @@ class DriverTripsScreen extends StatefulWidget {
   State<DriverTripsScreen> createState() => _DriverTripsScreenState();
 }
 
-class _DriverTripsScreenState extends State<DriverTripsScreen> {
+class _DriverTripsScreenState extends State<DriverTripsScreen>
+    with AutoRefreshOnReturn {
   List<Trip> _trips = [];
   /// Map tripId → incidencia propia del usuario actual (null si no la ha reportado).
   Map<String, Incident?> _myIncidents = {};
@@ -32,6 +36,9 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
     super.initState();
     _load();
   }
+
+  @override
+  Future<void> onAutoRefresh() => _load();
 
   Future<void> _load() async {
     try {
@@ -142,7 +149,13 @@ class _TripCard extends StatelessWidget {
     final hasIncident = incident != null;
 
     return Card(
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      // Tocar la card abre el detalle (con la galería de fotos si es envío).
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => TripDetailScreen(trip: trip, viewerIsDriver: true),
+        )),
+        child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,9 +164,14 @@ class _TripCard extends StatelessWidget {
               children: [
                 Icon(isComp ? Icons.check_circle : Icons.cancel, color: color),
                 const SizedBox(width: 8),
-                Text(TripStatus.labelForDriver(trip.status),
-                    style: TextStyle(
-                        color: color, fontWeight: FontWeight.bold)),
+                Flexible(
+                  child: Text(TripStatus.labelForDriver(trip.status),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: color, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 6),
+                ServiceBadge(isDelivery: trip.isDelivery, compact: true),
                 const Spacer(),
                 Text(
                   'S/ ${(trip.finalFare ?? trip.estimatedFare).toStringAsFixed(2)}',
@@ -162,6 +180,23 @@ class _TripCard extends StatelessWidget {
                 ),
               ],
             ),
+            // Envío: qué paquete se llevó.
+            if (trip.isDelivery &&
+                (trip.packageDescription ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.inventory_2,
+                      size: 14, color: BugieColors.accent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                      child: Text(trip.packageDescription!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600))),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Text(trip.originAddress,
                 maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -227,6 +262,7 @@ class _TripCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
       ),
     );
   }

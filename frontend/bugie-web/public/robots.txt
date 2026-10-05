@@ -1,2 +1,9 @@
+# Al desplegar, reemplazar https://bugie.example.com por el dominio real
+# (el mismo de VITE_PUBLIC_SITE_URL) aquí y en sitemap.xml.
 User-agent: *
-Disallow:
+Allow: /
+Disallow: /app/
+Disallow: /auth/
+Disallow: /libro-reclamaciones/consulta/
+
+Sitemap: https://bugie.example.com/sitemap.xml

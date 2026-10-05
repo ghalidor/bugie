@@ -50,6 +50,10 @@ class Proposal {
   /// Foto de perfil del conductor (URL relativa que devuelve el backend).
   final String? driverPhotoUrl;
 
+  /// Calificación promedio del conductor (null si aún no tiene).
+  final double? driverRating;
+  final int driverRatingCount;
+
   Proposal({
     required this.id,
     required this.tripId,
@@ -67,6 +71,8 @@ class Proposal {
     this.proposedByRole = 'driver',
     this.rejectedBy,
     this.driverPhotoUrl,
+    this.driverRating,
+    this.driverRatingCount = 0,
   });
 
   factory Proposal.fromJson(Map<String, dynamic> j) => Proposal(
@@ -86,6 +92,8 @@ class Proposal {
         proposedByRole: (j['proposedByRole'] ?? 'driver').toString(),
         rejectedBy:     j['rejectedBy']?.toString(),
         driverPhotoUrl: j['driverPhotoUrl']?.toString(),
+        driverRating:   (j['driverRating'] as num?)?.toDouble(),
+        driverRatingCount: (j['driverRatingCount'] as num?)?.toInt() ?? 0,
       );
 
   /// Descripción legible del vehículo (ej: "Toyota · Corolla · Rojo").

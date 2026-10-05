@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Bugie.Drivers.Domain.Interfaces;
 
 namespace Bugie.Drivers.Api.Controllers;
@@ -12,6 +13,7 @@ namespace Bugie.Drivers.Api.Controllers;
 [ApiController]
 [Route("api/drivers/admin/trips")]
 [Authorize(Roles = "admin")]
+[RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, Perm.ViewComplaints, Perm.ViewSosCenter, Perm.ViewPassengers, Perm.ViewDrivers, Perm.ViewPayments, Perm.ViewCommissions)]
 public class TripPathController : ControllerBase
 {
     private readonly ILocationHistoryRepository _history;

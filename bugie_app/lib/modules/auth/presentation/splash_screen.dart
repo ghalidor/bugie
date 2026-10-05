@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
+import '../data/auth_repository.dart';
 
 /// Pantalla de splash personalizada (después del splash nativo de
 /// flutter_native_splash). Muestra el logo wordmark con animación
@@ -57,10 +61,31 @@ class _SplashScreenState extends State<SplashScreen>
     _logoCtrl.forward();
 
     // A los 1800ms navegar a /. El router redirect manda al destino
-    // correcto (welcome si no logueado, dashboard si logueado).
-    Future.delayed(const Duration(milliseconds: 1800), () {
+    // correcto (welcome si no logueado, dashboard si logueado, o
+    // "Completa tus datos" si a la cuenta le faltan documento/nombres).
+    // Mientras corre la animación se consulta /auth/me si hay sesión.
+    Future.wait([
+      Future.delayed(const Duration(milliseconds: 1800)),
+      _checkSession(),
+    ]).then((_) {
       if (mounted) context.go('/');
     });
+  }
+
+  /// Si hay sesión guardada, pregunta a GET /api/auth/me si faltan datos.
+  /// Si la cuenta fue eliminada el backend responde 401: el ApiClient cierra
+  /// la sesión y muestra el aviso; aquí no hay nada más que hacer.
+  Future<void> _checkSession() async {
+    final session = context.read<Session>();
+    if (!session.isLoggedIn || session.role == UserRole.admin) return;
+    try {
+      await context
+          .read<AuthRepository>()
+          .refreshProfileCompletion()
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {
+      // Red lenta o caída: se entra igual; se vuelve a revisar al próximo inicio.
+    }
   }
 
   @override

@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-cat-tabs']",
+      "title": "Catálogo y niveles",
+      "text": "El catálogo es lo que se puede canjear. Los niveles definen descuentos y tickets de sorteo según los puntos. En niveles de pasajero también eliges cuántos cupones de descuento puede reclamar al mes y el tope en soles de cada viaje gratis (si el viaje cuesta más, paga la diferencia)."
+    },
+    {
+      "selector": "[data-tour='rw-cat-new']",
+      "title": "Crea una recompensa",
+      "text": "Se abre un panel con tres pasos: qué es, qué recibe el usuario y sus condiciones."
+    },
+    {
+      "selector": "[data-tour='rw-cat-list']",
+      "title": "Edita tocando la fila",
+      "text": "Cambia entre pasajeros y conductores con los chips. Toca cualquier recompensa para editarla."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

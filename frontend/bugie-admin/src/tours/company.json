@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='company-legal']",
+      "title": "Datos legales",
+      "text": "Razón social, RUC y dirección fiscal: salen en la cabecera de la Hoja de Reclamación y en sus correos."
+    },
+    {
+      "selector": "[data-tour='company-logo']",
+      "title": "Logo",
+      "text": "Sube el logo (máximo 2 MB). Si lo quitas, se muestra el nombre «Bugie»."
+    },
+    {
+      "selector": "[data-tour='company-contact']",
+      "title": "Contacto",
+      "text": "Datos de contacto que se muestran en la web."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "Guarda al final",
+      "text": "Los cambios se guardan con la barra inferior. Repite esta guía con «?»."
+    }
+  ]
+}

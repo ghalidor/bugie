@@ -2,6 +2,7 @@ using System.Security.Claims;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Bugie.Rewards.Application.Commands;
 using Bugie.Rewards.Application.DTOs;
 using Bugie.Rewards.Application.Queries;
@@ -15,6 +16,7 @@ namespace Bugie.Rewards.Api.Controllers;
 [ApiController]
 [Route("api/rewards/admin")]
 [Authorize(Roles = "admin")]
+[RequirePermission(Perm.ViewRewards)]
 public class RewardsAdminController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -116,14 +118,6 @@ public class RewardsAdminController : ControllerBase
         CancellationToken ct = default) =>
         Ok(await _mediator.Send(
             new GetAllRedemptionsQuery(status, userType, page, pageSize), ct));
-
-    /// <summary>GET /api/rewards/admin/redemptions/{code} — buscar un cupon.</summary>
-    [HttpGet("redemptions/{code}")]
-    public async Task<IActionResult> GetRedemption(string code, CancellationToken ct)
-    {
-        var dto = await _mediator.Send(new GetRedemptionByCodeQuery(code), ct);
-        return dto is null ? NotFound(new { error = "Cupon no encontrado." }) : Ok(dto);
-    }
 
     public record MarkUsedRequest(string? Note);
 
@@ -430,11 +424,19 @@ public class RewardsAdminController : ControllerBase
         int     MonthlyFreeTrips,
         int     WeeklyRaffleTickets,
         int     MonthlyRaffleTickets,
-        bool    IsActive);
+        bool    IsActive,
+        int?     MonthlyDiscountCoupons = null,
+        decimal? FreeTripMaxAmount      = null);
 
     /// <summary>
     /// PUT /api/rewards/admin/levels/{id}
     /// Cambia umbrales y beneficios de un nivel.
+    /// Beneficios con cupones (solo pasajero):
+    ///   - monthlyDiscountCoupons: cupones de discountPercentage que puede
+    ///     reclamar al mes (>= 0). Si no se envía, se conserva.
+    ///   - freeTripMaxAmount: tope en soles de cada viaje gratis (> 0).
+    ///     Obligatorio si monthlyFreeTrips > 0 (si no se envía, se conserva el
+    ///     actual); con monthlyFreeTrips = 0 y null queda sin tope.
     /// </summary>
     [HttpPut("levels/{id:guid}")]
     public async Task<IActionResult> UpdateLevel(
@@ -445,7 +447,8 @@ public class RewardsAdminController : ControllerBase
             var dto = await _mediator.Send(new UpdateLevelCommand(
                 id, body.DisplayName, body.MinPoints, body.MaxPoints,
                 body.DiscountPercentage, body.MonthlyFreeTrips,
-                body.WeeklyRaffleTickets, body.MonthlyRaffleTickets, body.IsActive), ct);
+                body.WeeklyRaffleTickets, body.MonthlyRaffleTickets, body.IsActive,
+                body.MonthlyDiscountCoupons, body.FreeTripMaxAmount), ct);
             return Ok(dto);
         }
         catch (KeyNotFoundException ex)

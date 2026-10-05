@@ -1,4 +1,5 @@
 using MediatR;
+using Bugie.Trips.Application.Services;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
@@ -32,6 +33,10 @@ public class AcceptTripHandler : IRequestHandler<AcceptTripCommand, TripDto>
         if(status is null)
             throw new InvalidOperationException("No se pudo verificar el estado del conductor.");
 
+        if(status.Status == 4)
+            throw new InvalidOperationException("Tu cuenta está suspendida. No puedes aceptar viajes.");
+        if(status.Status == 5)
+            throw new InvalidOperationException("Tu registro como conductor no fue aceptado. No puedes aceptar viajes.");
         if(status.Status != DriverStatusApproved)
             throw new InvalidOperationException(
                 "Tu cuenta de conductor aún no está aprobada. No puedes aceptar viajes.");
@@ -40,19 +45,28 @@ public class AcceptTripHandler : IRequestHandler<AcceptTripCommand, TripDto>
         // otro activo (Accepted/InProgress/Sos/Negotiating) o si tiene una
         // propuesta esperando su confirmación (estado accepted_by_passenger).
         // Para esa propuesta debe usar /confirm-acceptance, no /accept.
-        var ownActive = await _trips.GetActiveTripAsync(cmd.DriverId, ct);
-        if(ownActive is not null && ownActive.Id != cmd.TripId)
-            throw new InvalidOperationException(
-                "Ya tienes un viaje activo. Termínalo antes de aceptar otro.");
-
-        var waitingConfirm = await _proposals.GetAcceptedByPassengerForDriverAsync(cmd.DriverId, ct);
-        if(waitingConfirm is not null && waitingConfirm.TripId != cmd.TripId)
-            throw new InvalidOperationException(
-                "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o esperá a que se cancele.");
-
         // 2. Cargar el viaje
         var trip = await _trips.GetByIdAsync(cmd.TripId, ct)
             ?? throw new KeyNotFoundException("Viaje no encontrado.");
+
+        if(trip.IsScheduled)
+        {
+            // Programado: no lo bloquea un viaje activo (es para mas tarde),
+            // pero no puede chocar con otro programado suyo (margen 1 hora).
+            await ScheduledConflicts.EnsureNoConflictAsync(_trips, cmd.DriverId, trip, ct);
+        }
+        else
+        {
+            var ownActive = await _trips.GetActiveTripAsync(cmd.DriverId, ct);
+            if(ownActive is not null && ownActive.Id != cmd.TripId)
+                throw new InvalidOperationException(
+                    "Ya tienes un viaje activo. Termínalo antes de aceptar otro.");
+
+            var waitingConfirm = await _proposals.GetAcceptedByPassengerForDriverAsync(cmd.DriverId, ct);
+            if(waitingConfirm is not null && waitingConfirm.TripId != cmd.TripId)
+                throw new InvalidOperationException(
+                    "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o esperá a que se cancele.");
+        }
 
         // 3. ¿Hay una propuesta pending entre este conductor y este viaje?
         //    Si sí, esa es la tarifa pactada (puede venir de una contrapropuesta

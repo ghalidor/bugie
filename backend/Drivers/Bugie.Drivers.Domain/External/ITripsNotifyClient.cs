@@ -20,4 +20,12 @@ public interface ITripsNotifyClient
 
     /// <summary>Notifica que el conductor se puso offline (sacar pin del mapa).</summary>
     Task NotifyDriverOfflineAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Push FCM a un usuario vía Trips.Api (POST api/internal/notify/push).
+    /// Nunca lanza excepción: si falla, solo se registra en el log.
+    /// </summary>
+    Task SendPushAsync(Guid userId, string title, string body,
+                       IReadOnlyDictionary<string, string>? data = null,
+                       CancellationToken ct = default);
 }

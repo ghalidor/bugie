@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
@@ -41,9 +42,17 @@ public class SosController : ControllerBase
         [FromBody] SosRequest req, CancellationToken ct)
     {
         var userRole = User.FindFirstValue(ClaimTypes.Role)!;
-        var alertId = await _mediator.Send(
-            new ActivateSosCommand(req.TripId, CurrentUserId, userRole, req.Lat, req.Lng), ct);
-        return Ok(new { alertId, message = "Alerta SOS activada. Monitoreo notificado." });
+        try
+        {
+            // El handler exige que sea el pasajero o el conductor de ESE viaje
+            // (403) y que el viaje este activo: aceptado o en curso (409).
+            var alertId = await _mediator.Send(
+                new ActivateSosCommand(req.TripId, CurrentUserId, userRole, req.Lat, req.Lng), ct);
+            return Ok(new { alertId, message = "Alerta SOS activada. Monitoreo notificado." });
+        }
+        catch(KeyNotFoundException) { return NotFound(new { error = "Viaje no encontrado." }); }
+        catch(UnauthorizedAccessException ex) { return StatusCode(403, new { error = ex.Message }); }
+        catch(InvalidOperationException ex) { return Conflict(new { error = ex.Message }); }
     }
 
     /// <summary>
@@ -51,6 +60,7 @@ public class SosController : ControllerBase
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewSosCenter, Perm.ViewLiveMap)]
     public async Task<IActionResult> GetActive(CancellationToken ct)
     {
         var alerts = await _sos.GetActiveAsync(ct);
@@ -64,6 +74,7 @@ public class SosController : ControllerBase
     /// </summary>
     [HttpPut("{alertId:guid}/resolve")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewSosCenter, Perm.ViewLiveMap)]
     public async Task<IActionResult> Resolve(
         Guid alertId,
         [FromBody] ResolveSosRequest req,

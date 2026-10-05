@@ -4,6 +4,7 @@ import 'dart:io' show SocketException;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../session/session.dart';
+import '../ui/app_messenger.dart';
 import 'api_exception.dart';
 
 /// Cliente HTTP único de la app.
@@ -179,8 +180,18 @@ class ApiClient {
 
     // 401 — limpia sesión (la pantalla decide qué hacer)
     if (res.statusCode == 401) {
+      final wasLoggedIn = _session.isLoggedIn;
       _session.clear();
       final msg = _extractError(res.body) ?? 'No autorizado';
+      // Sesión cerrada por el backend (sesiones cerradas por el admin o por un
+      // cambio de contraseña, cuenta desactivada o eliminada): avisar con el
+      // mensaje del backend tal cual (el router la manda al inicio). En el
+      // login no hace falta: esa pantalla ya muestra el error.
+      final code = _extractCode(res.body);
+      final sessionClosed = code != null && _sessionClosedCodes.contains(code);
+      if (wasLoggedIn && (sessionClosed || msg.contains('eliminada'))) {
+        showErrorSnack(msg);
+      }
       throw ApiException(401, msg);
     }
 
@@ -197,6 +208,21 @@ class ApiClient {
     } catch (_) {
       return res.body;
     }
+  }
+
+  /// Códigos del 401 de sesión cerrada (backend: Security/SessionState.cs).
+  static const _sessionClosedCodes = {
+    'session_revoked',
+    'account_deactivated',
+    'account_deleted',
+  };
+
+  String? _extractCode(String body) {
+    try {
+      final j = jsonDecode(body);
+      if (j is Map) return j['code']?.toString();
+    } catch (_) {}
+    return null;
   }
 
   String? _extractError(String body) {

@@ -1,16 +1,14 @@
-import { useEffect, useState } from 'react';
-import { ApiError } from '../../../state/api';
-import CouponUsageCard from './CouponUsageCard';
+import { useCallback, useEffect, useState } from 'react';
 import { rewardsAdminApi, ProgramBalance, fmtPoints } from '../../../state/rewards';
+import { EmptyState, SectionCard, Skeleton, StatCard, StatGrid } from '../../../components/ui';
+import { errMsg, LoadError } from './common';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Balance del programa.
 
-   Se llama Balance y no «estadísticas» porque el número que importa es una
-   deuda: los puntos disponibles sin canjear son algo que alguien va a querer
-   cobrar, y que tú vas a tener que pagar.
-
-   Todo lo demás de esta pantalla existe para contextualizar ese número.
+   El número que importa es una deuda: los puntos disponibles sin canjear son
+   algo que alguien va a querer cobrar, y que tú vas a tener que pagar.
+   Todo lo demás de esta vista existe para contextualizar ese número.
    ────────────────────────────────────────────────────────────────────────── */
 
 export default function BalanceTab() {
@@ -18,187 +16,97 @@ export default function BalanceTab() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
     rewardsAdminApi.balance()
       .then(setData)
-      .catch(e => setError(e instanceof ApiError ? e.message : 'No se pudo cargar el balance.'))
+      .catch(e => setError(errMsg(e, 'No se pudo cargar el balance.')))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
-  }
-  // Una respuesta inesperada no debe dejar el panel en blanco: se comprueba
-  // que venga lo mínimo antes de dibujar nada.
-  if (error || !data || typeof data.pointsAvailable !== 'number') {
-    return (
-      <div className="alert alert-danger small">
-        {error ?? 'El balance llegó incompleto. Revisa que Rewards esté respondiendo.'}
-      </div>
-    );
+  useEffect(load, [load]);
+
+  // Una respuesta inesperada no debe dejar el panel en blanco.
+  if (!loading && (error || !data || typeof data.pointsAvailable !== 'number')) {
+    return <SectionCard><LoadError text={error ?? 'El balance llegó incompleto. Revisa que el servicio de puntos esté respondiendo.'} onRetry={load} /></SectionCard>;
   }
 
-  const bySource = data.bySource ?? [];
-  const byMonth  = data.byMonth  ?? [];
-
-  const sinMovimiento = data.pointsIssued === 0;
+  const bySource = data?.bySource ?? [];
+  const byMonth  = data?.byMonth  ?? [];
+  const maxMonth = Math.max(...byMonth.map(x => Math.max(x.issued, x.redeemed)), 1);
 
   return (
-    <>
-      {/* ── La deuda, primero y solo ── */}
-      <div className="bugie-card mb-3" style={{ overflow: 'hidden' }}>
-        <div style={{ height: 3, background: 'var(--bugie-warn)' }} />
-        <div className="bugie-card-body">
-          <div className="d-flex flex-wrap align-items-end gap-3">
-            <div>
-              <div className="small bugie-muted">Puntos por canjear</div>
-              <div className="fw-bold" style={{ fontSize: '2.4rem', lineHeight: 1 }}>
-                {fmtPoints(data.pointsAvailable)}
-              </div>
-            </div>
-            <div className="small bugie-muted mb-1">
-              repartidos entre {fmtPoints(data.profilesWithPoints)} usuarios
-            </div>
-          </div>
+    <div className="rw-stack">
+      <StatGrid min={170} tourId="rw-sum-stats">
+        <StatCard
+          label="Puntos por canjear"
+          value={fmtPoints(data?.pointsAvailable)}
+          icon="fa-scale-balanced"
+          tone="warn"
+          hint={`Deuda viva: lo que ${fmtPoints(data?.profilesWithPoints)} usuarios pueden canjear hoy`}
+          loading={loading}
+        />
+        <StatCard label="Emitidos en total" value={fmtPoints(data?.pointsIssued)} icon="fa-coins" tone="primary" hint="Todo lo que se repartió" loading={loading} />
+        <StatCard label="Canjeados" value={fmtPoints(data?.pointsRedeemed)} icon="fa-gift" tone="ok" hint={`${data?.redemptionRate ?? 0}% de lo emitido`} loading={loading} />
+        <StatCard label="Vencidos" value={fmtPoints(data?.pointsExpired)} icon="fa-hourglass-end" tone="neutral" hint="Se perdieron por inactividad" loading={loading} />
+        <StatCard label="Cupones vigentes" value={fmtPoints(data?.activeRedemptions)} icon="fa-ticket" tone="info" hint="Pendientes de usar o entregar" to="/admin/puntos/canjes" loading={loading} />
+      </StatGrid>
 
-          <div className="small mt-3">
-            Esto es lo que tus usuarios pueden canjear hoy. Es una <strong>deuda</strong>:
-            cuando la canjeen, el premio lo pagas tú.
-          </div>
-        </div>
-      </div>
-
-      {/* ── Totales ── */}
-      <div className="row g-3 mb-3">
-        {[
-          ['Emitidos en total', fmtPoints(data.pointsIssued),   'Todo lo que se repartió'],
-          ['Canjeados',         fmtPoints(data.pointsRedeemed),  `${data.redemptionRate}% de lo emitido`],
-          ['Vencidos',          fmtPoints(data.pointsExpired),   'Se perdieron por inactividad'],
-          ['Cupones vigentes',  fmtPoints(data.activeRedemptions), 'Pendientes de usar o entregar'],
-        ].map(([label, value, help]) => (
-          <div className="col-6 col-xl-3" key={label}>
-            <div className="bugie-kpi h-100">
-              <div className="label">{label}</div>
-              <div className="value">{value}</div>
-              <div className="small bugie-muted mt-1" style={{ fontSize: '.72rem' }}>{help}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {sinMovimiento && (
-        <div className="alert alert-info small">
-          Todavía no se emitió ningún punto. Los números aparecerán cuando se
-          complete el primer viaje.
-        </div>
+      {!loading && data?.pointsIssued === 0 && (
+        <EmptyState compact icon="fa-seedling" title="Todavía no se emitió ningún punto" text="Los números aparecerán cuando se complete el primer viaje." />
       )}
 
-      <div className="row g-3">
-        {/* ── De dónde salen los puntos ── */}
-        <div className="col-12 col-xl-6">
-          <div className="bugie-card h-100">
-            <div className="bugie-card-header">
-              <i className="fa-solid fa-arrow-trend-up me-2" />De dónde salen los puntos
-            </div>
-            <div className="bugie-card-body">
-              {bySource.length === 0 ? (
-                <div className="text-center py-4 bugie-muted small">Sin movimientos todavía.</div>
-              ) : (
-                <div className="d-flex flex-column gap-2">
-                  {bySource.map(s => {
-                    const pct = data.pointsIssued > 0
-                      ? Math.round(s.points / data.pointsIssued * 100) : 0;
-                    return (
-                      <div key={s.sourceEvent}>
-                        <div className="d-flex align-items-baseline gap-2 small">
-                          <span className="fw-semibold">{s.label}</span>
-                          <span className="bugie-muted">{s.transactions} veces</span>
-                          <span className="ms-auto fw-bold">{fmtPoints(s.points)}</span>
-                          <span className="bugie-muted" style={{ width: 38, textAlign: 'right' }}>
-                            {pct}%
-                          </span>
-                        </div>
-                        <div className="progress mt-1" style={{ height: 5 }}>
-                          <div className="progress-bar" style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className="small bugie-muted mt-3">
-                Si una mecánica se lleva casi todo, conviene revisar si está dando
-                más de lo que aporta.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Mes a mes ── */}
-        <div className="col-12 col-xl-6">
-          <div className="bugie-card h-100">
-            <div className="bugie-card-header">
-              <i className="fa-solid fa-calendar me-2" />Últimos meses
-            </div>
-            <div className="bugie-card-body">
-              {byMonth.length === 0 ? (
-                <div className="text-center py-4 bugie-muted small">Sin datos todavía.</div>
-              ) : (
-                <>
-                  <div className="d-flex gap-3 small bugie-muted mb-2">
-                    <span><i className="fa-solid fa-square me-1" style={{ color: 'var(--bugie-primary-soft)' }} />Emitidos</span>
-                    <span><i className="fa-solid fa-square me-1" style={{ color: 'var(--bugie-ok)' }} />Canjeados</span>
+      <div className="bx-split">
+        <SectionCard title="De dónde salen los puntos" icon="fa-arrow-trend-up" description="Qué mecánica reparte más." tourId="rw-sum-sources">
+          {loading ? <Skeleton count={4} height={14} /> : bySource.length === 0 ? (
+            <EmptyState compact title="Sin movimientos todavía" />
+          ) : (
+            <div className="rw-bars">
+              {bySource.map(s => {
+                const pct = data!.pointsIssued > 0 ? Math.round(s.points / data!.pointsIssued * 100) : 0;
+                return (
+                  <div key={s.sourceEvent} className="rw-bar-row">
+                    <div className="rw-bar-head">
+                      <span className="fw-semibold">{s.label}</span>
+                      <span className="bugie-muted small grow">{fmtPoints(s.transactions)} veces</span>
+                      <span className="fw-bold">{fmtPoints(s.points)}</span>
+                      <span className="bugie-muted small">{pct}%</span>
+                    </div>
+                    <div className="rw-bar-track" role="presentation"><div className="rw-bar-fill" style={{ width: `${pct}%` }} /></div>
                   </div>
-
-                  <div className="d-flex flex-column gap-2">
-                    {byMonth.map(m => {
-                      const max = Math.max(...byMonth.map(x => Math.max(x.issued, x.redeemed)), 1);
-                      return (
-                        <div key={m.month}>
-                          <div className="d-flex small">
-                            <span className="fw-semibold">{m.month}</span>
-                            <span className="ms-auto bugie-muted">
-                              {fmtPoints(m.issued)} / {fmtPoints(m.redeemed)}
-                            </span>
-                          </div>
-                          <div className="d-flex gap-1 mt-1">
-                            <div style={{
-                              height: 8, borderRadius: 4,
-                              width: `${m.issued / max * 100}%`,
-                              background: 'var(--bugie-primary)',
-                              minWidth: m.issued > 0 ? 4 : 0,
-                            }} />
-                          </div>
-                          <div className="d-flex gap-1 mt-1">
-                            <div style={{
-                              height: 8, borderRadius: 4,
-                              width: `${m.redeemed / max * 100}%`,
-                              background: 'var(--bugie-ok)',
-                              minWidth: m.redeemed > 0 ? 4 : 0,
-                            }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              <div className="small bugie-muted mt-3">
-                Si lo emitido crece mucho más rápido que lo canjeado, la deuda se
-                acumula y en algún momento llega toda junta.
-              </div>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      </div>
+          )}
+          <p className="rw-note">Si una mecánica se lleva casi todo, revisa si da más de lo que aporta.</p>
+        </SectionCard>
 
-      {/* Cupones aplicados a viajes: va en Balance porque tambien es dinero
-          que sale, igual que los puntos por canjear. */}
-      <div className="mt-3">
-        <CouponUsageCard />
+        <SectionCard title="Últimos meses" icon="fa-calendar" description="Emitidos frente a canjeados.">
+          {loading ? <Skeleton count={4} height={14} /> : byMonth.length === 0 ? (
+            <EmptyState compact title="Sin datos todavía" />
+          ) : (
+            <>
+              <div className="rw-legend mb-2">
+                <span><span className="dot" aria-hidden="true" />Emitidos</span>
+                <span><span className="dot ok" aria-hidden="true" />Canjeados</span>
+              </div>
+              <div className="rw-bars">
+                {byMonth.map(m => (
+                  <div key={m.month} className="rw-bar-row">
+                    <div className="rw-bar-head">
+                      <span className="fw-semibold grow">{m.month}</span>
+                      <span className="bugie-muted small">{fmtPoints(m.issued)} / {fmtPoints(m.redeemed)}</span>
+                    </div>
+                    <div className="rw-bar-track" title={`Emitidos: ${fmtPoints(m.issued)}`}><div className="rw-bar-fill" style={{ width: `${m.issued / maxMonth * 100}%` }} /></div>
+                    <div className="rw-bar-track" title={`Canjeados: ${fmtPoints(m.redeemed)}`}><div className="rw-bar-fill ok" style={{ width: `${m.redeemed / maxMonth * 100}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <p className="rw-note">Si lo emitido crece mucho más rápido que lo canjeado, la deuda se acumula.</p>
+        </SectionCard>
       </div>
-    </>
+    </div>
   );
 }

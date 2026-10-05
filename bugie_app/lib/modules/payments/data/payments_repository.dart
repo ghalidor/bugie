@@ -20,19 +20,18 @@ class PaymentsRepository {
     return DriverPayouts.fromJson(json as Map<String, dynamic>);
   }
 
+  /// GET /api/payments/wallet/me  (solo driver)
+  /// Billetera: ganancia neta, comision generada/pagada, deuda y movimientos.
+  Future<DriverWallet> getMyWallet({int page = 1, int pageSize = 20}) async {
+    final json = await _api.get(
+        '${ApiConfig.payments}/payments/wallet/me?page=$page&pageSize=$pageSize');
+    return DriverWallet.fromJson(json as Map<String, dynamic>);
+  }
+
   /// GET /api/payments/my-payments  (pasajero)
   Future<List<Payment>> getMyPayments() async {
     final json = await _api.get('${ApiConfig.payments}/payments/my-payments');
     final list = (json as List?) ?? [];
     return list.map((p) => Payment.fromJson(p as Map<String, dynamic>)).toList();
-  }
-
-  /// PUT /api/payments/{id}/complete
-  Future<Payment> completePayment(String paymentId, {String? reference}) async {
-    final json = await _api.put(
-      '${ApiConfig.payments}/payments/$paymentId/complete',
-      body: reference == null ? null : {'reference': reference},
-    );
-    return Payment.fromJson(json as Map<String, dynamic>);
   }
 }

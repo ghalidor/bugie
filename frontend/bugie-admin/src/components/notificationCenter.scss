@@ -1,0 +1,129 @@
+// Centro de avisos (NotificationCenter): tarjetas arriba a la derecha,
+// debajo de la barra superior. Colores con bx-tone-* (--tone / --tone-bg).
+
+.bx-notices {
+  position: fixed;
+  z-index: var(--bugie-z-toast);
+  top: calc(var(--bugie-nav-h) + .75rem);
+  right: 1rem;
+  display: grid;
+  gap: .6rem;
+  width: min(370px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+@media (max-width: 575.98px) {
+  .bx-notices { right: .75rem; left: .75rem; width: auto; top: calc(var(--bugie-nav-h) + .5rem); }
+}
+
+.bx-notice {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: .25rem;
+  padding: .7rem .5rem .85rem .75rem;
+  background: var(--bugie-surface);
+  color: var(--bugie-text);
+  border: 1px solid var(--bugie-border);
+  border-radius: 14px;
+  box-shadow: var(--bugie-shadow-2);
+  overflow: hidden;
+  animation: bxNoticeIn var(--bugie-dur-slow) var(--bugie-ease) both;
+}
+.bx-notice.is-leaving { animation: bxNoticeOut var(--bugie-dur) ease both; }
+
+.bx-notice-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: .7rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+}
+.bx-notice-body:focus-visible { outline: 2px solid var(--tone); outline-offset: 3px; }
+.bx-notice-body:hover .bx-notice-title { text-decoration: underline; text-underline-offset: 2px; }
+
+.bx-notice-icon {
+  width: 36px; height: 36px;
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  background: var(--tone-bg);
+  color: var(--tone);
+  font-size: 1rem;
+}
+.bx-notice-text { display: grid; gap: .15rem; min-width: 0; padding-top: .1rem; }
+.bx-notice-title { font-weight: 700; font-size: .9rem; line-height: 1.3; overflow-wrap: anywhere; }
+.bx-notice-msg { font-size: .82rem; color: var(--bugie-muted); line-height: 1.35; overflow-wrap: anywhere; }
+.bx-notice-close { flex-shrink: 0; margin-top: -.15rem; }
+
+// Barra de cierre automático (la mueve NoticeCard con transform).
+.bx-notice-progress {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: var(--tone-bg);
+}
+.bx-notice-progress > span {
+  display: block; height: 100%;
+  background: var(--tone);
+  transform-origin: left center;
+  transition: transform .1s linear;
+}
+
+.bx-notices-more {
+  justify-self: end;
+  pointer-events: none;
+  font-size: .75rem; font-weight: 600;
+  color: var(--bugie-muted);
+  background: var(--bugie-surface);
+  border: 1px solid var(--bugie-border);
+  border-radius: 999px;
+  padding: .15rem .6rem;
+  box-shadow: var(--bugie-shadow);
+}
+
+// ── Color del aviso como FONDO de la tarjeta ─────────────────────────────
+// El color elegido en Sistema → Avisos pinta toda la tarjeta (mismo tono en
+// tema claro y oscuro). Texto blanco; en ámbar, oscuro para que se lea.
+.bx-notice { --notice-bg: #5B5BD6; --notice-fg: #fff; }
+.bx-notice.bx-tone-primary { --notice-bg: #5B5BD6; --notice-fg: #fff; }
+.bx-notice.bx-tone-ok      { --notice-bg: #15803d; --notice-fg: #fff; }
+.bx-notice.bx-tone-warn    { --notice-bg: #f59e0b; --notice-fg: #1f1400; }
+.bx-notice.bx-tone-bad     { --notice-bg: #dc2626; --notice-fg: #fff; }
+.bx-notice.bx-tone-info    { --notice-bg: #0284c7; --notice-fg: #fff; }
+.bx-notice.bx-tone-neutral { --notice-bg: #475569; --notice-fg: #fff; }
+
+.bx-notice {
+  background: var(--notice-bg);
+  color: var(--notice-fg);
+  border-color: rgba(255, 255, 255, .18);
+}
+.bx-notice .bx-notice-icon {
+  background: rgba(255, 255, 255, .22);
+  color: var(--notice-fg);
+}
+.bx-notice.bx-tone-warn .bx-notice-icon { background: rgba(0, 0, 0, .12); }
+.bx-notice .bx-notice-msg { color: var(--notice-fg); opacity: .9; }
+.bx-notice .bx-notice-body:focus-visible { outline-color: var(--notice-fg); }
+.bx-notice .bx-notice-close,
+.bx-notice .bx-notice-close i { color: var(--notice-fg); }
+.bx-notice .bx-notice-close:hover { background: rgba(255, 255, 255, .18); }
+// Barra de progreso: pista oscura + barra blanca (en ámbar, barra oscura) para que contraste con el fondo.
+.bx-notice .bx-notice-progress { height: 4px; background: rgba(0, 0, 0, .25); }
+.bx-notice .bx-notice-progress > span { background: #fff; }
+.bx-notice.bx-tone-warn .bx-notice-progress { background: rgba(0, 0, 0, .15); }
+.bx-notice.bx-tone-warn .bx-notice-progress > span { background: #1f1400; }
+
+@keyframes bxNoticeIn { from { opacity: 0; transform: translateX(28px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes bxNoticeOut { to { opacity: 0; transform: translateX(28px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bx-notice, .bx-notice.is-leaving { animation: none; }
+  .bx-notice-progress > span { transition: none; }
+}

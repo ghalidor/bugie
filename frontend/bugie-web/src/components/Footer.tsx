@@ -1,55 +1,36 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { parse } from '../hooks/useLanding';
+import { LANDING_API } from '../content/landing/api';
+import { FOOTER, FOOTER_LEGAL_HREFS, type FooterLink } from '../content/landing/footer';
+import SmartLink from './landing/SmartLink';
+import { DEFAULT_LEGAL_NAME, useCompany } from '../hooks/useCompany';
+import { fillCity, useCity } from '../hooks/useCity';
 
-const LANDING_API = `${import.meta.env.VITE_API_LANDING}/landing`;
-
-const FALLBACK = {
-  tagline: 'Tu App de Transporte Seguro',
-  description: 'Plataforma de transporte seguro con foco en identidad, trazabilidad y soporte en Trujillo, Perú.',
-  links: [
-    { label: 'Empresa',              href: '/empresa' },
-    { label: 'Seguridad',            href: '/seguridad' },
-    { label: 'Comunidad',            href: '/comunidad' },
-    { label: 'Gana con Bugie',       href: '/gana-con-bugie' },
-    { label: 'Contacto',             href: '/contacto' },
-    { label: 'Preguntas frecuentes', href: '/faq' },
-  ],
-  productLinks: [
-    { label: 'Solicitar viaje', href: '/auth/login' },
-    { label: 'Crear cuenta',    href: '/auth/registro' },
-    { label: 'Panel admin',     href: 'http://localhost:5174', external: true },
-  ],
-  contact: { email: 'hola@bugie.pe', city: 'Trujillo, Perú', support: 'Soporte y alianzas' },
-  social: [
-    { name: 'instagram',   url: '#' },
-    { name: 'facebook-f',  url: '#' },
-    { name: 'linkedin-in', url: '#' },
-  ],
-  companyCol: 'Empresa', productCol: 'Producto', contactCol: 'Contacto',
-  legalCol:  'Legal',
-  legalLinks: {
-    terms:       'Términos y condiciones',
-    privacy:     'Política de privacidad',
-    complaints:  'Libro de reclamaciones',
-  },
-  legal:    `© ${new Date().getFullYear()} Bugie. Todos los derechos reservados.`,
-  legalSub: 'InteliaDevs S.A.C. · Trujillo, Perú',
-};
-
+/** Pie de página de la landing. Textos en src/content/landing/footer.ts;
+    se reemplazan por la sección 'footer' del gestor si existe. */
 export default function Footer() {
-  const [d, setD] = useState(FALLBACK);
+  const [raw, setD] = useState(FOOTER);
+  // Los textos llevan {city}/{cityCountry}: se rellenan con la ciudad configurada.
+  const city = useCity();
+  const d = fillCity(raw, city);
 
   useEffect(() => {
     fetch(`${LANDING_API}?lang=es`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.sections) setD(parse(data.sections, 'footer', FALLBACK));
+        if (data?.sections) setD(parse(data.sections, 'footer', FOOTER));
       })
       .catch(() => {});
   }, []);
 
-  const legalLinks = d.legalLinks ?? FALLBACK.legalLinks;
+  const legalLinks = d.legalLinks ?? FOOTER.legalLinks;
+
+  // Razón social desde "Datos de la empresa". Si no carga, queda el texto de siempre.
+  const company = useCompany();
+  const legalSub = company?.legalName
+    ? (d.legalSub ?? '').split(DEFAULT_LEGAL_NAME).join(company.legalName)
+    : d.legalSub;
 
   return (
     <footer className="bugie-footer">
@@ -63,7 +44,7 @@ export default function Footer() {
             </div>
             <p className="bugie-muted mb-3">{d.description}</p>
             <div className="d-flex gap-2">
-              {(d.social ?? []).map((s: any) => (
+              {(d.social ?? []).map(s => (
                 <a
                   className="btn btn-sm btn-bugie-outline bugie-icon-btn"
                   href={s.url ?? '#'}
@@ -78,41 +59,22 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Empresa */}
-          <div className="col-6 col-md-3 col-lg-2">
-            <div className="fw-bold mb-3">{d.companyCol}</div>
-            <div className="d-flex flex-column gap-2 small">
-              {(d.links ?? []).map((l: any) => (
-                <Link key={l.href} to={l.href}>{l.label}</Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Producto */}
-          <div className="col-6 col-md-3 col-lg-2">
-            <div className="fw-bold mb-3">{d.productCol}</div>
-            <div className="d-flex flex-column gap-2 small">
-              {(d.productLinks ?? []).map((l: any) =>
-                l.external
-                  ? <a key={l.href} href={l.href} target="_blank" rel="noreferrer">{l.label}</a>
-                  : <Link key={l.href} to={l.href}>{l.label}</Link>
-              )}
-            </div>
-          </div>
+          <FooterColumn title={d.companyCol} links={d.links} />
+          <FooterColumn title={d.productCol} links={d.productLinks} />
 
           {/* Legal */}
           <div className="col-6 col-md-3 col-lg-2">
-            <div className="fw-bold mb-3">{d.legalCol ?? 'Legal'}</div>
+            <div className="fw-bold mb-3">{d.legalCol ?? FOOTER.legalCol}</div>
             <div className="d-flex flex-column gap-2 small">
-              <Link to="/terminos">{legalLinks.terms}</Link>
-              <Link to="/privacidad">{legalLinks.privacy}</Link>
+              <Link to={FOOTER_LEGAL_HREFS.terms}>{legalLinks.terms}</Link>
+              <Link to={FOOTER_LEGAL_HREFS.privacy}>{legalLinks.privacy}</Link>
               <a
-                href="/libro-reclamaciones"
+                href={FOOTER_LEGAL_HREFS.complaints}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="d-inline-flex align-items-center gap-2"
               >
-                <i className="fa-solid fa-book" style={{ color: '#dc3545' }} />
+                <i className="fa-solid fa-book bugie-complaints-icon" />
                 <span>{legalLinks.complaints}</span>
               </a>
             </div>
@@ -131,14 +93,26 @@ export default function Footer() {
         </div>
 
         {/* Línea inferior */}
-        <div
-          className="d-flex flex-column flex-md-row justify-content-between gap-2 mt-4 pt-3 border-top small bugie-muted"
-          style={{ borderColor: 'var(--bugie-border)' }}
-        >
+        <div className="d-flex flex-column flex-md-row justify-content-between gap-2 mt-4 pt-3 border-top small bugie-muted">
           <div>{d.legal}</div>
-          <div>{d.legalSub}</div>
+          <div>{legalSub}</div>
         </div>
       </div>
     </footer>
+  );
+}
+
+/** Columna de enlaces (Empresa, Producto). Los marcados como `external`
+    se abren en pestaña nueva. */
+function FooterColumn({ title, links }: { title: string; links?: FooterLink[] }) {
+  return (
+    <div className="col-6 col-md-3 col-lg-2">
+      <div className="fw-bold mb-3">{title}</div>
+      <div className="d-flex flex-column gap-2 small">
+        {(links ?? []).map(l => (
+          <SmartLink key={l.href} href={l.href} external={!!l.external}>{l.label}</SmartLink>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='payouts-stats']",
+      "title": "Cuánto se pagó",
+      "text": "El total pagado y el desglose por método, según los filtros que elijas."
+    },
+    {
+      "selector": "[data-tour='payouts-filters']",
+      "title": "Filtra por fechas, método u origen",
+      "text": "Busca por conductor, número de operación o código. En el celular los filtros extra están en «Filtros»."
+    },
+    {
+      "selector": "[data-tour='payouts-list']",
+      "title": "Constancia de cada pago",
+      "text": "Cada pago guarda método, n.º de operación, fecha y quién lo registró. Toca el nombre del conductor para abrir su ficha."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Cobrar con código",
+      "text": "Si el conductor trae un código de canje (BG-…) o de premio (PZ-…), usa «Cobrar con código»: ves de quién es y cuánto, y antes de registrar te mostramos el resumen «Vas a pagar S/ X a…». Un código ya pagado no se puede volver a pagar."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Bono especial",
+      "text": "Para pagos sin código usa «Bono especial»: eliges al conductor, el monto y el motivo (obligatorio). «Exportar CSV» descarga todos los pagos del filtro, no solo la página."
+    }
+  ]
+}

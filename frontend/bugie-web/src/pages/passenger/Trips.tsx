@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import PageHeader from '../../components/PageHeader';
-import { API, apiFetch } from '../../state/api';
+import { useNavigate } from 'react-router-dom';
+import ServiceIcon, { isDeliveryTrip } from '../../components/ServiceIcon';
+import FromBadge from '../../components/FromBadge';
+import TripPhotos from '../../components/TripPhotos';
+import TripRouteMap from '../../components/TripRouteMap';
+import { API, apiFetch, ApiError, driversFileUrl, personPhotoUrl } from '../../state/api';
+import {
+  Drawer, EmptyState, InfoList, Modal, Notice, Page, Pagination, SectionCard, Skeleton, StatCard, StatGrid, StatusBadge,
+  useClientPage, useConfirm, useToast,
+} from '../../components/ui';
+import { fmtDateTime, fmtTime, money, payMethod, tripStatus } from '../../components/tripFormat';
 
 interface EnrichedTrip {
   id: string;
@@ -29,7 +37,41 @@ interface EnrichedTrip {
   vehicleYear:     number | null;
   vehiclePhotoUrl: string | null;
   category: 'city_ride' | 'delivery';
+  serviceType?: number;
+
+  // Envio de paquete (solo si category === 'delivery')
+  packageDescription?: string | null;
+  packageWeightKg?:    number | null;
+  packageIsFragile?:   boolean | null;
+  packageDetails?:     string | null;
+  recipientName?:      string | null;
+  recipientPhone?:     string | null;
+  pickupVerified?:     boolean | null;
+  deliveryReceivedBy?: string | null;
+  deliveryConfirmedAt?: string | null;
+
+  // Si se cancelo: quien ('passenger' | 'driver' | 'admin') y por que
+  cancelledBy?:  string | null;
+  cancelReason?: string | null;
+
+  // Programado: hora de Perú (sin zona). null = viaje "ahora".
+  scheduledAt?:     string | null;
+  driverArrivedAt?: string | null;
+  // El conductor no llegó (15 min después de la hora): cancelar o republicar
+  driverLate?:      boolean;
 }
+
+/** "sáb 04 oct, 10:30" de una fecha de la API (hora de Perú sin zona). */
+function fmtScheduled(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  if (!m) return iso;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])).toLocaleString('es-PE', {
+    timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/** Programado que todavía no terminó (pendiente, negociando o aceptado sin iniciar). */
+const isUpcomingScheduled = (t: EnrichedTrip) => !!t.scheduledAt && [1, 2, 7].includes(t.status);
 
 interface Incident {
   id: string;
@@ -52,22 +94,16 @@ interface Rating {
   createdAt: string;
 }
 
-const STATUS_INFO: Record<number, { label: string; color: string }> = {
-  1: { label: 'Pendiente',  color: '#f59e0b' },
-  2: { label: 'Aceptado',   color: '#38bdf8' },
-  3: { label: 'En curso',   color: '#818cf8' },
-  4: { label: 'Completado', color: '#34d399' },
-  5: { label: 'Cancelado',  color: '#94a3b8' },
-  6: { label: 'SOS',        color: '#f87171' },
+const CANCELLED_BY_TEXT: Record<string, string> = {
+  passenger: 'Lo cancelaste tú',
+  driver:    'Lo canceló el conductor',
+  admin:     'Lo canceló Bugie',
 };
 
-const PAY_LABEL: Record<string, string> = {
-  cash: 'Efectivo', yape: 'Yape', plin: 'Plin',
-};
+type Filter = 'all' | 'city_ride' | 'delivery' | 'scheduled';
+const PAGE_SIZE = 12;
 
-type Filter = 'all' | 'city_ride' | 'delivery';
-
-function groupByDay(trips: EnrichedTrip[]): { day: string; date: Date; trips: EnrichedTrip[] }[] {
+function groupByDay(trips: EnrichedTrip[]): { key: string; day: string; trips: EnrichedTrip[] }[] {
   const map = new Map<string, { date: Date; trips: EnrichedTrip[] }>();
   trips.forEach(t => {
     const d = new Date(t.createdAt);
@@ -78,15 +114,21 @@ function groupByDay(trips: EnrichedTrip[]): { day: string; date: Date; trips: En
   });
   return Array.from(map.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([, v]) => ({
-      day: v.date.toLocaleDateString('es-PE', { day: 'numeric', month: 'long' }),
-      date: v.date,
-      trips: v.trips.sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    .map(([key, v]) => ({
+      key,
+      day: v.date.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }),
+      trips: v.trips,
     }));
 }
 
+const byDateDesc = (a: EnrichedTrip, b: EnrichedTrip) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+const categoryOf = (t: EnrichedTrip) => t.category ?? (t.serviceType === 1 ? 'delivery' : 'city_ride');
+
 export default function PassengerTrips() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const navigate = useNavigate();
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [trips,     setTrips]     = useState<EnrichedTrip[]>([]);
   const [myReports, setMyReports] = useState<Record<string, Incident | null>>({});
   const [myRatings, setMyRatings] = useState<Record<string, Rating | null>>({});
@@ -97,6 +139,7 @@ export default function PassengerTrips() {
   const [reportingTrip, setReportingTrip] = useState<EnrichedTrip | null>(null);
   const [ratingTrip,    setRatingTrip]    = useState<EnrichedTrip | null>(null);
 
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     apiFetch<EnrichedTrip[]>(`${API.trips}/trips/history/enriched`)
       .then(async list => {
@@ -113,17 +156,14 @@ export default function PassengerTrips() {
             // Si falla, los botones se mostrarán como "Reportar"
           }
 
-          // Cargar ratings en una sola llamada batch (en lugar de N requests).
-          // Solo nos importan los viajes completados (status 4) — el endpoint
-          // batch igual acepta cualquier id y devuelve solo los que tienen rating.
+          // Ratings en una sola llamada batch (solo viajes completados).
           const completedIds = list.filter(t => t.status === 4).map(t => t.id);
           if (completedIds.length > 0) {
             try {
               const qs = completedIds.map(id => `ids=${id}`).join('&');
               const map = await apiFetch<Record<string, Rating>>(
                 `${API.trips}/trips/ratings/me/by-trips?${qs}`);
-              // El backend solo devuelve los que tienen rating; rellenamos los
-              // demás con null para que el lookup [tripId] sea uniforme.
+              // El backend solo devuelve los que tienen rating; los demás van en null.
               const ratingMap: Record<string, Rating | null> = {};
               for (const id of completedIds) ratingMap[id] = map?.[id] ?? null;
               setMyRatings(ratingMap);
@@ -135,61 +175,172 @@ export default function PassengerTrips() {
       })
       .catch(() => setError('No se pudo cargar el historial.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadKey]);
+
+  // ── Programados: cancelar o republicar ──────────────────────────────
+  async function cancelScheduled(t: EnrichedTrip) {
+    const delivery = isDeliveryTrip(t);
+    const ok = await confirm({
+      title: delivery ? '¿Cancelar el envío programado?' : '¿Cancelar el viaje programado?',
+      message: t.driverLate
+        ? 'Tu conductor no llegó a la hora programada: puedes cancelar sin penalidad.'
+        : t.driverId ? 'Avisaremos a tu conductor que cancelaste.' : 'Dejarás de recibir propuestas de conductores.',
+      confirmText: 'Sí, cancelar',
+      cancelText: 'No',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setBusyId(t.id);
+    try {
+      await apiFetch(`${API.trips}/trips/${t.id}/cancel`, { method: 'PUT' });
+      toast.success(delivery ? 'Cancelaste el envío programado.' : 'Cancelaste el viaje programado.');
+      setSelected(null);
+      setReloadKey(k => k + 1);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo cancelar.');
+    } finally { setBusyId(null); }
+  }
+
+  async function republishScheduled(t: EnrichedTrip) {
+    const ok = await confirm({
+      title: '¿Republicar?',
+      message: 'Quitaremos a tu conductor y otros conductores podrán enviarte propuestas de nuevo.',
+      confirmText: 'Sí, republicar',
+      cancelText: 'No, esperar',
+      tone: 'warning',
+    });
+    if (!ok) return;
+    setBusyId(t.id);
+    try {
+      await apiFetch(`${API.trips}/trips/${t.id}/republish`, { method: 'PUT' });
+      toast.success('Listo: los conductores ya pueden verlo de nuevo.');
+      navigate(`/app/pasajero/seguimiento?trip=${t.id}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo republicar.');
+    } finally { setBusyId(null); }
+  }
 
   const filtered = useMemo(() => {
-    if (filter === 'all')      return trips;
-    if (filter === 'delivery') return [];
-    return trips.filter(t => t.category === filter);
+    const list = filter === 'all' ? trips
+      : filter === 'scheduled' ? trips.filter(t => !!t.scheduledAt)
+      : trips.filter(t => categoryOf(t) === filter);
+    return [...list].sort(byDateDesc);
   }, [trips, filter]);
+  // Próximos programados (arriba de la lista), por hora
+  const upcoming = useMemo(() => trips.filter(isUpcomingScheduled)
+    .sort((a, b) => (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? '')), [trips]);
 
-  const grouped = useMemo(() => groupByDay(filtered), [filtered]);
+  const { page, setPage, items } = useClientPage(filtered, PAGE_SIZE, filter);
+  const grouped = useMemo(() => groupByDay(items), [items]);
+
+  const completed  = trips.filter(t => t.status === 4);
+  const deliveries = trips.filter(t => categoryOf(t) === 'delivery').length;
+  const totalSpent = completed.reduce((s, t) => s + (t.finalFare ?? t.estimatedFare), 0);
 
   function handleReported(tripId: string, incident: Incident) {
     setMyReports(prev => ({ ...prev, [tripId]: incident }));
     setReportingTrip(null);
+    toast.success('Tu reporte llegó al equipo de monitoreo.');
   }
 
   function handleRated(tripId: string, rating: Rating) {
     setMyRatings(prev => ({ ...prev, [tripId]: rating }));
     setRatingTrip(null);
+    toast.success('¡Gracias por calificar!');
   }
 
-  return (
-    <>
-      <PageHeader
-        title="Mis viajes"
-        subtitle="Historial de tus viajes realizados."
-        icon="fa-solid fa-clock-rotate-left"
-      />
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+  const chips: { key: Filter; label: string; icon: string; count: number }[] = [
+    { key: 'all',       label: 'Todos',            icon: 'fa-bars', count: trips.length },
+    { key: 'city_ride', label: 'Viajes en ciudad', icon: 'fa-car',  count: trips.length - deliveries },
+    { key: 'delivery',  label: 'Envíos',           icon: 'fa-box',  count: deliveries },
+    { key: 'scheduled', label: 'Programados',      icon: 'fa-calendar-days', count: trips.filter(t => !!t.scheduledAt).length },
+  ];
 
-      {/* Filtros */}
-      <div className="d-flex gap-2 mb-4 flex-wrap">
-        <FilterPill active={filter === 'all'}       icon="fa-bars" label="Todos"
-                    onClick={() => setFilter('all')} />
-        <FilterPill active={filter === 'city_ride'} icon="fa-car"  label="Viajes en ciudad"
-                    onClick={() => setFilter('city_ride')} />
-        <FilterPill active={filter === 'delivery'}  icon="fa-box"  label="Delivery"
-                    comingSoon onClick={() => setFilter('delivery')} />
+  return (
+    <Page
+      title="Mis viajes"
+      subtitle="Historial de tus viajes y envíos. Toca uno para ver el detalle."
+      icon="fa-clock-rotate-left"
+      actions={[{ label: 'Pedir viaje', icon: 'fa-route', variant: 'primary', to: '/app/pasajero/solicitar' }]}
+    >
+      {error && <Notice tone="bad">{error}</Notice>}
+
+      <StatGrid min={160}>
+        <StatCard label="Viajes y envíos" value={trips.length} icon="fa-route" loading={loading} />
+        <StatCard label="Completados" value={completed.length} icon="fa-circle-check" tone="ok" loading={loading} />
+        <StatCard label="Total gastado" value={money(totalSpent)} icon="fa-wallet" tone="info" loading={loading} />
+      </StatGrid>
+
+      <div className="bx-chips" role="group" aria-label="Filtrar por tipo">
+        {chips.map(c => (
+          <button key={c.key} type="button" className="bx-chip" aria-pressed={filter === c.key} onClick={() => setFilter(c.key)}>
+            <i className={`fa-solid ${c.icon}`} aria-hidden="true" />{c.label}
+            {!loading && <span className="count">{c.count}</span>}
+          </button>
+        ))}
       </div>
 
+      {/* Próximos programados: hora, estado y acciones */}
+      {!loading && upcoming.length > 0 && (
+        <SectionCard title="Próximos programados" icon="fa-calendar-days"
+          description="Puedes verlos, cancelarlos o republicarlos si el conductor no llegó.">
+          <div className="bx-rows">
+            {upcoming.map(t => (
+              <div key={t.id} className="bx-row">
+                <span className={`bx-list-icon bx-tone-${t.driverLate ? 'bad' : t.driverId ? 'ok' : 'warn'}`} aria-hidden="true">
+                  <i className={`fa-solid ${isDeliveryTrip(t) ? 'fa-box' : 'fa-car'}`} />
+                </span>
+                <div className="bx-list-text">
+                  <span className="bx-list-title d-block">Programado para el {fmtScheduled(t.scheduledAt!)}</span>
+                  <span className="bx-list-sub d-block text-truncate">{t.originAddress} → {t.destAddress}</span>
+                  <span className={`bx-list-sub d-block ${t.driverLate ? 'bx-text-bad' : t.driverId ? 'bx-text-ok' : 'bx-text-warn'}`}>
+                    {t.driverLate ? 'Tu conductor no llegó'
+                      : t.driverId ? `Conductor asignado${t.driverFullName ? `: ${t.driverFullName}` : ''}`
+                      : t.status === 7 ? 'Recibiendo propuestas' : 'Buscando conductor'}
+                  </span>
+                </div>
+                <div className="bx-list-end d-flex gap-2 flex-wrap justify-content-end">
+                  <button type="button" className="btn btn-sm btn-bugie-outline"
+                          onClick={() => navigate(`/app/pasajero/seguimiento?trip=${t.id}`)}>
+                    <i className="fa-solid fa-location-dot" aria-hidden="true" />Ver
+                  </button>
+                  {t.driverLate && (
+                    <button type="button" className="btn btn-sm btn-bugie" disabled={busyId === t.id}
+                            onClick={() => republishScheduled(t)}>
+                      <i className="fa-solid fa-rotate" aria-hidden="true" />Republicar
+                    </button>
+                  )}
+                  {!t.driverArrivedAt && (
+                    <button type="button" className="btn btn-sm btn-outline-danger" disabled={busyId === t.id}
+                            onClick={() => cancelScheduled(t)}>
+                      <i className="fa-solid fa-xmark" aria-hidden="true" />{t.driverLate ? 'Cancelar sin penalidad' : 'Cancelar'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
       {loading ? (
-        <div className="d-flex justify-content-center py-5">
-          <span className="spinner-border" />
+        <div className="bx-rows">
+          {[0, 1, 2, 3].map(i => <Skeleton key={i} height={76} radius={14} />)}
         </div>
-      ) : filter === 'delivery' ? (
-        <EmptyState icon="fa-box" title="Delivery próximamente"
-          subtitle="Esta funcionalidad aún no está disponible." />
-      ) : grouped.length === 0 ? (
-        <EmptyState icon="fa-route" title="Sin viajes aún"
-          subtitle="Tus viajes aparecerán aquí una vez que los realices." />
+      ) : filtered.length === 0 ? (
+        <SectionCard>
+          {filter === 'scheduled'
+            ? <EmptyState icon="fa-calendar-days" title="Sin programados" text="Al pedir un viaje o envío elige «Programar» para reservarlo con anticipación." />
+            : filter === 'delivery'
+            ? <EmptyState icon="fa-box" title="Sin envíos aún" text="Tus envíos de paquetes aparecerán aquí una vez que los solicites." />
+            : <EmptyState icon="fa-route" title="Sin viajes aún" text="Tus viajes aparecerán aquí una vez que los realices." />}
+        </SectionCard>
       ) : (
-        <div className="d-flex flex-column gap-4">
+        <div className="bx-stack">
           {grouped.map(g => (
-            <div key={g.date.toISOString()}>
-              <div className="fw-bold mb-2" style={{ fontSize: '1.05rem' }}>{g.day}</div>
-              <div className="d-flex flex-column gap-2">
+            <section key={g.key} aria-label={g.day}>
+              <h2 className="bx-group-title text-capitalize">{g.day} <span className="count">{g.trips.length}</span></h2>
+              <div className="bx-rows">
                 {g.trips.map(t => (
                   <TripRow
                     key={t.id}
@@ -200,24 +351,26 @@ export default function PassengerTrips() {
                   />
                 ))}
               </div>
-            </div>
+            </section>
           ))}
+          <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
         </div>
       )}
 
-      {/* Modal de detalle */}
-      {selected && (
-        <TripDetailModal
-          trip={selected}
-          myIncident={myReports[selected.id] ?? null}
-          myRating={myRatings[selected.id] ?? null}
-          onClose={() => setSelected(null)}
-          onReport={() => { setSelected(null); setReportingTrip(selected); }}
-          onRate={() => { setSelected(null); setRatingTrip(selected); }}
-        />
-      )}
+      {/* Detalle */}
+      <TripDetailDrawer
+        trip={selected}
+        myIncident={selected ? myReports[selected.id] ?? null : null}
+        myRating={selected ? myRatings[selected.id] ?? null : null}
+        onClose={() => setSelected(null)}
+        onReport={() => { const t = selected; setSelected(null); setReportingTrip(t); }}
+        onRate={() => { const t = selected; setSelected(null); setRatingTrip(t); }}
+        busy={!!selected && busyId === selected.id}
+        onTrack={() => { if (selected) navigate(`/app/pasajero/seguimiento?trip=${selected.id}`); }}
+        onCancelScheduled={() => { if (selected) cancelScheduled(selected); }}
+        onRepublish={() => { if (selected) republishScheduled(selected); }}
+      />
 
-      {/* Modal de reporte */}
       {reportingTrip && (
         <ReportIncidentModal
           trip={reportingTrip}
@@ -227,7 +380,6 @@ export default function PassengerTrips() {
         />
       )}
 
-      {/* Modal de calificación */}
       {ratingTrip && (
         <RateTripModal
           trip={ratingTrip}
@@ -235,98 +387,58 @@ export default function PassengerTrips() {
           onSaved={r => handleRated(ratingTrip.id, r)}
         />
       )}
-    </>
+    </Page>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function FilterPill({ active, icon, label, onClick, comingSoon }: {
-  active: boolean; icon: string; label: string;
-  onClick: () => void; comingSoon?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="btn btn-sm d-inline-flex align-items-center gap-2 rounded-pill px-3"
-      style={{
-        background: active ? 'var(--bugie-text)' : 'transparent',
-        color:      active ? 'var(--bugie-bg)'   : 'var(--bugie-text)',
-        border:     active ? '1px solid var(--bugie-text)' : '1px solid var(--bugie-border)',
-        opacity:    comingSoon ? 0.7 : 1,
-      }}
-    >
-      <i className={`fa-solid ${icon}`} style={{ fontSize: '0.85rem' }} />
-      <span className="fw-semibold small">{label}</span>
-      {comingSoon && (
-        <span className="badge rounded-pill" style={{
-          background: '#f59e0b22', color: '#f59e0b',
-          fontSize: '0.62rem', padding: '0.15rem 0.45rem',
-        }}>Pronto</span>
-      )}
-    </button>
-  );
-}
-
 function TripRow({ trip, hasMyIncident, onClick, onReport }: {
   trip: EnrichedTrip;
   hasMyIncident: boolean;
   onClick: () => void;
   onReport: () => void;
 }) {
-  const time = new Date(trip.createdAt).toLocaleTimeString('es-PE',
-    { hour: '2-digit', minute: '2-digit' });
   const fare = trip.finalFare ?? trip.estimatedFare;
+  const delivery = isDeliveryTrip(trip);
+  const st = tripStatus(trip.status);
 
   return (
     <div
       onClick={onClick}
       role="button"
       tabIndex={0}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
-      className="d-flex align-items-center gap-3 p-3"
-      style={{
-        background: 'var(--bugie-surface)',
-        border: '1px solid var(--bugie-border)',
-        borderRadius: 12,
-        cursor: 'pointer',
-      }}
+      aria-label={`Ver detalle: ${trip.originAddress} a ${trip.destAddress}`}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      className="bx-row clickable"
     >
-      {/* Icono del modo */}
-      <div className="flex-shrink-0 d-flex align-items-center justify-content-center"
-           style={{
-             width: 48, height: 48, borderRadius: 12,
-             background: 'var(--bugie-bg)', color: 'var(--bugie-text)',
-           }}>
-        <i className={`fa-solid ${trip.category === 'delivery' ? 'fa-box' : 'fa-car'}`} />
-      </div>
+      <span className={`bx-list-icon bx-tone-${delivery ? 'warn' : 'primary'}`} aria-hidden="true">
+        <i className={`fa-solid ${delivery ? 'fa-box' : 'fa-car'}`} />
+      </span>
 
-      {/* Trayecto */}
-      <div className="flex-grow-1 min-w-0">
-        <div className="small bugie-muted text-truncate" style={{ fontSize: '0.75rem' }}>
-          {trip.originAddress}
+      <div className="bx-list-text">
+        <ol className="bx-stops compact">
+          <li><span className="addr">{trip.originAddress}</span></li>
+          <li className="dest"><span className="addr">{trip.destAddress}</span></li>
+        </ol>
+        <div className="bx-list-sub d-flex align-items-center gap-2 flex-wrap mt-1">
+          <StatusBadge tone={st.tone} size="sm">{st.label}</StatusBadge>
+          {trip.scheduledAt && (
+            <StatusBadge tone="info" size="sm" icon="fa-calendar-days">Programado para el {fmtScheduled(trip.scheduledAt)}</StatusBadge>
+          )}
+          <span>{fmtTime(trip.createdAt)}</span>
+          {delivery && trip.packageDescription && <span className="bx-truncate">· {trip.packageDescription}</span>}
         </div>
-        <div className="fw-semibold text-truncate">{trip.destAddress}</div>
-        <div className="small bugie-muted" style={{ fontSize: '0.75rem' }}>{time}</div>
       </div>
 
-      {/* Lado derecho: precio + botón */}
-      <div className="d-flex flex-column align-items-end gap-2 flex-shrink-0">
-        <div className="fw-bold">S/ {fare.toFixed(2)}</div>
+      <div className="bx-list-end flex-column align-items-end">
+        <span className="amount">{money(fare)}</span>
         <button
+          type="button"
           onClick={e => { e.stopPropagation(); onReport(); }}
-          className="btn btn-sm rounded-pill d-inline-flex align-items-center gap-1"
-          style={{
-            background: hasMyIncident ? '#f5970022' : 'transparent',
-            color:      hasMyIncident ? '#f59700'   : 'var(--bugie-muted)',
-            border:     `1px solid ${hasMyIncident ? '#f5970055' : 'var(--bugie-border)'}`,
-            fontSize:   '0.7rem',
-            padding:    '0.2rem 0.6rem',
-            whiteSpace: 'nowrap',
-          }}
+          className={`btn btn-sm ${hasMyIncident ? 'btn-outline-warning' : 'btn-bugie-outline'}`}
           title={hasMyIncident ? 'Ver mi incidencia' : 'Reportar incidencia'}
         >
-          <i className={`fa-solid ${hasMyIncident ? 'fa-triangle-exclamation' : 'fa-flag'}`}
-             style={{ fontSize: '0.65rem' }} />
+          <i className={`fa-solid ${hasMyIncident ? 'fa-triangle-exclamation' : 'fa-flag'}`} aria-hidden="true" />
           {hasMyIncident ? 'Ver incidencia' : 'Reportar'}
         </button>
       </div>
@@ -335,277 +447,216 @@ function TripRow({ trip, hasMyIncident, onClick, onReport }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Modal de detalle (z-index 9999 para que esté sobre el header)
+// Detalle del viaje en un panel lateral (pantalla completa en móvil)
 // ─────────────────────────────────────────────────────────────────────
-function TripDetailModal({ trip, myIncident, myRating, onClose, onReport, onRate }: {
-  trip: EnrichedTrip;
+function TripDetailDrawer({ trip, myIncident, myRating, onClose, onReport, onRate, busy, onTrack, onCancelScheduled, onRepublish }: {
+  trip: EnrichedTrip | null;
   myIncident: Incident | null;
   myRating: Rating | null;
   onClose: () => void;
   onReport: () => void;
   onRate: () => void;
+  busy: boolean;
+  onTrack: () => void;
+  onCancelScheduled: () => void;
+  onRepublish: () => void;
 }) {
-  const status = STATUS_INFO[trip.status] ?? { label: '?', color: '#94a3b8' };
-  const fare   = trip.finalFare ?? trip.estimatedFare;
-  const date   = new Date(trip.createdAt);
-  const startedAt   = trip.startedAt   ? new Date(trip.startedAt) : null;
-  const completedAt = trip.completedAt ? new Date(trip.completedAt) : null;
+  // Conserva el último viaje mientras se anima la salida
+  const [last, setLast] = useState<EnrichedTrip | null>(trip);
+  useEffect(() => { if (trip) setLast(trip); }, [trip]);
+  const t = trip ?? last;
 
-  const durationMin = (startedAt && completedAt)
-    ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)
-    : null;
-
-  const distanceKm = haversineKm(trip.originLat, trip.originLng, trip.destLat, trip.destLng);
-
-  const fullDate = date.toLocaleDateString('es-PE',
-    { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-  const fullTime = date.toLocaleTimeString('es-PE',
-    { hour: '2-digit', minute: '2-digit' });
-
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 99999, padding: 16,
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 'min(480px, 100%)', maxHeight: '90vh',
-          background: 'var(--bugie-surface)',
-          borderRadius: 16,
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}
-      >
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)' }}>
-          <div>
-            <div className="fw-bold">{fullDate}</div>
-            <div className="small bugie-muted">{fullTime}</div>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
-          </button>
-        </div>
-
-        <div style={{ overflowY: 'auto', padding: '1rem' }}>
-
-          {/* Foto del vehículo */}
-          <div className="mb-3" style={{
-            borderRadius: 12, overflow: 'hidden',
-            background: 'var(--bugie-bg-2)',
-            aspectRatio: '16/9',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            {trip.vehiclePhotoUrl ? (
-              <img src={trip.vehiclePhotoUrl} alt="Vehículo"
-                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <div className="text-center bugie-muted">
-                <i className="fa-solid fa-car fa-2x mb-2 d-block" />
-                <div className="small">Sin foto del vehículo</div>
-              </div>
-            )}
-          </div>
-
-          <div className="d-flex align-items-center gap-2 mb-3 flex-wrap">
-            <div className="fw-bold fs-5">
-              {trip.category === 'delivery' ? 'Delivery' : 'Viaje en ciudad'}
-            </div>
-            <span className="badge rounded-pill" style={{
-              background: status.color + '22', color: status.color, fontSize: '0.72rem',
-            }}>{status.label}</span>
-          </div>
-
-          <div className="mb-3 d-flex flex-column gap-2">
-            <RouteRow icon="fa-location-dot" label={trip.originAddress}
-              time={fullTime} color="#7C6AF7" />
-            <RouteRow icon="fa-flag-checkered" label={trip.destAddress}
-              time={completedAt
-                ? completedAt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
-                : '—'}
-              color="#C060C0" />
-          </div>
-
-          <div className="row g-2 mb-3">
-            <div className="col-6">
-              <div className="p-3" style={{ background: 'var(--bugie-bg-2)', borderRadius: 12 }}>
-                <div className="small bugie-muted"><i className="fa-solid fa-clock me-1" />Duración</div>
-                <div className="fw-bold">{durationMin !== null ? `${durationMin} min` : '—'}</div>
-              </div>
-            </div>
-            <div className="col-6">
-              <div className="p-3" style={{ background: 'var(--bugie-bg-2)', borderRadius: 12 }}>
-                <div className="small bugie-muted"><i className="fa-solid fa-route me-1" />Distancia</div>
-                <div className="fw-bold">{distanceKm.toFixed(1)} km</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Conductor */}
-          {trip.driverId && (
-            <div className="p-3 mb-3 d-flex align-items-center gap-3"
-                 style={{ background: 'var(--bugie-bg-2)', borderRadius: 12 }}>
-              <div className="flex-shrink-0" style={{
-                width: 48, height: 48, borderRadius: '50%', overflow: 'hidden',
-                background: 'var(--bugie-surface)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {trip.driverPhotoUrl ? (
-                  <img src={trip.driverPhotoUrl} alt=""
-                       style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <i className="fa-solid fa-user bugie-muted" />
-                )}
-              </div>
-              <div className="flex-grow-1 min-w-0">
-                <div className="fw-semibold text-truncate">
-                  {trip.driverFullName ?? 'Conductor'}
-                </div>
-                <div className="small bugie-muted text-truncate">
-                  {[trip.vehicleColor, trip.vehicleBrand, trip.vehicleModel]
-                    .filter(Boolean).join(' ')}
-                  {trip.vehiclePlate && (
-                    <span className="ms-2 fw-semibold">{trip.vehiclePlate}</span>
-                  )}
-                </div>
-                {trip.driverRating !== null && (
-                  <div className="small d-flex align-items-center gap-1">
-                    <i className="fa-solid fa-star" style={{ color: '#f59e0b', fontSize: '0.75rem' }} />
-                    <span className="fw-semibold">{trip.driverRating.toFixed(1)}</span>
-                    <span className="bugie-muted">({trip.driverTotalRatings ?? 0})</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Pago */}
-          <div className="p-3 mb-3" style={{ background: 'var(--bugie-bg-2)', borderRadius: 12 }}>
-            <div className="d-flex justify-content-between mb-1">
-              <span className="bugie-muted">Tarifa</span>
-              <span className="fw-semibold">S/ {trip.estimatedFare.toFixed(2)}</span>
-            </div>
-            {trip.finalFare !== null && trip.finalFare !== trip.estimatedFare && (
-              <div className="d-flex justify-content-between mb-1">
-                <span className="bugie-muted">Tarifa final</span>
-                <span className="fw-semibold">S/ {trip.finalFare.toFixed(2)}</span>
-              </div>
-            )}
-            <div className="d-flex justify-content-between" style={{
-              borderTop: '1px solid var(--bugie-border)', paddingTop: 8, marginTop: 8,
-            }}>
-              <span className="fw-bold">
-                Total ({PAY_LABEL[trip.paymentMethod] ?? trip.paymentMethod})
-              </span>
-              <span className="fw-bold">S/ {fare.toFixed(2)}</span>
-            </div>
-          </div>
-
-          {/* Mi incidencia (si existe) */}
-          {myIncident && (
-            <div className="p-3 mb-3" style={{
-              background: '#f5970015',
-              border: '1px solid #f5970055',
-              borderRadius: 12,
-            }}>
-              <div className="d-flex align-items-center gap-2 mb-2">
-                <i className="fa-solid fa-triangle-exclamation" style={{ color: '#f59700' }} />
-                <span className="fw-bold" style={{ color: '#f59700' }}>Tu incidencia</span>
-              </div>
-              <div className="small">{myIncident.description}</div>
-              <div className="small bugie-muted mt-2">
-                Reportada {new Date(myIncident.createdAt).toLocaleString('es-PE',
-                  { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
-          )}
-
-          {/* Botón reportar */}
-          <button
-            onClick={onReport}
-            className="btn rounded-pill w-100 d-inline-flex align-items-center justify-content-center gap-2"
-            style={{
-              background: myIncident ? 'var(--bugie-surface)' : '#f59700',
-              color: myIncident ? 'var(--bugie-text)' : '#fff',
-              border: myIncident ? '1px solid var(--bugie-border)' : 'none',
-              padding: '0.65rem',
-            }}
-          >
-            <i className="fa-solid fa-flag" />
-            {myIncident ? 'Ver mi incidencia' : 'Reportar incidencia'}
-          </button>
-
-          {/* Sección de calificación: solo en viajes completados.
-              Si ya calificó muestra estrellas + comentario.
-              Si no, botón "Calificar al conductor". */}
-          {trip.status === 4 && (
+  return (
+    <Drawer
+      open={!!trip}
+      onClose={onClose}
+      size="md"
+      title={t ? (isDeliveryTrip(t) ? 'Envío de paquete' : 'Viaje en ciudad') : ''}
+      description={t ? fmtDateTime(t.createdAt) : undefined}
+      footer={t && (
+        <>
+          {/* Programado vigente: seguimiento, cancelar y republicar */}
+          {isUpcomingScheduled(t) && (
             <>
-              {myRating ? (
-                <div className="p-3 mt-3" style={{
-                  background: '#fef3c7',
-                  border: '1px solid #fbbf24',
-                  borderRadius: 12,
-                }}>
-                  <div className="d-flex align-items-center gap-2 mb-2">
-                    <i className="fa-solid fa-star" style={{ color: '#b45309' }} />
-                    <span className="fw-bold" style={{ color: '#b45309' }}>
-                      Tu calificación
-                    </span>
-                    <span className="ms-auto small bugie-muted">
-                      {new Date(myRating.createdAt).toLocaleDateString('es-PE',
-                        { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-                  <div className="d-flex align-items-center gap-2 mb-2">
-                    {[1,2,3,4,5].map(s => (
-                      <i key={s}
-                         className={`fa-solid fa-star`}
-                         style={{
-                           color: s <= myRating.stars ? '#fbbf24' : '#d1d5db',
-                           fontSize: '1.1rem',
-                         }} />
-                    ))}
-                    <span className="fw-bold ms-1">{myRating.stars}/5</span>
-                  </div>
-                  {myRating.comment && (
-                    <div className="small mt-2 p-2"
-                         style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8 }}>
-                      "{myRating.comment}"
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <button
-                  onClick={onRate}
-                  className="btn rounded-pill w-100 d-inline-flex align-items-center justify-content-center gap-2 mt-2"
-                  style={{
-                    background: '#fbbf24',
-                    color: '#1f2937',
-                    border: 'none',
-                    padding: '0.65rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  <i className="fa-solid fa-star" />
-                  Calificar al conductor
+              <button type="button" className="btn btn-bugie-outline" onClick={onTrack}>
+                <i className="fa-solid fa-location-dot" aria-hidden="true" />Ver seguimiento
+              </button>
+              {t.driverLate && (
+                <button type="button" className="btn btn-bugie" onClick={onRepublish} disabled={busy}>
+                  <i className="fa-solid fa-rotate" aria-hidden="true" />Republicar
+                </button>
+              )}
+              {!t.driverArrivedAt && (
+                <button type="button" className="btn btn-outline-danger" onClick={onCancelScheduled} disabled={busy}>
+                  <i className="fa-solid fa-xmark" aria-hidden="true" />{t.driverLate ? 'Cancelar sin penalidad' : 'Cancelar'}
                 </button>
               )}
             </>
           )}
-
-        </div>
-      </div>
-    </div>,
-    document.body
+          <button type="button" onClick={onReport}
+                  className={`btn ${myIncident ? 'btn-bugie-outline' : 'btn-outline-warning'}`}>
+            <i className="fa-solid fa-flag" aria-hidden="true" />
+            {myIncident ? 'Ver mi incidencia' : 'Reportar incidencia'}
+          </button>
+          {t.status === 4 && !myRating && (
+            <button type="button" onClick={onRate} className="btn btn-bugie">
+              <i className="fa-solid fa-star" aria-hidden="true" />Calificar al conductor
+            </button>
+          )}
+        </>
+      )}
+    >
+      {t && <TripDetailBody trip={t} myIncident={myIncident} myRating={myRating} />}
+    </Drawer>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Modal de reporte (z-index aún más alto que el de detalle)
+function TripDetailBody({ trip, myIncident, myRating }: { trip: EnrichedTrip; myIncident: Incident | null; myRating: Rating | null }) {
+  const st     = tripStatus(trip.status);
+  const fare   = trip.finalFare ?? trip.estimatedFare;
+  const delivery = isDeliveryTrip(trip);
+  const startedAt   = trip.startedAt   ? new Date(trip.startedAt) : null;
+  const completedAt = trip.completedAt ? new Date(trip.completedAt) : null;
+  const durationMin = (startedAt && completedAt)
+    ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)
+    : null;
+  const distanceKm = haversineKm(trip.originLat, trip.originLng, trip.destLat, trip.destLng);
+
+  return (
+    <div className="bx-stack">
+      <div className="d-flex align-items-center gap-2 flex-wrap">
+        <ServiceIcon delivery={delivery} />
+        <StatusBadge tone={st.tone} icon={st.icon}>{st.label}</StatusBadge>
+      </div>
+
+      {/* Foto del vehículo */}
+      <div className="bx-media">
+        {trip.vehiclePhotoUrl
+          ? <img src={driversFileUrl(trip.vehiclePhotoUrl)} alt="Vehículo del viaje" />
+          : <div className="text-center"><i className="fa-solid fa-car fa-2x d-block mb-2" aria-hidden="true" /><span className="small">Sin foto del vehículo</span></div>}
+      </div>
+
+      {/* Programado */}
+      {trip.scheduledAt && (
+        <Notice tone={trip.driverLate ? 'bad' : 'info'} icon="fa-calendar-days"
+                title={`Programado para el ${fmtScheduled(trip.scheduledAt)}`}>
+          {trip.driverLate
+            ? 'Tu conductor no llegó a la hora: puedes cancelar sin penalidad o republicarlo.'
+            : isUpcomingScheduled(trip)
+              ? (trip.driverId ? 'Conductor asignado. Te recordaremos 30 y 10 minutos antes.' : 'Los conductores pueden enviarte propuestas desde ahora.')
+              : 'Este viaje se pidió con anticipación.'}
+        </Notice>
+      )}
+
+      {/* Cancelado: quién y por qué */}
+      {trip.status === 5 && (
+        <Notice
+          tone="neutral" icon="fa-circle-xmark"
+          title={<span className="d-inline-flex align-items-center gap-2 flex-wrap">
+            {CANCELLED_BY_TEXT[trip.cancelledBy ?? ''] ?? (delivery ? 'Envío cancelado' : 'Viaje cancelado')}
+            {trip.cancelledBy && <FromBadge by={trip.cancelledBy} />}
+          </span>}
+        >
+          Motivo: {trip.cancelReason || 'Sin motivo indicado'}
+        </Notice>
+      )}
+
+      <div className="bx-box">
+        <ol className="bx-stops">
+          <li><span className="lbl">Origen · {fmtTime(trip.createdAt)}</span><span className="addr">{trip.originAddress}</span></li>
+          <li className="dest">
+            <span className="lbl">Destino · {completedAt ? completedAt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+            <span className="addr">{trip.destAddress}</span>
+          </li>
+        </ol>
+      </div>
+
+      {/* Ruta del sistema vs recorrido real del conductor */}
+      {trip.driverId && (
+        <TripRouteMap tripId={trip.id} realPathUrl={`${API.trips}/trips/${trip.id}/real-path`} realLabel="Recorrido del conductor" />
+      )}
+
+      <div className="bx-mini-stats">
+        <div className="bx-box"><div className="l"><i className="fa-solid fa-clock me-1" aria-hidden="true" />Duración</div><div className="v">{durationMin !== null ? `${durationMin} min` : '—'}</div></div>
+        <div className="bx-box"><div className="l"><i className="fa-solid fa-route me-1" aria-hidden="true" />Distancia</div><div className="v">{distanceKm.toFixed(1)} km</div></div>
+      </div>
+
+      {/* Envío: paquete, destinatario, entrega y fotos */}
+      {delivery && (
+        <div className="bx-box">
+          <div className="bx-box-title"><i className="fa-solid fa-box" aria-hidden="true" />Paquete y entrega</div>
+          <InfoList items={[
+            { label: 'Descripción', value: trip.packageDescription || '—', wide: true },
+            { label: 'Peso', value: `${trip.packageWeightKg} kg`, hidden: trip.packageWeightKg == null },
+            { label: 'Frágil', value: trip.packageIsFragile ? 'Sí' : 'No' },
+            { label: 'Detalles', value: trip.packageDetails, wide: true, hidden: !trip.packageDetails },
+            { label: 'Destinatario', value: trip.recipientName || '—' },
+            { label: 'Teléfono', value: trip.recipientPhone || '—' },
+            { label: 'Entrega', wide: true, value: trip.deliveryConfirmedAt
+                ? <>Recibió <strong>{trip.deliveryReceivedBy || '—'}</strong>, el {fmtDateTime(trip.deliveryConfirmedAt)}</>
+                : <span className="bx-muted">{trip.pickupVerified ? 'Paquete recogido y verificado, sin entrega confirmada.' : 'Sin entrega confirmada.'}</span> },
+          ]} />
+          <div className="bx-box-title mt-3"><i className="fa-solid fa-images" aria-hidden="true" />Fotos</div>
+          <TripPhotos tripId={trip.id} />
+        </div>
+      )}
+
+      {/* Conductor */}
+      {trip.driverId && (
+        <div className="bx-box d-flex align-items-center gap-3">
+          <span className="bx-avatar lg" aria-hidden="true">
+            {trip.driverPhotoUrl ? <img src={personPhotoUrl(trip.driverPhotoUrl)} alt="" /> : <i className="fa-solid fa-user" />}
+
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div className="fw-semibold text-break">{trip.driverFullName ?? 'Conductor'}</div>
+            <div className="small bx-muted text-break">
+              {[trip.vehicleColor, trip.vehicleBrand, trip.vehicleModel].filter(Boolean).join(' ')}
+              {trip.vehiclePlate && <strong className="ms-2">{trip.vehiclePlate}</strong>}
+            </div>
+            {trip.driverRating !== null && (
+              <div className="small d-flex align-items-center gap-1">
+                <i className="fa-solid fa-star" style={{ color: '#f59e0b' }} aria-hidden="true" />
+                <strong>{trip.driverRating.toFixed(1)}</strong>
+                <span className="bx-muted">({trip.driverTotalRatings ?? 0})</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pago */}
+      <div className="bx-box">
+        <div className="bx-kv"><span>Tarifa</span><span>{money(trip.estimatedFare)}</span></div>
+        {trip.finalFare !== null && trip.finalFare !== trip.estimatedFare && (
+          <div className="bx-kv"><span>Tarifa final</span><span>{money(trip.finalFare)}</span></div>
+        )}
+        <div className="bx-kv total"><span>Total ({payMethod(trip.paymentMethod).label})</span><span>{money(fare)}</span></div>
+      </div>
+
+      {myIncident && (
+        <Notice tone="warn" icon="fa-triangle-exclamation" title="Tu incidencia">
+          {myIncident.description}
+          <div className="small bx-muted mt-1">Reportada el {fmtDateTime(myIncident.createdAt)}</div>
+        </Notice>
+      )}
+
+      {trip.status === 4 && myRating && (
+        <div className="bx-box">
+          <div className="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <span className="fw-bold">Tu calificación</span>
+            <span className="bx-stars" aria-label={`${myRating.stars} de 5 estrellas`}>
+              {[1, 2, 3, 4, 5].map(s => <i key={s} className={`fa-solid fa-star ${s <= myRating.stars ? '' : 'off'}`} aria-hidden="true" />)}
+            </span>
+            <span className="ms-auto small bx-muted">{new Date(myRating.createdAt).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+          </div>
+          {myRating.comment && <div className="bx-quote">“{myRating.comment}”</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 function ReportIncidentModal({ trip, existing, onClose, onSaved }: {
   trip: EnrichedTrip;
@@ -638,122 +689,52 @@ function ReportIncidentModal({ trip, existing, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 100000, padding: 16,
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 'min(460px, 100%)',
-          background: 'var(--bugie-surface)',
-          borderRadius: 16,
-          overflow: 'hidden',
-        }}
-      >
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)' }}>
-          <div className="d-flex align-items-center gap-2">
-            <i className="fa-solid fa-flag" style={{ color: '#f59700' }} />
-            <span className="fw-bold">
-              {readonly ? 'Mi incidencia' : 'Reportar incidencia'}
-            </span>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      busy={saving}
+      dirty={readonly ? false : 'auto'}
+      title={readonly ? 'Mi incidencia' : 'Reportar incidencia'}
+      description={`${trip.originAddress} → ${trip.destAddress}`}
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="btn btn-bugie-outline" disabled={saving}>
+            {readonly ? 'Cerrar' : 'Cancelar'}
           </button>
-        </div>
-
-        <div className="p-3">
-          <div className="small bugie-muted mb-2 text-truncate">
-            <i className="fa-solid fa-route me-1" />
-            {trip.originAddress} → {trip.destAddress}
-          </div>
-
           {!readonly && (
-            <div className="small bugie-muted mb-2">
-              Cuéntanos qué pasó. Tu reporte llega al equipo de monitoreo.
-            </div>
-          )}
-
-          <textarea
-            className="form-control mb-2"
-            rows={5}
-            maxLength={1000}
-            placeholder="Describe la incidencia…"
-            value={text}
-            onChange={e => setText(e.target.value)}
-            disabled={readonly || saving}
-            style={{ resize: 'vertical' }}
-          />
-
-          {!readonly && (
-            <div className="small bugie-muted text-end" style={{ fontSize: '0.72rem' }}>
-              {text.length}/1000
-            </div>
-          )}
-
-          {error && <div className="alert alert-danger small mt-2 mb-0">{error}</div>}
-
-          <div className="d-flex gap-2 mt-3 justify-content-end">
-            <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-              {readonly ? 'Cerrar' : 'Cancelar'}
+            <button type="button" onClick={submit} disabled={saving || text.trim().length < 5} className="btn btn-warning">
+              {saving
+                ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Enviando…</>
+                : <><i className="fa-solid fa-paper-plane" aria-hidden="true" />Enviar</>}
             </button>
-            {!readonly && (
-              <button
-                onClick={submit}
-                disabled={saving || text.trim().length < 5}
-                className="btn btn-sm rounded-pill text-white"
-                style={{ background: '#f59700', border: 'none' }}
-              >
-                {saving
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Enviando…</>
-                  : <><i className="fa-solid fa-paper-plane me-2" />Enviar</>}
-              </button>
-            )}
-          </div>
-        </div>
+          )}
+        </>
+      }
+    >
+      <div className="bx-field">
+        <label className="bx-field-label" htmlFor="incident-text">
+          {readonly ? 'Lo que reportaste' : 'Cuéntanos qué pasó'}
+        </label>
+        <textarea
+          id="incident-text"
+          className="form-control"
+          rows={5}
+          maxLength={1000}
+          placeholder="Describe la incidencia…"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          disabled={readonly || saving}
+          style={{ resize: 'vertical' }}
+        />
+        {!readonly && (
+          <p className="bx-field-help d-flex justify-content-between gap-2">
+            <span>Tu reporte llega al equipo de monitoreo.</span><span>{text.length}/1000</span>
+          </p>
+        )}
       </div>
-    </div>,
-    document.body
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-function RouteRow({ icon, label, time, color }: {
-  icon: string; label: string; time: string; color: string;
-}) {
-  return (
-    <div className="d-flex align-items-center gap-3">
-      <div className="flex-shrink-0 d-flex align-items-center justify-content-center"
-           style={{ width: 32, height: 32, borderRadius: 8, background: color + '22', color }}>
-        <i className={`fa-solid ${icon}`} style={{ fontSize: '0.8rem' }} />
-      </div>
-      <div className="flex-grow-1 min-w-0">
-        <div className="small text-truncate">{label}</div>
-      </div>
-      <div className="small bugie-muted flex-shrink-0">{time}</div>
-    </div>
-  );
-}
-
-function EmptyState({ icon, title, subtitle }: {
-  icon: string; title: string; subtitle: string;
-}) {
-  return (
-    <div className="bugie-card p-5 text-center">
-      <div className="bugie-mini-icon mx-auto mb-3"
-           style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-        <i className={`fa-solid ${icon}`} />
-      </div>
-      <div className="fw-semibold mb-2">{title}</div>
-      <div className="small bugie-muted">{subtitle}</div>
-    </div>
+      {error && <Notice tone="bad" className="mt-2">{error}</Notice>}
+    </Modal>
   );
 }
 
@@ -767,9 +748,10 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
             Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+
 // ─────────────────────────────────────────────────────────────────────
-// Modal de calificación: 5 estrellas tappables + comentario opcional.
-// Solo se invoca para viajes status === 4 (Completed) sin rating previo.
+// Calificación: 5 estrellas + comentario opcional.
+// Solo para viajes status === 4 (Completed) sin rating previo.
 // ─────────────────────────────────────────────────────────────────────
 function RateTripModal({ trip, onClose, onSaved }: {
   trip: EnrichedTrip;
@@ -777,7 +759,7 @@ function RateTripModal({ trip, onClose, onSaved }: {
   onSaved: (r: Rating) => void;
 }) {
   const [stars, setStars]     = useState(0);     // 0 = no eligió
-  const [hover, setHover]     = useState(0);     // estrella sobre la que pasa el mouse
+  const [hover, setHover]     = useState(0);     // estrella bajo el mouse
   const [comment, setComment] = useState('');
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -815,113 +797,62 @@ function RateTripModal({ trip, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
-  // La estrella se pinta llena si está dentro del rango "actual"
-  // (hover > 0 ? hover : stars). Hover sobreescribe stars mientras el mouse
-  // está sobre las estrellas para preview interactivo.
   const display = hover > 0 ? hover : stars;
 
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 100000, padding: 16,
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 'min(460px, 100%)',
-          background: 'var(--bugie-surface)',
-          borderRadius: 16,
-          overflow: 'hidden',
-        }}
-      >
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)' }}>
-          <div className="d-flex align-items-center gap-2">
-            <i className="fa-solid fa-star" style={{ color: '#fbbf24' }} />
-            <span className="fw-bold">Calificar al conductor</span>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      busy={saving}
+      dirty="auto"
+
+      title="Calificar al conductor"
+      description={`${trip.originAddress} → ${trip.destAddress}`}
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="btn btn-bugie-outline" disabled={saving}>Cancelar</button>
+          <button type="button" onClick={submit} className="btn btn-bugie" disabled={saving || stars < 1}>
+            {saving
+              ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+              : <i className="fa-solid fa-paper-plane" aria-hidden="true" />}
+            Enviar
           </button>
-        </div>
-
-        <div className="p-3">
-          <div className="small bugie-muted mb-2 text-truncate">
-            <i className="fa-solid fa-route me-1" />
-            {trip.originAddress} → {trip.destAddress}
-          </div>
-
-          {/* Estrellas */}
-          <div className="d-flex justify-content-center my-3"
-               onMouseLeave={() => setHover(0)}>
-            {[1,2,3,4,5].map(s => (
-              <button key={s}
-                onClick={() => setStars(s)}
-                onMouseEnter={() => setHover(s)}
-                disabled={saving}
-                className="btn btn-link p-0 mx-1"
-                style={{ textDecoration: 'none' }}
-                aria-label={`${s} estrella${s > 1 ? 's' : ''}`}>
-                <i
-                  className={`fa-${s <= display ? 'solid' : 'regular'} fa-star`}
-                  style={{
-                    color: s <= display ? '#fbbf24' : '#d1d5db',
-                    fontSize: '2.2rem',
-                    transition: 'color 0.1s',
-                  }}
-                />
-              </button>
-            ))}
-          </div>
-          <div className="text-center mb-3 small bugie-muted">
-            {label(display)}
-          </div>
-
-          <label className="form-label small bugie-muted">
-            Comentario (opcional)
-          </label>
-          <textarea
-            className="form-control"
-            rows={3}
-            maxLength={500}
+        </>
+      }
+    >
+      <div className="bx-star-picker" role="radiogroup" aria-label="Estrellas" onMouseLeave={() => setHover(0)}>
+        {[1, 2, 3, 4, 5].map(s => (
+          <button key={s}
+            type="button"
+            role="radio"
+            aria-checked={stars === s}
+            onClick={() => setStars(s)}
+            onMouseEnter={() => setHover(s)}
             disabled={saving}
-            value={comment}
-            placeholder="Cuéntanos cómo fue tu experiencia..."
-            onChange={e => setComment(e.target.value)}
-          />
-          <div className="small bugie-muted text-end mt-1">
-            {comment.length}/500
-          </div>
-
-          {error && (
-            <div className="alert alert-danger small mt-2 mb-2 p-2">{error}</div>
-          )}
-
-          <div className="d-flex gap-2 mt-3">
-            <button
-              onClick={onClose}
-              className="btn btn-bugie-outline rounded-pill flex-grow-1"
-              disabled={saving}>
-              Cancelar
-            </button>
-            <button
-              onClick={submit}
-              className="btn rounded-pill flex-grow-1 d-inline-flex align-items-center justify-content-center gap-2"
-              style={{ background: '#fbbf24', color: '#1f2937', border: 'none', fontWeight: 600 }}
-              disabled={saving || stars < 1}>
-              {saving
-                ? <span className="spinner-border spinner-border-sm" />
-                : <i className="fa-solid fa-paper-plane" />}
-              Enviar
-            </button>
-          </div>
-        </div>
+            className={s <= display ? 'on' : ''}
+            aria-label={`${s} estrella${s > 1 ? 's' : ''}`}>
+            <i className={`fa-${s <= display ? 'solid' : 'regular'} fa-star`} aria-hidden="true" />
+          </button>
+        ))}
       </div>
-    </div>,
-    document.body
+      <p className="text-center small bx-muted mt-1 mb-3" aria-live="polite">{label(display)}</p>
+
+      <div className="bx-field">
+        <label className="bx-field-label" htmlFor="rate-comment">Comentario <span className="bx-field-opt">(opcional)</span></label>
+        <textarea
+          id="rate-comment"
+          className="form-control"
+          rows={3}
+          maxLength={500}
+          disabled={saving}
+          value={comment}
+          placeholder="Cuéntanos cómo fue tu experiencia…"
+          onChange={e => setComment(e.target.value)}
+        />
+        <p className="bx-field-help text-end">{comment.length}/500</p>
+      </div>
+
+      {error && <Notice tone="bad" className="mt-2">{error}</Notice>}
+    </Modal>
   );
 }

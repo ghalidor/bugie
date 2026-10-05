@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using System.Security.Claims;
 using Bugie.Landing.Application.Commands;
 using Bugie.Landing.Application.Queries;
@@ -20,6 +21,9 @@ public class LandingController : ControllerBase
     public LandingController(IMediator mediator, INewsRepository news, IFaqRepository faq)
         => (_mediator, _news, _faq) = (mediator, news, faq);
 
+    /// <summary>Secciones del CMS que edita la pagina Documentos legales.</summary>
+    private static readonly HashSet<string> LegalSections = new(StringComparer.OrdinalIgnoreCase) { "terms", "privacy" };
+
     private Guid CurrentUserId =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -35,6 +39,13 @@ public class LandingController : ControllerBase
     public async Task<IActionResult> UpdateSection(
         [FromBody] UpdateSectionRequest req, CancellationToken ct)
     {
+        // Documentos legales (terms, privacy): view:legal_docs + action:save_legal_docs.
+        // Resto de secciones de la landing: view:landing + action:save_landing.
+        var legal = LegalSections.Contains(req.SectionKey ?? string.Empty);
+        var denied = await HttpContext.CheckAdminPermissionAsync(legal ? Perm.ViewLegalDocs : Perm.ViewLanding)
+                     ?? await HttpContext.CheckAdminPermissionAsync(legal ? Perm.ActionSaveLegalDocs : Perm.ActionSaveLanding);
+        if(denied is not null) return denied;
+
         await _mediator.Send(
             new UpdateSectionContentCommand(req.SectionKey, req.Lang, req.ContentJson), ct);
         return Ok(new { updated = true });
@@ -57,6 +68,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpGet("news/paged")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewCommunity)]
     public async Task<IActionResult> GetNewsPaged(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
@@ -77,6 +89,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpGet("news/stats")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewCommunity)]
     public async Task<IActionResult> GetNewsStats(
         [FromQuery] string lang = "es",
         [FromQuery] string? search = null,
@@ -90,6 +103,8 @@ public class LandingController : ControllerBase
 
     [HttpPost("news")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewCommunity)]
+    [RequirePermission(Perm.ActionCreateCommunity)]
     public async Task<IActionResult> CreateNews(
         [FromBody] NewsRequest req, CancellationToken ct)
     {
@@ -112,11 +127,21 @@ public class LandingController : ControllerBase
 
     [HttpPut("news/{id:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewCommunity)]
+    [RequirePermission(Perm.ActionEditCommunity, Perm.ActionToggleCommunity)]
     public async Task<IActionResult> UpdateNews(
         Guid id, [FromBody] NewsRequest req, CancellationToken ct)
     {
         var existing = await _news.GetByIdAsync(id, ct);
         if(existing is null) return NotFound();
+
+        // Solo action:toggle_community (sin action:edit_community): puede publicar
+        // u ocultar, pero no cambiar el contenido.
+        var perms = await HttpContext.GetAdminPermissionsAsync();
+        if(!perms.Has(Perm.ActionEditCommunity)
+           && (req.Slug != existing.Slug || req.Tag != existing.Tag
+               || req.Title != existing.Title || req.Summary != existing.Summary))
+            return AdminPermissions.Forbidden("Tu rol solo puede publicar u ocultar publicaciones, no editarlas.");
 
         existing.Slug = req.Slug;
         existing.Tag = req.Tag;
@@ -142,17 +167,13 @@ public class LandingController : ControllerBase
         return Ok(new { id, message = "Mensaje recibido. Te contactaremos pronto." });
     }
 
-    [HttpGet("contact/unread")]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> GetUnread(CancellationToken ct) =>
-        Ok(await _mediator.Send(new GetUnreadContactsQuery(), ct));
-
     /// <summary>
-    /// GET /api/landing/contact?filter=all|unread|read&page=1&pageSize=20
+    /// GET /api/landing/contact?filter=all|unread|read&amp;page=1&amp;pageSize=20
     /// Lista paginada para la pantalla admin de mensajes.
     /// </summary>
     [HttpGet("contact")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewMessages)]
     public async Task<IActionResult> GetContactPaged(
         [FromQuery] string filter = "all",
         [FromQuery] int page = 1,
@@ -167,6 +188,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpGet("contact/{id:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewMessages)]
     public async Task<IActionResult> GetContactDetail(Guid id, CancellationToken ct)
     {
         var dto = await _mediator.Send(new GetContactDetailQuery(id), ct);
@@ -177,6 +199,7 @@ public class LandingController : ControllerBase
     /// <summary>PUT /api/landing/contact/{id}/read  — marca como leído.</summary>
     [HttpPut("contact/{id:guid}/read")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewMessages)]
     public async Task<IActionResult> MarkRead(Guid id, CancellationToken ct)
     {
         await _mediator.Send(new MarkContactAsReadCommand(id, CurrentUserId), ct);
@@ -186,6 +209,7 @@ public class LandingController : ControllerBase
     /// <summary>PUT /api/landing/contact/{id}/unread  — vuelve a no leído.</summary>
     [HttpPut("contact/{id:guid}/unread")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewMessages)]
     public async Task<IActionResult> MarkUnread(Guid id, CancellationToken ct)
     {
         await _mediator.Send(new MarkContactAsUnreadCommand(id), ct);
@@ -199,6 +223,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpPost("contact/{id:guid}/reply")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewMessages)]
     public async Task<IActionResult> Reply(
         Guid id, [FromBody] ReplyToContactRequest req, CancellationToken ct)
     {
@@ -256,6 +281,15 @@ public class LandingController : ControllerBase
     public async Task<IActionResult> UpdateSetting(
         string key, [FromBody] UpdateSettingRequest req, CancellationToken ct)
     {
+        // Avisos del panel (admin_notify_*, doc_expiry_alert_days): view:notifications_config.
+        // company_*: view:company. Resto (tarifas, mapa, SOS, soporte...): view:settings.
+        var section = key.StartsWith("admin_notify_", StringComparison.OrdinalIgnoreCase)
+                      || key.Equals("doc_expiry_alert_days", StringComparison.OrdinalIgnoreCase)
+            ? Perm.ViewNotificationsConfig
+            : key.StartsWith("company_", StringComparison.OrdinalIgnoreCase) ? Perm.ViewCompany : Perm.ViewSettings;
+        var denied = await HttpContext.CheckAdminPermissionAsync(section);
+        if(denied is not null) return denied;
+
         await _mediator.Send(new UpdateSettingCommand(key, req.Value, CurrentUserId), ct);
         return Ok(new { updated = true });
     }
@@ -283,6 +317,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpGet("faq/admin")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewFaq)]
     public async Task<IActionResult> GetFaqAdmin(
         [FromQuery] string lang = "es", CancellationToken ct = default)
     {
@@ -297,6 +332,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpPost("faq")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewFaq)]
     public async Task<IActionResult> CreateFaq(
         [FromBody] FaqRequest req, CancellationToken ct)
     {
@@ -332,6 +368,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpPut("faq/{id:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewFaq)]
     public async Task<IActionResult> UpdateFaq(
         Guid id, [FromBody] FaqRequest req, CancellationToken ct)
     {
@@ -369,6 +406,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpDelete("faq/{id:guid}")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewFaq)]
     public async Task<IActionResult> DeleteFaq(Guid id, CancellationToken ct)
     {
         await _faq.DeleteAsync(id, ct);
@@ -376,7 +414,7 @@ public class LandingController : ControllerBase
     }
 
     /// <summary>
-    /// ADMIN: reordenar preguntas (drag & drop).
+    /// ADMIN: reordenar preguntas (drag &amp; drop).
     /// El frontend envía una lista de IDs en el orden nuevo y el backend
     /// reescribe SortOrder en bloque. Normalmente se envía solo el contenido
     /// de UNA categoría (todas las preguntas de "Pasajeros" reordenadas).
@@ -385,6 +423,7 @@ public class LandingController : ControllerBase
     /// </summary>
     [HttpPut("faq/reorder")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewFaq)]
     public async Task<IActionResult> ReorderFaq(
         [FromBody] ReorderRequest req, CancellationToken ct)
     {

@@ -7,6 +7,7 @@ import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_theme_toggle.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../driver/data/driver_repository.dart';
+import '../../notifications/presentation/notifications_bell.dart';
 
 /// Widgets compartidos por el INICIO del pasajero y del conductor, para que
 /// la parte de buscador → mapa → "Viajes seguros" → SOS se vea igual en ambos.
@@ -42,18 +43,7 @@ class HomeGreeting extends StatelessWidget {
             ),
           ),
         ),
-        IconButton(
-          icon: Icon(Icons.notifications_none, color: c.text),
-          tooltip: 'Notificaciones',
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Notificaciones — próximamente'),
-                duration: Duration(seconds: 2),
-              ),
-            );
-          },
-        ),
+        const NotificationsBell(),
         const BugieThemeToggle(),
       ],
     );
@@ -72,7 +62,8 @@ class HomeSearchBar extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(BugieRadius.sm),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
         decoration: BoxDecoration(
           color: c.inputFill,
           borderRadius: BorderRadius.circular(BugieRadius.sm),
@@ -80,9 +71,28 @@ class HomeSearchBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.search, color: c.textMuted, size: 20),
-            const SizedBox(width: 10),
-            Text(hint, style: TextStyle(color: c.textMuted, fontSize: 15)),
+            const Icon(Icons.search, color: BugieColors.primary, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(hint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: c.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600)),
+            ),
+            // Flecha: deja claro que es el punto de partida para pedir.
+            Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                color: BugieColors.primary,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.arrow_forward_rounded,
+                  color: Colors.white, size: 20),
+            ),
           ],
         ),
       ),
@@ -95,30 +105,42 @@ class HomeSafetyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Franja discreta: informa sin competir con el mapa ni con SOS.
+    final c = context.bugie;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        gradient: bugieGradient,
+        color: c.surface,
         borderRadius: BorderRadius.circular(BugieRadius.md),
+        border: Border.all(color: c.border),
       ),
       child: Row(
-        children: const [
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: BugieColors.primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.verified_user_rounded,
+                color: BugieColors.primary, size: 20),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Viajes seguros',
                     style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
-                SizedBox(height: 4),
+                        color: c.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700)),
                 Text('Conductores verificados',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    style: TextStyle(color: c.textMuted, fontSize: 12.5)),
               ],
             ),
           ),
-          Icon(Icons.verified_user, color: Colors.white, size: 32),
         ],
       ),
     );
@@ -131,34 +153,49 @@ class HomeSosCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rojo tonal: se reconoce al instante como emergencia, pero no grita
+    // cuando no hay ninguna. El ícono rojo lleno mantiene la urgencia.
+    final c = context.bugie;
+    const red = Color(0xFFDC2626);
     return Material(
-      color: const Color(0xFFDC2626),
-      borderRadius: BorderRadius.circular(BugieRadius.md),
-      child: InkWell(
+      color: red.withValues(alpha: 0.10),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(BugieRadius.md),
+        side: BorderSide(color: red.withValues(alpha: 0.45)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
-            children: const [
-              Icon(Icons.emergency_share, color: Colors.white, size: 28),
-              SizedBox(width: 12),
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: red,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.emergency_share,
+                    color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('SOS / Emergencia',
                         style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
+                            color: c.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800)),
                     Text('Ayuda inmediata durante el viaje',
-                        style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        style: TextStyle(color: c.textMuted, fontSize: 12.5)),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.white),
+              const Icon(Icons.chevron_right, color: red),
             ],
           ),
         ),

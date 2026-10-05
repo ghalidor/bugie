@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API, apiFetch, ApiError } from '../../state/api';
-import { saveSession, SessionUser } from '../../state/session';
+import { saveSession, SessionUser, takeLogoutMessage } from '../../state/session';
 import { parse } from '../../hooks/useLanding';
+import { Checkbox, Field } from '../../components/ui';
 
 const LANDING_API = `${import.meta.env.VITE_API_LANDING}/landing`;
 
@@ -26,9 +27,11 @@ export default function Login() {
   const navigate = useNavigate();
   const [d, setD] = useState(FALLBACK);
   const [email,    setEmail]    = useState('');
+  const [remember, setRemember] = useState(false);
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
+  // Si la sesión se cerró por una cuenta eliminada, se muestra el motivo.
+  const [error,    setError]    = useState<string | null>(() => takeLogoutMessage());
 
   useEffect(() => {
     fetch(`${LANDING_API}?lang=es`)
@@ -75,21 +78,17 @@ export default function Login() {
         </div>
       )}
 
-      <form onSubmit={onSubmit} className="d-grid gap-3">
-        <div>
-          <label className="form-label">{d.emailLabel}</label>
+      <form onSubmit={onSubmit} className="bx-form">
+        <Field label={d.emailLabel}>
           <input className="form-control" type="email" placeholder={d.emailPlaceholder}
             value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
-        </div>
-        <div>
-          <label className="form-label">{d.passwordLabel}</label>
+        </Field>
+        <Field label={d.passwordLabel}>
           <input className="form-control" type="password" placeholder={d.passwordPlaceholder}
             value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
-        </div>
-        <div className="d-flex justify-content-between align-items-center small">
-          <label className="d-flex align-items-center gap-2 bugie-muted">
-            <input type="checkbox" /> {d.rememberLabel}
-          </label>
+        </Field>
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 small">
+          <Checkbox size="sm" checked={remember} onChange={setRemember} label={d.rememberLabel} />
           <Link to="/auth/recuperar">{d.forgotLabel}</Link>
         </div>
         <button className="btn btn-bugie text-white w-100" type="submit" disabled={loading}>

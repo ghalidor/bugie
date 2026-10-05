@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
 import { API, apiFetch, ApiError } from '../../state/api';
+import { EmptyState, Notice, Page, PageLoading, SectionCard, StatCard, StatGrid } from '../../components/ui';
 
 interface Rating {
   id: string;
@@ -23,7 +23,7 @@ interface RatingPage {
 const PAGE_SIZE = 10;
 
 /// Pantalla "Mis calificaciones" del conductor web.
-/// Lista paginada con botón "Cargar más" (no scroll infinito porque es web).
+/// Lista paginada con botón "Cargar más".
 /// Promedio = sobre los items mostrados.
 export default function DriverRatings() {
   const [items, setItems]       = useState<Rating[]>([]);
@@ -59,83 +59,57 @@ export default function DriverRatings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Promedio sobre los items YA cargados. No es el promedio real histórico:
-  // ese está en drivers.Drivers.Rating y se ve en el admin.
+  // Promedio sobre los items YA cargados (el histórico real se ve en el admin).
   const avg = items.length === 0
     ? 0
     : items.reduce((s, r) => s + r.stars, 0) / items.length;
+  const fives = items.filter(r => r.stars === 5).length;
+
+  if (initialLoading) return <PageLoading />;
 
   return (
-    <>
-      <PageHeader
-        title="Mis calificaciones"
-        subtitle="Lo que dicen tus pasajeros sobre tus viajes."
-        icon="fa-solid fa-star"
-      />
+    <Page title="Mis calificaciones" subtitle="Lo que dicen tus pasajeros sobre tus viajes." icon="fa-star-half-stroke">
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+      <StatGrid min={160}>
+        <StatCard
+          label="Promedio"
+          value={<>{avg.toFixed(1)} <i className="fa-solid fa-star" style={{ color: '#f59e0b', fontSize: '.8em' }} aria-hidden="true" /></>}
+          icon="fa-star"
+          tone="warn"
+          hint={items.length < total ? `Sobre las ${items.length} mostradas` : undefined}
+        />
+        <StatCard label="Calificaciones" value={total} icon="fa-comments" />
+        <StatCard label="De 5 estrellas" value={fives} icon="fa-face-smile" tone="ok" hint={items.length < total ? 'Entre las mostradas' : undefined} />
+      </StatGrid>
 
-      {initialLoading ? (
-        <div className="d-flex justify-content-center py-5">
-          <div className="spinner-border" />
-        </div>
+      {items.length === 0 ? (
+        <SectionCard>
+          <EmptyState
+            icon="fa-star"
+            title="Aún no recibiste calificaciones"
+            text="Cuando completes viajes, las calificaciones de tus pasajeros aparecerán aquí."
+          />
+        </SectionCard>
       ) : (
-        <>
-          {/* Resumen */}
-          <div className="bugie-card mb-3">
-            <div className="bugie-card-body d-flex align-items-center gap-3">
-              <div>
-                <div className="d-flex align-items-baseline gap-2">
-                  <span className="fw-bold" style={{ fontSize: '2rem' }}>
-                    {avg.toFixed(1)}
-                  </span>
-                  <i className="fa-solid fa-star" style={{ color: '#fbbf24', fontSize: '1.5rem' }} />
-                </div>
-                <div className="small bugie-muted">
-                  {total === 0
-                    ? 'Aún no tienes calificaciones'
-                    : `${total} calificación${total === 1 ? '' : 'es'} en total`}
-                </div>
-              </div>
-            </div>
+        <div className="bx-stack">
+          <div className="bx-rows">
+            {items.map(r => <RatingCard key={r.id} rating={r} />)}
           </div>
-
-          {/* Lista */}
-          {items.length === 0 ? (
-            <div className="bugie-card">
-              <div className="bugie-card-body text-center py-4 bugie-muted">
-                <i className="fa-solid fa-star fa-2x mb-3" style={{ color: '#d1d5db' }} />
-                <div>Aún no recibiste calificaciones de pasajeros.</div>
-                <div className="small mt-1">
-                  Cuando completes viajes, las calificaciones aparecerán aquí.
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="d-flex flex-column gap-2">
-              {items.map(r => <RatingCard key={r.id} rating={r} />)}
-
-              {hasMore && (
-                <button
-                  onClick={() => loadPage(false)}
-                  disabled={loading}
-                  className="btn btn-bugie-outline rounded-pill mt-2"
-                >
-                  {loading
-                    ? <><span className="spinner-border spinner-border-sm me-2" />Cargando...</>
-                    : `Cargar más (${items.length} / ${total})`}
-                </button>
-              )}
-              {!hasMore && items.length > 0 && (
-                <div className="text-center small bugie-muted mt-2">
-                  Mostrando todas tus calificaciones
-                </div>
-              )}
-            </div>
-          )}
-        </>
+          <div className="text-center">
+            {hasMore ? (
+              <button onClick={() => loadPage(false)} disabled={loading} className="btn btn-bugie-outline">
+                {loading
+                  ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Cargando…</>
+                  : `Cargar más (${items.length} de ${total})`}
+              </button>
+            ) : (
+              <span className="small bx-muted">Mostrando todas tus calificaciones</span>
+            )}
+          </div>
+        </div>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -146,33 +120,16 @@ function RatingCard({ rating }: { rating: Rating }) {
   });
 
   return (
-    <div className="bugie-card">
-      <div className="bugie-card-body">
-        <div className="d-flex align-items-center gap-2 mb-2">
-          {[1,2,3,4,5].map(s => (
-            <i key={s}
-               className="fa-solid fa-star"
-               style={{
-                 color: s <= rating.stars ? '#fbbf24' : '#d1d5db',
-                 fontSize: '1rem',
-               }} />
-          ))}
-          <span className="fw-bold ms-1">{rating.stars}/5</span>
-          <span className="ms-auto small bugie-muted">{date}</span>
-        </div>
-        <div className="small mb-2">
-          <i className="fa-solid fa-user me-1 bugie-muted" />
-          {rating.passengerName}
-        </div>
-        {rating.comment && (
-          <div className="p-2 small" style={{
-            background: 'var(--bugie-bg-2)',
-            borderRadius: 8,
-          }}>
-            "{rating.comment}"
-          </div>
-        )}
+    <article className="bx-row d-grid">
+      <div className="d-flex align-items-center gap-2 flex-wrap">
+        <span className="bx-stars" aria-label={`${rating.stars} de 5 estrellas`}>
+          {[1, 2, 3, 4, 5].map(s => <i key={s} className={`fa-solid fa-star ${s <= rating.stars ? '' : 'off'}`} aria-hidden="true" />)}
+        </span>
+        <strong>{rating.stars}/5</strong>
+        <span className="ms-auto small bx-muted">{date}</span>
       </div>
-    </div>
+      <div className="small"><i className="fa-solid fa-user me-1 bx-muted" aria-hidden="true" />{rating.passengerName}</div>
+      {rating.comment && <div className="bx-quote">“{rating.comment}”</div>}
+    </article>
   );
 }

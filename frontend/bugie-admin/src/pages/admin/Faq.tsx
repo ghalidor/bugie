@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import PageHeader from '../../components/PageHeader';
 import { apiFetch, API, ApiError } from '../../state/api';
+import {
+  Drawer, EmptyState, Field, FilterBar, IconButton, Page, SectionCard, Skeleton, StatCard, StatGrid,
+  StatusBadge, Switch, Tabs, useConfirm, useToast,
+} from '../../components/ui';
+import './siteAdmin.scss';
 
 interface FaqItem {
   id: string;
@@ -15,36 +18,42 @@ interface FaqItem {
   updatedAt: string;
 }
 
-/// Categorías sugeridas. El admin puede crear cualquier otra escribiéndola
-/// libremente — esto es solo para el autocomplete inicial.
+/// Categorías sugeridas. Se puede escribir cualquier otra: esto solo
+/// alimenta el autocompletado.
 const SUGGESTED_CATEGORIES = ['Pasajeros', 'Conductores', 'Pagos', 'Seguridad', 'Cuenta'];
 
-/// Color de la categoría (estable: hash simple del nombre).
-function categoryColor(category: string): string {
-  const palette = ['#818cf8', '#34d399', '#f59e0b', '#38bdf8', '#ef4444', '#c084fc', '#10b981'];
-  let hash = 0;
-  for (let i = 0; i < category.length; i++) hash = (hash + category.charCodeAt(i)) % palette.length;
-  return palette[hash];
-}
+const LANG_TABS = [
+  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'Inglés' },
+];
+
+type PubFilter = 'all' | 'published' | 'hidden';
 
 export default function Faq() {
+  const toast   = useToast();
+  const confirm = useConfirm();
+
   const [items,    setItems]    = useState<FaqItem[]>([]);
   const [lang,     setLang]     = useState<'es' | 'en'>('es');
   const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [editing,  setEditing]  = useState<FaqItem | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [loadErr,  setLoadErr]  = useState<string | null>(null);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [lang]);
+  const [search,    setSearch]    = useState('');
+  const [pubFilter, setPubFilter] = useState<PubFilter>('all');
+  const [catFilter, setCatFilter] = useState<string>('all');
+
+  // Drawer: null = cerrado; 'new' = crear; FaqItem = editar.
+  const [editing, setEditing] = useState<FaqItem | 'new' | null>(null);
+
+  useEffect(() => { setCatFilter('all'); load(); /* eslint-disable-next-line */ }, [lang]);
 
   async function load() {
-    setLoading(true); setError(null);
+    setLoading(true); setLoadErr(null);
     try {
-      const data = await apiFetch<FaqItem[]>(
-        `${API.landing}/landing/faq/admin?lang=${lang}`);
+      const data = await apiFetch<FaqItem[]>(`${API.landing}/landing/faq/admin?lang=${lang}`);
       setItems(data ?? []);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar las preguntas.');
+      setLoadErr(err instanceof ApiError ? err.message : 'No se pudieron cargar las preguntas.');
     } finally { setLoading(false); }
   }
 
@@ -60,333 +69,282 @@ export default function Faq() {
           isPublished: !item.isPublished,
         }),
       });
-      // Actualización optimista
       setItems(prev => prev.map(i => i.id === item.id ? { ...i, isPublished: !i.isPublished } : i));
+      toast.success(item.isPublished ? 'La pregunta ya no se ve en la web.' : 'La pregunta ya se ve en la web.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al cambiar publicación.');
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo cambiar la publicación.');
     }
   }
 
   async function deleteItem(item: FaqItem) {
-    if (!confirm(`¿Borrar la pregunta "${item.question}"?`)) return;
+    const ok = await confirm({
+      title: '¿Eliminar esta pregunta?',
+      message: <>Se borrará «{item.question}» de forma permanente. Si solo quieres que no se vea, mejor ocúltala.</>,
+      tone: 'danger',
+      confirmText: 'Eliminar',
+      typeToConfirm: 'ELIMINAR',
+    });
+    if (!ok) return;
     try {
       await apiFetch(`${API.landing}/landing/faq/${item.id}`, { method: 'DELETE' });
       setItems(prev => prev.filter(i => i.id !== item.id));
+      toast.success('Pregunta eliminada.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al borrar.');
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo eliminar.');
     }
   }
 
-  /// Reordena una categoría completa después de un drag & drop.
-  /// El frontend manda al backend la nueva lista de IDs de esa categoría.
+  /// Guarda el nuevo orden de una categoría completa.
   async function saveReorder(category: string, newOrder: FaqItem[]) {
-    // Optimista: actualizamos local primero para no esperar el servidor.
-    const otherItems = items.filter(i => i.category !== category);
-    setItems([...otherItems, ...newOrder]);
-
+    // Optimista: se reemplaza la categoría en su misma posición (antes se
+    // movía al final de la lista y las categorías "saltaban").
+    setItems(prev => {
+      const out: FaqItem[] = [];
+      let inserted = false;
+      for (const i of prev) {
+        if (i.category !== category) { out.push(i); continue; }
+        if (!inserted) { out.push(...newOrder); inserted = true; }
+      }
+      return out;
+    });
     try {
       await apiFetch(`${API.landing}/landing/faq/reorder`, {
         method: 'PUT',
         body: JSON.stringify({ ids: newOrder.map(i => i.id) }),
       });
+      toast.success('Orden guardado.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar el nuevo orden.');
-      load(); // Si falla, recargamos para volver al estado real del backend.
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo guardar el nuevo orden.');
+      load(); // Volver al estado real del servidor.
     }
   }
 
-  // Agrupar por categoría (sin perder orden de SortOrder dentro de cada una).
-  // El backend ya las trae ordenadas por (Category, SortOrder).
+  // Agrupar por categoría (el backend ya las trae ordenadas por categoría y orden).
   const grouped: Record<string, FaqItem[]> = {};
-  for (const item of items) {
-    if (!grouped[item.category]) grouped[item.category] = [];
-    grouped[item.category].push(item);
-  }
+  for (const item of items) (grouped[item.category] ??= []).push(item);
   const categories = Object.keys(grouped);
 
+  // Filtros
+  const q = search.trim().toLowerCase();
+  const matches = (i: FaqItem) =>
+    (pubFilter === 'all' || (pubFilter === 'published') === i.isPublished) &&
+    (!q || i.question.toLowerCase().includes(q) || i.answer.toLowerCase().includes(q));
+  // Reordenar solo tiene sentido viendo la categoría completa.
+  const canReorder = !q && pubFilter === 'all';
+  const visibleCats = categories
+    .filter(c => catFilter === 'all' || c === catFilter)
+    .map(c => ({ category: c, items: grouped[c].filter(matches) }))
+    .filter(c => c.items.length > 0);
+
+  const published = items.filter(i => i.isPublished).length;
+  // Filtros activos: categoría, estado y búsqueda (lo mismo que borra "Limpiar filtros").
+  const activeCount = (catFilter !== 'all' ? 1 : 0) + (pubFilter !== 'all' ? 1 : 0) + (search.trim() ? 1 : 0);
+
   return (
-    <>
-      <PageHeader
-        title="Preguntas frecuentes"
-        subtitle="Gestiona las preguntas que aparecen en la sección FAQ de la landing."
-        icon="fa-solid fa-circle-question"
-        actions={
-          <button className="btn btn-bugie text-white" onClick={() => setCreating(true)}>
-            <i className="fa-solid fa-plus me-2" />Nueva pregunta
-          </button>
-        }
-      />
+    <Page
+      title="Preguntas frecuentes"
+      subtitle="Las preguntas que aparecen en la sección FAQ de la web."
+      icon="fa-circle-question"
+      helpKey="faq"
+      actions={[
+        { label: 'Nueva pregunta', icon: 'fa-plus', variant: 'primary', onClick: () => setEditing('new') },
+        { label: 'Actualizar', icon: 'fa-rotate-right', variant: 'secondary', onClick: load, loading },
+      ]}
+    >
+      <StatGrid min={150}>
+        <StatCard label="Total" value={items.length} icon="fa-circle-question" tone="primary" loading={loading} />
+        <StatCard label="Publicadas" value={published} icon="fa-eye" tone="ok" loading={loading} onClick={() => setPubFilter('published')} />
+        <StatCard label="Ocultas" value={items.length - published} icon="fa-eye-slash" tone="neutral" loading={loading} onClick={() => setPubFilter('hidden')} />
+        <StatCard label="Categorías" value={categories.length} icon="fa-layer-group" tone="info" loading={loading} />
+      </StatGrid>
 
-      {/* KPIs simples */}
-      <div className="row g-3 mb-3">
-        {[
-          { label: 'Total',       value: items.length,                                   color: '#818cf8', icon: 'fa-circle-question' },
-          { label: 'Publicadas',  value: items.filter(i => i.isPublished).length,        color: '#34d399', icon: 'fa-eye'             },
-          { label: 'Ocultas',     value: items.filter(i => !i.isPublished).length,       color: '#94a3b8', icon: 'fa-eye-slash'       },
-          { label: 'Categorías',  value: categories.length,                              color: '#f59e0b', icon: 'fa-layer-group'     },
-        ].map(k => (
-          <div className="col-6 col-md-3" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value}
-                  </div>
-                </div>
-              </div>
+      <Tabs ariaLabel="Idioma" items={LANG_TABS} value={lang} onChange={v => setLang(v as 'es' | 'en')} />
+
+      <SectionCard>
+        <div data-tour="faq-filters">
+          <FilterBar
+            search={search} onSearchChange={setSearch} searchPlaceholder="Buscar en preguntas y respuestas…"
+            chips={[
+              { value: 'all', label: 'Todas', count: items.length },
+              { value: 'published', label: 'Publicadas', count: published },
+              { value: 'hidden', label: 'Ocultas', count: items.length - published },
+            ]}
+            chip={pubFilter} onChipChange={v => setPubFilter(v as PubFilter)}
+            activeCount={activeCount}
+            onClear={() => { setCatFilter('all'); setPubFilter('all'); setSearch(''); }}
+          >
+            <div className="bx-chips" role="group" aria-label="Categoría">
+              <button type="button" className="bx-chip" aria-pressed={catFilter === 'all'} onClick={() => setCatFilter('all')}>Todas las categorías</button>
+              {categories.map(c => (
+                <button key={c} type="button" className="bx-chip" aria-pressed={catFilter === c} onClick={() => setCatFilter(c)}>
+                  {c} <span className="count">{grouped[c].length}</span>
+                </button>
+              ))}
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Selector de idioma */}
-      <div className="d-flex gap-2 mb-3 align-items-center">
-        {(['es', 'en'] as const).map(l => (
-          <button key={l} type="button" onClick={() => setLang(l)}
-            className={`btn btn-sm ${lang === l ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}>
-            {l === 'es' ? '🇵🇪 Español' : '🇺🇸 English'}
-          </button>
-        ))}
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto" onClick={load}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
-
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {/* Aviso de drag & drop */}
-      <div className="alert small mb-3" style={{
-        background: 'rgba(129,140,248,0.08)',
-        border: '1px solid rgba(129,140,248,0.2)',
-        color: 'inherit',
-      }}>
-        <i className="fa-solid fa-hand-pointer me-2" style={{ color: '#818cf8' }} />
-        Arrastra las preguntas para reordenarlas dentro de cada categoría. El orden se guarda automáticamente.
-      </div>
-
-      {loading ? (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      ) : items.length === 0 ? (
-        <div className="bugie-card p-5 text-center">
-          <i className="fa-solid fa-circle-question fa-2x mb-3 d-block bugie-muted" />
-          <div className="fw-semibold mb-1">Sin preguntas</div>
-          <div className="small bugie-muted">Empieza creando la primera pregunta.</div>
+          </FilterBar>
         </div>
-      ) : (
-        <div className="d-flex flex-column gap-3">
-          {categories.map(cat => (
-            <CategoryBlock
-              key={cat}
-              category={cat}
-              items={grouped[cat]}
-              onEdit={setEditing}
-              onDelete={deleteItem}
-              onTogglePublish={togglePublish}
-              onReorder={(newOrder) => saveReorder(cat, newOrder)}
-            />
-          ))}
+        <p className="small bugie-muted mt-3 mb-0">
+          <i className={`fa-solid ${canReorder ? 'fa-up-down' : 'fa-circle-info'} me-1`} aria-hidden="true" />
+          {canReorder
+            ? 'Arrastra las preguntas o usa las flechas para cambiar el orden dentro de cada categoría. Se guarda solo.'
+            : 'Para cambiar el orden, quita la búsqueda y el filtro de estado.'}
+        </p>
+      </SectionCard>
+
+      {loadErr && (
+        <div className="sa-note bx-tone-bad" role="alert">
+          <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{loadErr}</span>
         </div>
       )}
 
-      {creating && (
-        <FaqModal
-          item={null}
-          lang={lang}
-          onClose={() => setCreating(false)}
-          onSaved={() => { setCreating(false); load(); }}
-        />
-      )}
-      {editing && (
-        <FaqModal
-          item={editing}
-          lang={lang}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }}
-        />
-      )}
-    </>
+      <div className="d-grid gap-3" data-tour="faq-list">
+        {loading ? (
+          <SectionCard><Skeleton height={56} count={4} /></SectionCard>
+        ) : items.length === 0 ? (
+          <SectionCard>
+            <EmptyState icon="fa-circle-question" title="Todavía no hay preguntas"
+                        text="Crea la primera para que aparezca en la sección FAQ de la web."
+                        action={<button className="btn btn-bugie" onClick={() => setEditing('new')}><i className="fa-solid fa-plus me-2" aria-hidden="true" />Nueva pregunta</button>} />
+          </SectionCard>
+        ) : visibleCats.length === 0 ? (
+          <SectionCard>
+            <EmptyState compact title="Sin resultados" text="Ninguna pregunta coincide con los filtros." />
+          </SectionCard>
+        ) : visibleCats.map(c => (
+          <CategoryBlock
+            key={c.category}
+            category={c.category}
+            items={c.items}
+            canReorder={canReorder}
+            onEdit={setEditing}
+            onDelete={deleteItem}
+            onTogglePublish={togglePublish}
+            onReorder={newOrder => saveReorder(c.category, newOrder)}
+          />
+        ))}
+      </div>
+
+      <FaqDrawer
+        item={editing}
+        lang={lang}
+        categories={categories}
+        onClose={() => setEditing(null)}
+        onSaved={created => { setEditing(null); toast.success(created ? 'Pregunta creada.' : 'Cambios guardados.'); load(); }}
+      />
+    </Page>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Bloque de una categoría con drag & drop nativo HTML5.
-// El admin puede arrastrar cada pregunta para reordenarla. Al soltar,
-// llamamos a onReorder con el nuevo orden y el padre guarda en backend.
+// Una categoría: lista ordenable (arrastrar o flechas).
 // ═════════════════════════════════════════════════════════════════════════
-function CategoryBlock({ category, items, onEdit, onDelete, onTogglePublish, onReorder }: {
+function CategoryBlock({ category, items, canReorder, onEdit, onDelete, onTogglePublish, onReorder }: {
   category: string;
   items: FaqItem[];
+  canReorder: boolean;
   onEdit: (i: FaqItem) => void;
   onDelete: (i: FaqItem) => void;
   onTogglePublish: (i: FaqItem) => void;
   onReorder: (newOrder: FaqItem[]) => void;
 }) {
-  const color = categoryColor(category);
-  // Estado local mientras el usuario arrastra. Lo usamos para mostrar
-  // el "preview" del nuevo orden antes de confirmar al backend.
-  const [localItems, setLocalItems] = useState(items);
-  // Si el padre re-renderiza con nuevas items (recarga, edición, etc),
-  // sincronizamos el estado local.
-  useEffect(() => { setLocalItems(items); }, [items]);
+  const dragFrom = useRef<number | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
 
-  // Refs para tracking del drag
-  const draggedIndex = useRef<number | null>(null);
-  const [draggingOver, setDraggingOver] = useState<number | null>(null);
-
-  function onDragStart(e: React.DragEvent, idx: number) {
-    draggedIndex.current = idx;
-    e.dataTransfer.effectAllowed = 'move';
-    // Hack visual: hace transparente el elemento mientras se arrastra.
-    if (e.currentTarget instanceof HTMLElement) {
-      setTimeout(() => {
-        (e.currentTarget as HTMLElement).style.opacity = '0.4';
-      }, 0);
-    }
+  function moveTo(from: number, to: number) {
+    if (from === to || to < 0 || to >= items.length) return;
+    const next = [...items];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorder(next);
   }
 
-  function onDragEnd(e: React.DragEvent) {
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '1';
-    }
-    draggedIndex.current = null;
-    setDraggingOver(null);
-  }
-
-  function onDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDraggingOver(idx);
-  }
-
-  function onDrop(e: React.DragEvent, dropIdx: number) {
-    e.preventDefault();
-    const fromIdx = draggedIndex.current;
-    if (fromIdx === null || fromIdx === dropIdx) {
-      setDraggingOver(null);
-      return;
-    }
-
-    // Reorganizamos el array localmente
-    const reordered = [...localItems];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(dropIdx, 0, moved);
-    setLocalItems(reordered);
-    setDraggingOver(null);
-
-    // Avisamos al padre, que guardará en backend
-    onReorder(reordered);
-  }
+  const endDrag = () => { dragFrom.current = null; setDragging(null); setOver(null); };
 
   return (
-    <div className="bugie-card" style={{ overflow: 'hidden' }}>
-      {/* Header de categoría */}
-      <div className="px-3 py-2 d-flex align-items-center gap-2"
-           style={{ background: color + '15', borderBottom: '1px solid var(--bugie-border)' }}>
-        <i className="fa-solid fa-layer-group" style={{ color, fontSize: '0.85rem' }} />
-        <span className="fw-bold">{category}</span>
-        <span className="badge rounded-pill" style={{
-          background: color + '22', color, fontSize: '0.7rem',
-        }}>
-          {localItems.length}
-        </span>
-      </div>
-
-      {/* Preguntas (draggables) */}
-      <div className="d-flex flex-column">
-        {localItems.map((item, idx) => (
+    <SectionCard flush icon="fa-layer-group" title={category}
+                 actions={<StatusBadge size="sm" tone="primary">{items.length}</StatusBadge>}>
+      <div className="sa-rows">
+        {items.map((item, idx) => (
           <div key={item.id}
-            draggable
-            onDragStart={(e) => onDragStart(e, idx)}
-            onDragEnd={onDragEnd}
-            onDragOver={(e) => onDragOver(e, idx)}
-            onDrop={(e) => onDrop(e, idx)}
-            style={{
-              padding: '12px 16px',
-              borderTop: idx === 0 ? 'none' : '1px solid var(--bugie-border)',
-              cursor: 'grab',
-              background: draggingOver === idx ? color + '10' : 'transparent',
-              transition: 'background 0.15s',
-              opacity: item.isPublished ? 1 : 0.55,
-            }}>
-            <div className="d-flex align-items-start gap-3">
-              {/* Handle */}
-              <div style={{
-                paddingTop: 4, color: '#94a3b8', cursor: 'grab', flexShrink: 0,
-              }}>
-                <i className="fa-solid fa-grip-vertical" />
-              </div>
+            className={`sa-row ${!item.isPublished ? 'is-dim' : ''} ${over === idx && dragging !== idx ? 'drag-over' : ''} ${dragging === idx ? 'dragging' : ''}`}
+            draggable={canReorder}
+            onDragStart={e => { dragFrom.current = idx; setDragging(idx); e.dataTransfer.effectAllowed = 'move'; }}
+            onDragEnd={endDrag}
+            onDragOver={e => { if (!canReorder) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(idx); }}
+            onDrop={e => { e.preventDefault(); const from = dragFrom.current; endDrag(); if (from !== null) moveTo(from, idx); }}>
+            {canReorder && <span className="sa-grip" aria-hidden="true"><i className="fa-solid fa-grip-vertical" /></span>}
 
-              {/* Contenido */}
-              <div className="flex-grow-1 min-w-0">
-                <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
-                  <span className="fw-semibold">{item.question}</span>
-                  {!item.isPublished && (
-                    <span className="badge rounded-pill" style={{
-                      background: 'rgba(148,163,184,0.2)', color: '#94a3b8',
-                      fontSize: '0.7rem',
-                    }}>
-                      <i className="fa-solid fa-eye-slash me-1" style={{ fontSize: '0.6rem' }} />
-                      Oculta
-                    </span>
-                  )}
-                </div>
-                <div className="small bugie-muted" style={{
-                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}>
-                  {item.answer}
-                </div>
-              </div>
+            <button type="button" className="sa-row-main text-start border-0 bg-transparent p-0" style={{ color: 'inherit' }}
+                    onClick={() => onEdit(item)}>
+              <span className="sa-row-title">
+                {item.question}
+                {!item.isPublished && <StatusBadge size="sm" tone="neutral" icon="fa-eye-slash" className="ms-2">Oculta</StatusBadge>}
+              </span>
+              <span className="sa-row-text">{item.answer}</span>
+            </button>
 
-              {/* Acciones */}
-              <div className="d-flex gap-1 flex-shrink-0">
-                <button className="btn btn-sm btn-bugie-outline"
-                        onClick={() => onTogglePublish(item)}
-                        title={item.isPublished ? 'Ocultar' : 'Publicar'}>
-                  <i className={`fa-solid ${item.isPublished ? 'fa-eye-slash' : 'fa-eye'}`} />
-                </button>
-                <button className="btn btn-sm btn-bugie-outline"
-                        onClick={() => onEdit(item)} title="Editar">
-                  <i className="fa-solid fa-pen" />
-                </button>
-                <button className="btn btn-sm btn-outline-danger"
-                        onClick={() => onDelete(item)} title="Borrar">
-                  <i className="fa-solid fa-trash" />
-                </button>
-              </div>
+            <div className="sa-row-actions">
+              <Switch checked={item.isPublished} onChange={() => onTogglePublish(item)}
+                      ariaLabel={item.isPublished ? 'Ocultar de la web' : 'Publicar en la web'} />
+              {canReorder && (
+                <>
+                  <IconButton icon="fa-arrow-up" label="Subir" size="sm" variant="ghost" disabled={idx === 0} onClick={() => moveTo(idx, idx - 1)} />
+                  <IconButton icon="fa-arrow-down" label="Bajar" size="sm" variant="ghost" disabled={idx === items.length - 1} onClick={() => moveTo(idx, idx + 1)} />
+                </>
+              )}
+              <IconButton icon="fa-pen" label="Editar" size="sm" onClick={() => onEdit(item)} />
+              <IconButton icon="fa-trash" label="Eliminar" size="sm" variant="danger" onClick={() => onDelete(item)} />
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </SectionCard>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Modal de creación / edición
+// Panel lateral de creación / edición
 // ═════════════════════════════════════════════════════════════════════════
-function FaqModal({ item, lang, onClose, onSaved }: {
-  item: FaqItem | null;   // null = crear, no-null = editar
+function FaqDrawer({ item, lang, categories, onClose, onSaved }: {
+  item: FaqItem | 'new' | null;
   lang: 'es' | 'en';
+  categories: string[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (created: boolean) => void;
 }) {
-  const [form, setForm] = useState({
-    category:    item?.category ?? '',
-    question:    item?.question ?? '',
-    answer:      item?.answer   ?? '',
-    isPublished: item?.isPublished ?? true,
-  });
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState<string | null>(null);
+  const confirm = useConfirm();
+  const editingItem = item && item !== 'new' ? item : null;
+  const blank = { category: '', question: '', answer: '', isPublished: true };
+  const [form, setForm]       = useState(blank);
+  const [initial, setInitial] = useState(blank);
+  const [saving, setSaving]   = useState(false);
+  const [error,  setError]    = useState<string | null>(null);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  // Al abrir, cargar los datos del elemento (o el formulario vacío).
+  useEffect(() => {
+    if (!item) return;
+    const f = editingItem
+      ? { category: editingItem.category, question: editingItem.question, answer: editingItem.answer, isPublished: editingItem.isPublished }
+      : blank;
+    setForm(f); setInitial(f); setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item]);
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const itemLang = editingItem?.lang ?? lang;
+
+  async function close() {
+    if (saving) return;
+    if (dirty && !(await confirm({
+      title: '¿Cerrar sin guardar?', message: 'Los cambios de esta pregunta se perderán.',
+      confirmText: 'Cerrar sin guardar', cancelText: 'Seguir editando', tone: 'warning',
+    }))) return;
+    onClose();
+  }
+
+  async function save(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     if (!form.category.trim()) { setError('La categoría es obligatoria.'); return; }
     if (!form.question.trim()) { setError('La pregunta es obligatoria.'); return; }
@@ -394,143 +352,74 @@ function FaqModal({ item, lang, onClose, onSaved }: {
 
     setSaving(true);
     try {
-      const url    = item
-        ? `${API.landing}/landing/faq/${item.id}`
-        : `${API.landing}/landing/faq`;
-      const method = item ? 'PUT' : 'POST';
+      const url    = editingItem ? `${API.landing}/landing/faq/${editingItem.id}` : `${API.landing}/landing/faq`;
+      const method = editingItem ? 'PUT' : 'POST';
       await apiFetch(url, {
         method,
         body: JSON.stringify({
           category:    form.category.trim(),
           question:    form.question.trim(),
           answer:      form.answer.trim(),
-          lang:        item?.lang ?? lang,
+          lang:        itemLang,
           isPublished: form.isPublished,
         }),
       });
-      onSaved();
+      onSaved(!editingItem);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar.');
+      setError(err instanceof ApiError ? err.message : 'No se pudo guardar.');
     } finally { setSaving(false); }
   }
 
-  return createPortal(
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 99999, padding: 16, backdropFilter: 'blur(4px)',
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 'min(640px, 100%)', maxHeight: '92vh',
-        background: 'var(--bugie-surface)', borderRadius: 18,
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 25px 70px rgba(0,0,0,0.5)',
-      }}>
-        {/* Header */}
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom"
-             style={{ borderColor: 'var(--bugie-border)', flexShrink: 0 }}>
-          <div className="d-flex align-items-center gap-3">
-            <div style={{
-              width: 40, height: 40, borderRadius: 10,
-              background: 'rgba(129,140,248,0.15)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <i className={`fa-solid ${item ? 'fa-pen' : 'fa-plus'}`}
-                 style={{ color: '#818cf8' }} />
-            </div>
-            <div>
-              <div className="fw-bold">{item ? 'Editar pregunta' : 'Nueva pregunta'}</div>
-              <div className="small bugie-muted">
-                {lang === 'es' ? '🇵🇪 Español' : '🇺🇸 English'}
-              </div>
-            </div>
-          </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-xmark" />
+  const suggestions = Array.from(new Set([...categories, ...SUGGESTED_CATEGORIES]));
+
+  return (
+    <Drawer
+      open={!!item}
+      onClose={close}
+      size="md"
+      title={editingItem ? 'Editar pregunta' : 'Nueva pregunta'}
+      description={`Idioma: ${itemLang === 'es' ? 'Español' : 'Inglés'}`}
+      footer={
+        <>
+          <button type="button" className="btn btn-bugie-outline" onClick={close} disabled={saving}>Cancelar</button>
+          <button type="submit" form="faq-form" className="btn btn-bugie" disabled={saving || (!!editingItem && !dirty)}>
+            {saving
+              ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Guardando…</>
+              : <><i className="fa-solid fa-floppy-disk me-2" aria-hidden="true" />{editingItem ? 'Guardar cambios' : 'Crear pregunta'}</>}
           </button>
-        </div>
+        </>
+      }
+    >
+      <form id="faq-form" onSubmit={save} className="d-grid gap-3">
+        <Field label="Categoría" required help="Elige una existente o escribe una nueva.">
+          <input className="form-control" list="faq-categories" value={form.category}
+                 onChange={e => setForm(p => ({ ...p, category: e.target.value }))} placeholder="Ej.: Pasajeros" />
+        </Field>
+        <datalist id="faq-categories">
+          {suggestions.map(c => <option key={c} value={c} />)}
+        </datalist>
 
-        {/* Form */}
-        <form onSubmit={save} style={{ overflowY: 'auto', padding: '1.25rem', flexGrow: 1 }}>
-          <div className="mb-3">
-            <label className="form-label small bugie-muted text-uppercase">
-              Categoría <span className="text-danger">*</span>
-            </label>
-            <input
-              className="form-control"
-              value={form.category}
-              onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
-              list="faq-categories"
-              placeholder="ej. Pasajeros"
-            />
-            <datalist id="faq-categories">
-              {SUGGESTED_CATEGORIES.map(c => <option key={c} value={c} />)}
-            </datalist>
-            <div className="form-text small">
-              Puedes elegir una sugerida o escribir una nueva.
-            </div>
+        <Field label="Pregunta" required help={`${form.question.length}/300 caracteres`}>
+          <input className="form-control" value={form.question} maxLength={300}
+                 onChange={e => setForm(p => ({ ...p, question: e.target.value }))}
+                 placeholder="¿Cómo puedo cancelar un viaje?" />
+        </Field>
+
+        <Field label="Respuesta" required help="Escribe en frases cortas y claras.">
+          <textarea className="form-control" rows={7} value={form.answer}
+                    onChange={e => setForm(p => ({ ...p, answer: e.target.value }))}
+                    placeholder="Explica la respuesta paso a paso…" />
+        </Field>
+
+        <Switch checked={form.isPublished} onChange={v => setForm(p => ({ ...p, isPublished: v }))}
+                label="Publicar en la web" description="Si lo apagas, la pregunta queda guardada pero oculta." />
+
+        {error && (
+          <div className="sa-note bx-tone-bad" role="alert">
+            <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /><span>{error}</span>
           </div>
-
-          <div className="mb-3">
-            <label className="form-label small bugie-muted text-uppercase">
-              Pregunta <span className="text-danger">*</span>
-            </label>
-            <input
-              className="form-control"
-              value={form.question}
-              onChange={e => setForm(p => ({ ...p, question: e.target.value }))}
-              maxLength={300}
-              placeholder="¿Cómo puedo cancelar un viaje?"
-              autoFocus
-            />
-          </div>
-
-          <div className="mb-3">
-            <label className="form-label small bugie-muted text-uppercase">
-              Respuesta <span className="text-danger">*</span>
-            </label>
-            <textarea
-              className="form-control"
-              rows={6}
-              value={form.answer}
-              onChange={e => setForm(p => ({ ...p, answer: e.target.value }))}
-              placeholder="Explica claramente la respuesta..."
-            />
-          </div>
-
-          <div className="form-check">
-            <input className="form-check-input"
-                   type="checkbox"
-                   id="faq-published"
-                   checked={form.isPublished}
-                   onChange={e => setForm(p => ({ ...p, isPublished: e.target.checked }))} />
-            <label className="form-check-label small" htmlFor="faq-published">
-              Publicar en la landing inmediatamente
-            </label>
-          </div>
-
-          {error && <div className="alert alert-danger small mt-3 mb-0">{error}</div>}
-        </form>
-
-        {/* Footer sticky */}
-        <div className="p-3 border-top"
-             style={{ borderColor: 'var(--bugie-border)', flexShrink: 0,
-                      background: 'var(--bugie-surface)' }}>
-          <div className="d-flex gap-2 justify-content-end">
-            <button type="button" className="btn btn-bugie-outline"
-                    onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button type="button" className="btn btn-bugie text-white"
-                    onClick={save} disabled={saving}>
-              {saving
-                ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                : <><i className="fa-solid fa-floppy-disk me-2" />{item ? 'Guardar cambios' : 'Crear pregunta'}</>}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
+        )}
+      </form>
+    </Drawer>
   );
 }

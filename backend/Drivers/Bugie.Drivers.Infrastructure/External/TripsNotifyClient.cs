@@ -82,4 +82,29 @@ public class TripsNotifyClient : ITripsNotifyClient
             // Silenciamos todo aquí — offline notification no es crítica.
         }
     }
+    public async Task SendPushAsync(Guid userId, string title, string body,
+                                    IReadOnlyDictionary<string, string>? data = null,
+                                    CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "api/internal/notify/push");
+            req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+            // "route" viaja también dentro de data; Trips lo pone en el mensaje.
+            string? route = null;
+            data?.TryGetValue("route", out route);
+            req.Content = JsonContent.Create(new { userId, title, body, route, data });
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
+
+            using var res = await _http.SendAsync(req, cts.Token);
+            if(!res.IsSuccessStatusCode)
+                _log.LogWarning("Trips rechazó push a {UserId}: {Status}", userId, res.StatusCode);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "SendPushAsync a {UserId} falló (no crítico).", userId);
+        }
+    }
 }

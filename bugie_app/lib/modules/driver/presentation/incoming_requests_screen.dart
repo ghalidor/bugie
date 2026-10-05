@@ -5,14 +5,19 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/active_trip_service.dart';
 import '../../../core/services/location_tracking_service.dart';
-import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_map.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/proposal_model.dart';
 import '../../trips/domain/trip_model.dart';
+import '../../trips/domain/trip_photo_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/negotiation/negotiation.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../../core/widgets/schedule_picker.dart';
+import 'driver_idle_tracking.dart';
 import 'widgets/trip_request_card_compact.dart';
 
 /// Solicitudes entrantes para el conductor.
@@ -25,7 +30,9 @@ import 'widgets/trip_request_card_compact.dart';
 ///
 /// El backend (my-counter-proposals) garantiza prioridad: nunca devuelve dos a la vez.
 class IncomingRequestsScreen extends StatefulWidget {
-  const IncomingRequestsScreen({super.key});
+  /// false cuando se muestra como pestaña del menú inferior (sin botón volver).
+  final bool showBack;
+  const IncomingRequestsScreen({super.key, this.showBack = true});
 
   @override
   State<IncomingRequestsScreen> createState() => _IncomingRequestsScreenState();
@@ -57,17 +64,6 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
   /// Estado de negociación con el pasajero por viaje.
   Map<String, DriverCounterInfo> _counters = {};
 
-  /// id del viaje sobre el que se está actuando (loading button).
-  String? _acting;
-
-  /// id del viaje cuyo panel de "proponer tarifa" está abierto.
-  String? _proposingId;
-
-  /// Texto del input de propuesta por viaje.
-  final Map<String, TextEditingController> _proposeCtrl = {};
-
-  /// IDs de feedback "rejected" que el conductor ocultó (X). Solo en memoria.
-  final Set<String> _hiddenRejects = {};
 
   /// Cache de rutas calculadas por tripId. Se llena la primera vez que vemos
   /// una solicitud y se reutiliza en cada poll. Si el viaje desaparece de la
@@ -75,13 +71,33 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
   /// repetidamente a /api/trips/route en cada poll.
   final Map<String, List<LatLng>> _routeCache = {};
 
+  /// Cantidad de fotos del paquete por tripId (solo envíos). Se pide UNA vez
+  /// por solicitud y se reutiliza en cada poll, igual que las rutas.
+  final Map<String, int> _photoCountCache = {};
+
   /// True si hay problemas de red sostenidos (2+ fallos seguidos).
   bool get _isOffline => _failureCount >= 2;
+
+  /// IDs vistos en el último poll (para marcar las solicitudes "nuevas").
+  Set<String>? _knownIds;
+  /// Momento en que apareció cada solicitud nueva. El badge "Nuevo" dura
+  /// [_newBadgeFor] o hasta que el conductor la abre.
+  final Map<String, DateTime> _newSince = {};
+  static const _newBadgeFor = Duration(minutes: 2);
+
+  bool _isNew(String id) {
+    final since = _newSince[id];
+    return since != null && DateTime.now().difference(since) < _newBadgeFor;
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Las solicitudes se filtran por la posición del conductor en el backend:
+    // nos aseguramos de que se esté enviando (si está en línea).
+    ensureDriverIdleTracking(context);
+    ActiveTripService().active.addListener(_onActiveTrip);
     _load();
     _staleTickTimer = Timer.periodic(
       const Duration(seconds: 5),
@@ -94,12 +110,14 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ActiveTripService().active.removeListener(_onActiveTrip);
     _pollingTimer?.cancel();
     _staleTickTimer?.cancel();
-    for (final c in _proposeCtrl.values) {
-      c.dispose();
-    }
     super.dispose();
+  }
+
+  void _onActiveTrip() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -145,19 +163,10 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
 
     final repo = context.read<TripsRepository>();
 
-    // Si el pasajero ya confirmó una aceptación mía, tengo un viaje activo:
-    // salto directo a "viaje en curso".
-    try {
-      final active = await repo.getActive();
-      if (active != null &&
-          active.driverId != null &&
-          (active.status == TripStatus.accepted ||
-              active.status == TripStatus.inProgress ||
-              active.status == TripStatus.sosActive)) {
-        if (mounted) context.go('/driver/trip-in-progress');
-        return;
-      }
-    } catch (_) {}
+    // ¿Tengo un viaje activo? Ya NO se salta solo a "viaje en curso": la
+    // franja fija "Viaje en curso · Volver" lo lleva, y aquí se muestra un
+    // aviso (ver _ActiveTripNotice). Seguimos viendo la lista.
+    unawaited(ActiveTripService().refresh());
 
     try {
       final list = await repo.getPending();
@@ -172,6 +181,18 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
       }
 
       if (mounted) {
+        // Marca como "nuevas" las que no estaban en el poll anterior.
+        final ids = list.map((t) => t.id).toSet();
+        final now = DateTime.now();
+        if (_knownIds != null) {
+          for (final id in ids.difference(_knownIds!)) {
+            _newSince[id] = now;
+          }
+        }
+        _knownIds = ids;
+        _newSince.removeWhere((id, _) => !ids.contains(id));
+        // Más recientes primero (solo cambia el orden en pantalla).
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         setState(() {
           _trips = list;
           _counters = counters;
@@ -183,6 +204,7 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
         // Purga del cache las rutas de viajes que ya no aparecen,
         // y calcula las rutas de viajes nuevos. Async, sin bloquear.
         _syncRouteCache(list);
+        _syncPhotoCountCache(list);
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -196,17 +218,12 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
           }
         });
       }
-    } catch (e, st) {
-      // DIAGNOSTICO TEMPORAL
-      // ignore: avoid_print
-      print('[INCOMING_DEBUG] _load error: $e');
-      // ignore: avoid_print
-      print('[INCOMING_DEBUG] stacktrace: $st');
+    } catch (_) {
       if (mounted) {
         setState(() {
           _loading = false;
           _failureCount = (_failureCount + 1).clamp(0, 10);
-          _error = 'DEBUG: $e';
+          _error = 'No se pudieron cargar las solicitudes.';
         });
       }
     } finally {
@@ -250,138 +267,33 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
     }
   }
 
-  /// Declinar: ahora SÍ llama al backend. Marca rejected/driver todas las
-  /// propuestas pending entre este conductor y el viaje. El pasajero verá
-  /// el card "el conductor declinó".
-  Future<void> _decline(Trip t) async {
-    setState(() {
-      _acting = t.id;
-      _error = null;
-    });
-    try {
-      await context.read<TripsRepository>().declineByDriver(t.id);
-      if (!mounted) return;
-      setState(() {
-        _trips = _trips.where((x) => x.id != t.id).toList();
-        _counters = {..._counters}..remove(t.id);
-        _acting = null;
-      });
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.message;
-          _acting = null;
-        });
-      }
-    }
-  }
+  /// Igual que `_syncRouteCache`, pero con la cantidad de fotos del paquete
+  /// de cada envío. Si falla, queda sin dato y se reintenta en el próximo poll.
+  Future<void> _syncPhotoCountCache(List<Trip> trips) async {
+    final liveIds = trips.map((t) => t.id).toSet();
+    _photoCountCache.removeWhere((id, _) => !liveIds.contains(id));
 
-  Future<void> _accept(Trip t) async {
-    setState(() {
-      _acting = t.id;
-      _error = null;
-    });
-    try {
-      // Nuevo flujo: aceptar NO asigna directo. Queda esperando que el
-      // pasajero confirme. El polling (getActive) me llevará a "viaje en
-      // curso" cuando el pasajero me confirme.
-      await context.read<TripsRepository>().driverAccept(t.id);
-      if (!mounted) return;
-      setState(() => _acting = null);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Aceptación enviada. Espera que el pasajero confirme.'),
-      ));
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.message;
-          _acting = null;
-        });
-      }
-    }
-  }
+    final missing = trips
+        .where((t) => t.isDelivery && !_photoCountCache.containsKey(t.id))
+        .toList();
+    if (missing.isEmpty) return;
 
-  /// Confirma la aceptación del pasajero sobre mi propuesta.
-  /// Backend: PUT /api/trips/{tripId}/confirm-acceptance/{proposalId}
-  /// Al confirmar:
-  ///   - Se asigna el conductor y el viaje pasa a Accepted.
-  ///   - Mis OTRAS propuestas pending en otros viajes se rechazan (driver_busy).
-  ///   - Navego a /driver/trip-in-progress para empezar el viaje.
-  Future<void> _confirmAcceptance(Trip t, String proposalId) async {
-    setState(() {
-      _acting = t.id;
-      _error = null;
-    });
-    try {
-      await context.read<TripsRepository>().confirmAcceptance(t.id, proposalId);
-      if (!mounted) return;
-      context.go('/driver/trip-in-progress');
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.message;
-          _acting = null;
-        });
-      }
+    final repo = context.read<TripsRepository>();
+    for (final t in missing) {
+      try {
+        final photos = await repo.getPhotos(t.id);
+        if (!mounted) return;
+        _photoCountCache[t.id] =
+            photos.where((p) => p.kind == TripPhotoKind.package).length;
+        setState(() {});
+      } catch (_) {}
     }
-  }
-
-  TextEditingController _ctrlFor(Trip t) {
-    return _proposeCtrl.putIfAbsent(
-      t.id,
-      () => TextEditingController(text: t.estimatedFare.toStringAsFixed(2)),
-    );
-  }
-
-  Future<void> _submitProposal(Trip t) async {
-    final ctrl = _ctrlFor(t);
-    final fare = double.tryParse(ctrl.text.replaceAll(',', '.'));
-    if (fare == null || fare <= 0) {
-      setState(() => _error = 'Ingresa una tarifa válida.');
-      return;
-    }
-    setState(() {
-      _acting = t.id;
-      _error = null;
-    });
-    try {
-      await context.read<TripsRepository>().proposeFare(t.id, fare);
-      if (!mounted) return;
-      // Cerrar panel y refrescar — el banner azul aparecerá en el próximo poll.
-      setState(() {
-        _proposingId = null;
-        _acting = null;
-      });
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.message;
-          _acting = null;
-        });
-      }
-    }
-  }
-
-  /// Modal con mi historial de propuestas para este viaje.
-  /// Reutiliza /proposals/history?driverId=X filtrando con mi propio userId.
-  Future<void> _openHistory(String tripId) async {
-    final myUserId = context.read<Session>().user?.userId;
-    if (myUserId == null) return;
-    await showDialog(
-      context: context,
-      builder: (_) => DriverHistoryDialog(
-        tripId: tripId,
-        myUserId: myUserId,
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const BugieInternalHeader(title: 'Solicitudes entrantes'),
+      appBar: BugieInternalHeader(title: 'Solicitudes', showBack: widget.showBack),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -390,6 +302,16 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
                   children: [
+                    // Con un viaje activo no puede aceptar otras solicitudes
+                    // (puede ver la lista y su detalle).
+                    if (ActiveTripService().hasActive) ...[
+                      ActiveTripNotice(
+                        isDelivery:
+                            ActiveTripService().active.value!.isDelivery,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
                     // Banner "sin conexión" — aparece tras 2+ fallos seguidos.
                     // Visible en cualquier estado (con o sin solicitudes).
                     if (_isOffline) ...[
@@ -423,25 +345,20 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
                         final driverPos = lastPos == null
                             ? null
                             : LatLng(lastPos.latitude, lastPos.longitude);
-                        // ¿Tengo alguna propuesta de algún viaje esperando mi
-                        // confirmación? Si sí, bloqueo los botones normales en
-                        // TODAS las OTRAS tarjetas. La tarjeta con la propuesta
-                        // esperando mantiene su botón "Confirmar y empezar viaje".
-                        final waitingEntries = _counters.entries
-                            .where((e) => e.value.isWaitingMyConfirmation)
-                            .toList();
-                        final waitingTripId = waitingEntries.isNotEmpty
-                            ? waitingEntries.first.key
-                            : null;
-                        return Column(
-                          children: _trips.map((t) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: TripRequestCardCompact(
+                        return AnimatedItemsColumn<Trip>(
+                          items: _trips,
+                          keyOf: (t) => t.id,
+                          spacing: 10,
+                          itemBuilder: (ctx, t, _) {
+                            final counter = _counters[t.id];
+                            return TripRequestCardCompact(
                               trip: t,
-                              counter: _counters[t.id],
+                              counter: counter,
+                              photoCount: _photoCountCache[t.id],
+                              isNew: _isNew(t.id),
                               // Distancia conductor → origen del viaje.
                               // Si no tenemos GPS, queda en null y la card
-                              // simplemente no muestra la pill "a X km".
+                              // simplemente no muestra el chip "a X km".
                               distanceToOriginKm: driverPos == null
                                   ? null
                                   : haversineKm(
@@ -449,6 +366,7 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
                                       LatLng(t.originLat, t.originLng),
                                     ),
                               onTap: () {
+                                setState(() => _newSince.remove(t.id));
                                 // Navegamos al detalle. Al volver, refrescamos
                                 // la lista por si negociaron algo allá adentro.
                                 context.push(
@@ -457,8 +375,8 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
                                   if (mounted) _load();
                                 });
                               },
-                            ),
-                          )).toList(),
+                            );
+                          },
                         );
                       }),
                     ],
@@ -529,6 +447,9 @@ class TripRequestCard extends StatelessWidget {
   /// esperando que yo confirme. Solo el botón "Confirmar y empezar viaje"
   /// del viaje correspondiente sigue funcionando.
   final bool blockedByOtherWaitingConfirmation;
+  /// Contenido extra que se muestra debajo de los datos del paquete (solo
+  /// envíos). En el detalle se usa para la galería de fotos del paquete.
+  final Widget? deliveryExtra;
 
   const TripRequestCard({
     super.key,
@@ -550,6 +471,7 @@ class TripRequestCard extends StatelessWidget {
     required this.onConfirmAcceptance,
     this.blockedByOtherWaitingConfirmation = false,
     this.showMap = true,
+    this.deliveryExtra,
   });
 
   String _payLabel(String m) {
@@ -589,8 +511,9 @@ class TripRequestCard extends StatelessWidget {
             // Header
             Row(
               children: [
-                const Icon(Icons.route,
-                    size: 18, color: BugieColors.accent),
+                // Icono del servicio: auto (Viaje) o caja (Envío).
+                Icon(serviceIcon(trip.isDelivery),
+                    size: 18, color: serviceColor(trip.isDelivery)),
                 const SizedBox(width: 6),
                 // Expanded: absorbe el ancho sobrante para que el header NUNCA
                 // desborde (el 'error de píxeles' que se veía al lado del tiempo).
@@ -602,22 +525,8 @@ class TripRequestCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      if (trip.isDelivery) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: BugieColors.accent.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text('Envio',
-                              style: TextStyle(
-                                  color: BugieColors.accent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ],
+                      const SizedBox(width: 6),
+                      ServiceBadge(isDelivery: trip.isDelivery, compact: true),
                     ],
                   ),
                 ),
@@ -639,18 +548,27 @@ class TripRequestCard extends StatelessWidget {
                 ),
               ],
             ),
+            // Programado: fecha y hora del recojo.
+            if (trip.scheduledAt != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ScheduledBadge(at: trip.scheduledAt!),
+              ),
+            ],
             const SizedBox(height: 10),
 
             // ── Pasajero: foto + nombre (truncado) + botón historial ──
             Row(
               children: [
-                _PassengerAvatar(
+                PassengerAvatar(
                     photoUrl: trip.passengerPhotoUrl,
                     name: trip.passengerName),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    _shortPassengerName(trip.passengerName),
+                    shortPassengerName(trip.passengerName,
+                        shortName: trip.passengerShortName),
                     style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
@@ -671,6 +589,10 @@ class TripRequestCard extends StatelessWidget {
             if (trip.isDelivery) ...[
               _DeliveryInfo(trip: trip),
               const SizedBox(height: 10),
+              if (deliveryExtra != null) ...[
+                deliveryExtra!,
+                const SizedBox(height: 12),
+              ],
             ],
 
             // Origen / paradas / destino
@@ -1581,7 +1503,7 @@ class _DeliveryInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final parts = <String>[];
     if (trip.packageWeightKg != null) parts.add('${trip.packageWeightKg} kg');
-    if (trip.packageIsFragile) parts.add('Fragil');
+    if (trip.packageIsFragile) parts.add('Frágil');
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -1612,29 +1534,39 @@ class _DeliveryInfo extends StatelessWidget {
             const SizedBox(height: 4),
             Text(trip.packageDescription!, style: const TextStyle(fontSize: 12)),
           ],
+          if ((trip.packageDetails ?? '').isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(trip.packageDetails!,
+                style: const TextStyle(fontSize: 12, color: BugieColors.textMuted)),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Nombre del pasajero recortado por privacidad: 4 letras + "..." en nombre y
-/// apellido (ej: "Juan Pérez" -> "Juan... Pére...").
-String _shortPassengerName(String? full) {
+/// Nombre del pasajero recortado por privacidad: primer nombre completo +
+/// inicial del apellido paterno (ej: "Jorge Luis Alvarez Ruiz" -> "Jorge A.").
+/// El nombre completo viene como "nombres paterno materno": con 3+ palabras
+/// el paterno es la penúltima; con 2, la última; con 1, se muestra tal cual.
+/// Si el backend manda [shortName] (passengerShortName) se usa ese; el
+/// cálculo desde el nombre completo queda como respaldo.
+String shortPassengerName(String? full, {String? shortName}) {
+  if (shortName != null && shortName.trim().isNotEmpty) return shortName.trim();
   if (full == null || full.trim().isEmpty) return 'Pasajero';
   final parts = full.trim().split(RegExp(r'\s+'));
-  String trunc(String s) => s.length <= 4 ? s : '${s.substring(0, 4)}...';
-  final first = trunc(parts.first);
-  final last = parts.length > 1 ? trunc(parts.last) : '';
-  return last.isEmpty ? first : '$first $last';
+  if (parts.length == 1) return parts.first;
+  final paternal = parts.length >= 3 ? parts[parts.length - 2] : parts.last;
+  return '${parts.first} ${paternal[0].toUpperCase()}.';
 }
 
 /// Avatar del pasajero: su foto (si tiene) con fallback a iniciales.
-class _PassengerAvatar extends StatelessWidget {
+class PassengerAvatar extends StatelessWidget {
   final String? photoUrl;
   final String? name;
   final double size;
-  const _PassengerAvatar({required this.photoUrl, required this.name, this.size = 40});
+  const PassengerAvatar(
+      {super.key, required this.photoUrl, required this.name, this.size = 40});
 
   @override
   Widget build(BuildContext context) {
@@ -1674,6 +1606,54 @@ class _PassengerAvatar extends StatelessWidget {
         errorBuilder: (_, __, ___) => fallback,
         loadingBuilder: (ctx, child, progress) =>
             progress == null ? child : fallback,
+      ),
+    );
+  }
+}
+
+/// Aviso "Tienes un viaje en curso" de Solicitudes y del detalle: mientras
+/// haya un viaje activo no se pueden aceptar ni proponer otras solicitudes.
+/// Al tocarlo abre la pantalla del viaje.
+class ActiveTripNotice extends StatelessWidget {
+  final bool isDelivery;
+  const ActiveTripNotice({super.key, this.isDelivery = false});
+
+  static String message(bool isDelivery) => isDelivery
+      ? 'Tienes un envío en curso: termínalo para aceptar otras solicitudes.'
+      : 'Tienes un viaje en curso: termínalo para aceptar otras solicitudes.';
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    return Material(
+      color: BugieColors.warning.withValues(alpha: 0.12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: BugieColors.warning.withValues(alpha: 0.5)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: ActiveTripService().openTrip,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline_rounded,
+                  color: BugieColors.warning, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message(isDelivery),
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: c.text),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: c.textMuted),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -52,4 +52,18 @@ public class PassengerDocumentRepository : IPassengerDocumentRepository {
 
     public Task DeleteAsync(Guid id, CancellationToken ct = default) =>
         _db.ExecuteAsync("DELETE FROM auth.PassengerDocuments WHERE Id = @Id", new { Id = id });
+
+    public Task<int> CountPassengersPendingReviewAsync(CancellationToken ct = default) =>
+        _db.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(*)::int
+            FROM auth.Users u
+            WHERE u.Role = 'passenger' AND u.IsVerified = FALSE
+              AND u.DeletedAt IS NULL
+              -- la foto de perfil es requisito: sin ella el admin no puede verificar
+              AND coalesce(u.ProfilePhotoUrl, '') <> ''
+              -- (los pasajeros quedan inactivos hasta que el admin los aprueba: no filtrar por IsActive)
+              AND (SELECT COUNT(DISTINCT d.DocType) FROM auth.PassengerDocuments d
+                    WHERE d.UserId = u.Id AND d.Status IN ('pending', 'approved')) = 2
+              AND EXISTS (SELECT 1 FROM auth.PassengerDocuments d
+                           WHERE d.UserId = u.Id AND d.Status = 'pending')");
 }

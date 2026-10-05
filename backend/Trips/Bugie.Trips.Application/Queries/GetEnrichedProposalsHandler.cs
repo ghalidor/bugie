@@ -11,15 +11,18 @@ public class GetEnrichedProposalsHandler
     private readonly ITripProposalRepository _proposals;
     private readonly IAuthClient _auth;
     private readonly IDriversClient _drivers;
+    private readonly ITripRatingRepository _ratings;
 
     public GetEnrichedProposalsHandler(
         ITripProposalRepository proposals,
         IAuthClient auth,
-        IDriversClient drivers)
+        IDriversClient drivers,
+        ITripRatingRepository ratings)
     {
         _proposals = proposals;
         _auth = auth;
         _drivers = drivers;
+        _ratings = ratings;
     }
 
     public async Task<List<ProposalDto>> Handle(
@@ -41,6 +44,10 @@ public class GetEnrichedProposalsHandler
         var vehicles = await vehiclesTask;
         var driverInfos = await driverInfoTask;
 
+        // Calificacion recibida por cada conductor (promedio + cantidad),
+        // calculada desde trips.TripRatings (un solo query para todos).
+        var ratingStats = await _ratings.GetDriverStatsAsync(driverIds, ct);
+
         var result = new List<ProposalDto>(list.Count);
         foreach(var p in list)
         {
@@ -57,6 +64,7 @@ public class GetEnrichedProposalsHandler
             var user = users.GetValueOrDefault(p.DriverId);
             var vehicle = vehicles.GetValueOrDefault(p.DriverId);
             var di = driverInfos.GetValueOrDefault(p.DriverId);
+            var rs = ratingStats.GetValueOrDefault(p.DriverId);
 
             result.Add(new ProposalDto(
                 p.Id,
@@ -74,7 +82,9 @@ public class GetEnrichedProposalsHandler
                 prevFare,
                 p.ProposedByRole,
                 p.RejectedBy,
-                di?.PhotoUrl ?? user?.ProfilePhotoUrl));
+                di?.PhotoUrl ?? user?.ProfilePhotoUrl,
+                rs?.Average,
+                rs?.Count ?? 0));
         }
 
         return result;

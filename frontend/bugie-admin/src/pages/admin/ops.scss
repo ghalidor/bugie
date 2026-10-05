@@ -1,0 +1,233 @@
+// Estilos de la sección Operación + Finanzas (Monitoreo, SOS, Viajes, Pagos,
+// Pagos a conductores, Comisiones, Ranking). Solo tokens var(--bugie-*).
+// Las animaciones se apagan con prefers-reduced-motion (al final del archivo).
+
+/* ══ Monitoreo: distribución mapa + panel ═════════════════════════ */
+.lm-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1200px) {
+  .lm-layout { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr); }
+}
+
+// Alto del mapa: útil en móvil, grande en escritorio.
+.lm-map-card { display: flex; flex-direction: column; }
+.lm-map-card .bx-card-body { position: relative; display: flex; }
+.lm-map {
+  position: relative;
+  width: 100%;
+  height: 55dvh;
+  min-height: 18rem;
+}
+@media (min-width: 768px)  { .lm-map { height: 62dvh; } }
+@media (min-width: 1200px) { .lm-map { height: calc(100dvh - 19rem); min-height: 28rem; } }
+
+// Panel lateral (solo xl): toma el alto de la fila (el del mapa) y la lista
+// hace scroll dentro. height:0 + min-height:100% evita que la lista estire la fila.
+.lm-panel-card { display: flex; flex-direction: column; min-height: 0; }
+@media (min-width: 1200px) {
+  .lm-panel-card { height: 0; min-height: 100%; }
+}
+.lm-panel-card .bx-card-body { display: flex; flex-direction: column; min-height: 0; }
+.lm-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.lm-panel-tabs { padding: .5rem .75rem 0; border-bottom: 1px solid var(--bugie-border); }
+.lm-panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+.lm-panel-search { position: sticky; top: 0; z-index: 1; padding: .6rem .75rem; background: var(--bugie-surface); border-bottom: 1px solid var(--bugie-border); }
+
+// Botones flotantes sobre el mapa
+.lm-map-fab {
+  position: absolute; top: .75rem; right: .75rem; z-index: 500;
+  display: flex; flex-direction: column; gap: .5rem;
+}
+.lm-map-fab .bx-icon-btn { background: var(--bugie-surface); box-shadow: var(--bugie-shadow-2); }
+.lm-map-open {
+  position: absolute; left: 50%; bottom: .9rem; transform: translateX(-50%); z-index: 500;
+  display: inline-flex; align-items: center; gap: .5rem;
+  box-shadow: var(--bugie-shadow-3);
+  white-space: nowrap;
+}
+
+// Capas del mapa (chips con ojo)
+.lm-layers { display: flex; flex-wrap: wrap; gap: .4rem; }
+.lm-layer {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .25rem .7rem; border-radius: 999px;
+  font-size: .78rem; font-weight: 600;
+  border: 1px solid var(--bugie-border);
+  background: transparent; color: var(--bugie-muted);
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.lm-layer[aria-pressed='true'] { background: var(--tone-bg); color: var(--tone); border-color: var(--tone); }
+.lm-layer:focus-visible { outline: 2px solid var(--bugie-primary); outline-offset: 2px; }
+
+// Aviso de alertas sobre el mapa (cuando el panel está en un Drawer)
+.lm-alert-strip {
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+  padding: .7rem .9rem; border-radius: var(--bugie-radius);
+  background: var(--bugie-soft-bad); color: var(--bugie-bad);
+  border: 1px solid var(--bugie-bad);
+  font-weight: 600;
+}
+.lm-alert-strip .text { flex: 1; min-width: 0; }
+
+/* ══ Listas del panel ═════════════════════════════════════════════ */
+.lm-list { list-style: none; margin: 0; padding: 0; }
+.lm-item {
+  display: flex; align-items: center; gap: .75rem;
+  width: 100%; padding: .75rem; text-align: left;
+  background: transparent; border: 0; border-bottom: 1px solid var(--bugie-border);
+  color: var(--bugie-text);
+  transition: background-color .2s ease;
+}
+button.lm-item:hover:not(:disabled) { background: var(--bugie-surface-2); }
+button.lm-item:focus-visible { outline: 2px solid var(--bugie-primary); outline-offset: -2px; }
+.lm-item:disabled { cursor: default; opacity: 1; }
+.lm-item.is-selected { background: var(--bugie-soft-primary); }
+.lm-item .main { flex: 1; min-width: 0; }
+.lm-item .name { font-weight: 600; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-item .sub { font-size: .75rem; color: var(--bugie-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-item .meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; font-size: .72rem; color: var(--bugie-muted); }
+.lm-item .end { color: var(--bugie-muted); font-size: .8rem; flex-shrink: 0; }
+.lm-item.lm-locate { width: auto; flex: 0 0 auto; justify-content: center; padding-inline: .95rem; border-left: 1px solid var(--bugie-border); }
+.lm-plate { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+
+.lm-avatar {
+  width: 2.4rem; height: 2.4rem; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--tone-bg); color: var(--tone);
+  border: 2px solid transparent; overflow: hidden;
+}
+.lm-avatar.lg { width: 3.5rem; height: 3.5rem; font-size: 1.4rem; }
+.lm-avatar.ring { border-color: var(--tone); }
+.lm-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.lm-section-title {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .7rem .75rem .4rem; margin: 0;
+  font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--bugie-muted);
+}
+
+// Tarjetas de alerta (SOS / desvío)
+.lm-alert { padding: .75rem; border-bottom: 1px solid var(--bugie-border); }
+.lm-alert .head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.lm-alert .who { font-weight: 700; }
+.lm-alert .when { font-size: .78rem; color: var(--bugie-muted); margin: .35rem 0 .6rem; }
+.lm-alert .acts { display: flex; gap: .5rem; flex-wrap: wrap; }
+.lm-alert .acts .btn { flex: 1 1 auto; }
+
+.lm-flash-bad  { animation: lmFlashBad 1.6s ease-in-out infinite; }
+@keyframes lmFlashBad {
+  0%, 100% { background-color: transparent; }
+  50%      { background-color: var(--bugie-soft-bad); }
+}
+
+// Punto "en vivo"
+.lm-live {
+  display: inline-block; width: .55rem; height: .55rem; border-radius: 50%;
+  background: var(--bugie-ok); flex-shrink: 0;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--bugie-ok) 55%, transparent);
+  animation: lmLive 1.8s ease-out infinite;
+}
+.lm-live.paused { background: var(--bugie-neutral); animation: none; }
+@keyframes lmLive {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bugie-ok) 55%, transparent); }
+  100% { box-shadow: 0 0 0 .6rem transparent; }
+}
+
+/* ══ Detalle de viaje en vivo ═════════════════════════════════════ */
+.lm-detail { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 992px) { .lm-detail { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); } }
+.lm-detail-map { position: relative; height: min(60dvh, 34rem); min-height: 16rem; }
+.lm-person {
+  border: 1px solid var(--bugie-border); border-radius: var(--bugie-radius-sm);
+  padding: .75rem .85rem; background: var(--bugie-surface-2);
+}
+.lm-person.is-sos { border: 2px solid var(--bugie-bad); background: var(--bugie-soft-bad); animation: lmCardPulse 1.4s ease-in-out infinite; }
+@keyframes lmCardPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bugie-bad) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 .8rem transparent; }
+}
+.lm-person .label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--bugie-muted); margin-bottom: .5rem; }
+.lm-person.is-sos .label { color: var(--bugie-bad); }
+.lm-vehicle-photo { display: block; width: 100%; max-height: 7rem; object-fit: cover; border-radius: var(--bugie-radius-sm); border: 1px solid var(--bugie-border); margin-top: .6rem; cursor: zoom-in; }
+
+/* ══ Ruta A → B (viajes, detalle) ═════════════════════════════════ */
+.ops-route { display: grid; gap: .2rem; min-width: 0; }
+.ops-route .stop { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: .85rem; }
+.ops-route .stop span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ops-route .dot { width: .55rem; height: .55rem; border-radius: 50%; flex-shrink: 0; background: var(--bugie-primary); }
+.ops-route .dot.end { background: var(--bugie-accent); }
+
+// Monto con signo/color de estado
+.ops-amount { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ops-amount.ok  { color: var(--bugie-ok); }
+.ops-amount.bad { color: var(--bugie-bad); }
+.ops-muted { color: var(--bugie-muted); font-size: .8rem; }
+/* Sin salto de línea solo en la tabla de escritorio; en las tarjetas móviles debe poder partirse. */
+@media (min-width: 768px) { .ops-nowrap { white-space: nowrap; } }
+
+// Lista simple dentro de Drawer/Modal (incidencias, movimientos)
+.ops-stack { display: grid; gap: .6rem; }
+.ops-note {
+  padding: .75rem .85rem; border-radius: var(--bugie-radius-sm);
+  border: 1px solid var(--bugie-border); background: var(--bugie-surface-2);
+}
+.ops-note.warn { border-color: var(--bugie-warn); background: var(--bugie-soft-warn); }
+
+// Línea de tiempo del detalle de viaje
+.ops-timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; font-size: .85rem; }
+.ops-timeline li { display: flex; align-items: center; gap: .5rem; }
+.ops-timeline li.off { opacity: .45; }
+.ops-timeline i { width: 1rem; text-align: center; color: var(--bugie-muted); }
+.ops-timeline .when { margin-left: auto; color: var(--bugie-muted); white-space: nowrap; }
+
+.ops-photos { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); }
+.ops-photos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--bugie-radius-sm); border: 1px solid var(--bugie-border); }
+
+.ops-detail-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 992px) { .ops-detail-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+.ops-detail-map { height: min(50dvh, 24rem); min-height: 14rem; }
+
+// Puesto del ranking
+.ops-rank {
+  width: 2.4rem; height: 2.4rem; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .85rem;
+  background: var(--bugie-soft-neutral); color: var(--bugie-neutral);
+}
+.ops-rank.r1 { background: var(--bugie-soft-warn); color: var(--bugie-warn); }
+.ops-rank.r2 { background: var(--bugie-soft-info); color: var(--bugie-info-text); }
+.ops-rank.r3 { background: var(--bugie-soft-bad);  color: var(--bugie-bad); }
+.ops-person { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.ops-person > div { min-width: 0; }
+.ops-person .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-photo { width: 2rem; height: 2rem; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.ops-photo-ph {
+  width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bugie-soft-primary); color: var(--bugie-primary-soft); font-size: .8rem;
+}
+
+/* ══ Menos movimiento ═════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .lm-flash-bad, .lm-live, .lm-person.is-sos { animation: none !important; }
+  .lm-layer, .lm-item { transition: none; }
+}
+
+// Panel del monitoreo dentro del Drawer (pantallas chicas): sin relleno extra.
+.lm-drawer .bx-dialog-body { padding: 0; }
+
+/* ══ Centro SOS ═══════════════════════════════════════════════════ */
+.sos-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 992px) { .sos-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }
+
+// Filtro con etiqueta corta en línea (fechas, selects dentro de FilterBar).
+.ops-filter { display: inline-flex; align-items: center; gap: .4rem; margin: 0; font-size: .8rem; color: var(--bugie-muted); min-width: 0; }
+.ops-filter > .form-control, .ops-filter > .form-select { width: auto; min-width: 0; flex: 1 1 auto; }
+@media (max-width: 767.98px) {
+  .ops-filter { display: grid; gap: .25rem; }
+  .ops-filter > .form-control, .ops-filter > .form-select { width: 100%; }
+}

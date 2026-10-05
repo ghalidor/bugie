@@ -1,7 +1,6 @@
 namespace Bugie.Payments.Application.DTOs;
 
 public record CreatePaymentRequest(Guid TripId, Guid PassengerId, Guid DriverId, decimal Amount, string Method);
-public record CompletePaymentRequest(Guid PaymentId, string? Reference);
 
 public record PaymentDto(
     Guid     Id,

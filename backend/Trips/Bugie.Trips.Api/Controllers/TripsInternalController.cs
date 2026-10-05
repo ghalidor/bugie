@@ -37,7 +37,7 @@ public class TripsInternalController : ControllerBase
             error = StatusCode(500, new { error = "InternalToken no configurado en Trips." });
             return false;
         }
-        if (token != esperado)
+        if (!Bugie.Trips.Api.Security.InternalToken.Matches(token, esperado))
         {
             error = Unauthorized(new { error = "Token interno invalido." });
             return false;

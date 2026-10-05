@@ -27,7 +27,9 @@ public class LandingSettingsClient : ILandingSettingsClient
     private static DateTime _cachedAt = DateTime.MinValue;
     private static readonly SemaphoreSlim _lock = new(1, 1);
 
-    private const string DefaultFallback = "Trujillo";
+    // Sin ciudad configurada (o Landing caído sin nada en caché): texto neutro,
+    // igual que la web ("tu ciudad"), en vez de una ciudad fija.
+    private const string DefaultFallback = "tu ciudad";
 
     public LandingSettingsClient(
         HttpClient http,
@@ -80,6 +82,22 @@ public class LandingSettingsClient : ILandingSettingsClient
         finally
         {
             _lock.Release();
+        }
+    }
+
+    public async Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
+    {
+        try
+        {
+            using var res = await _http.GetAsync($"api/landing/settings/{Uri.EscapeDataString(key)}", ct);
+            if(!res.IsSuccessStatusCode) return null;
+            var body = await res.Content.ReadFromJsonAsync<SettingResponse>(cancellationToken: ct);
+            return body?.Value;
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning("No se pudo leer {Key} de Landing.Api: {Error}", key, ex.Message);
+            return null;
         }
     }
 

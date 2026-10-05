@@ -38,5 +38,27 @@ public record EnrichedTripDto(
     short? VehicleYear,
     string? VehiclePhotoUrl,
 
-    // ── Categoría: por ahora todos son city_ride. Delivery viene después.
-    string Category);
+    // ── Categoría: "city_ride" (viaje) o "delivery" (envío).
+    string Category,
+
+    // ── Envío (null / false en viajes) ─────────────────────────────────
+    int ServiceType = 0,
+    string? PackageDescription = null,
+    decimal? PackageWeightKg = null,
+    bool PackageIsFragile = false,
+    string? PackageDetails = null,
+    string? RecipientName = null,
+    string? RecipientPhone = null,
+    bool PickupVerified = false,
+    string? DeliveryReceivedBy = null,
+    DateTime? DeliveryConfirmedAt = null,
+
+    // ── Cancelación (quién y por qué) ──────────────────────────────────
+    string? CancelledBy = null,
+    string? CancelReason = null,
+
+    // ── Programado (null = viaje "ahora") ──────────────────────────────
+    DateTime? ScheduledAt = null,
+    DateTime? DriverArrivedAt = null,
+    // El conductor del programado no llegó: se puede cancelar o republicar.
+    bool DriverLate = false);

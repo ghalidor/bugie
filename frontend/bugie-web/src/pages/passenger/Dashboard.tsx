@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
 import { API, apiFetch } from '../../state/api';
 import { getUser } from '../../state/session';
+import { CountUp, EmptyState, Notice, Page, SectionCard, Skeleton, StatCard, StatGrid, StatusBadge } from '../../components/ui';
+import { fmtDateTime, money, tripStatus } from '../../components/tripFormat';
 
 interface ActiveTrip {
   id: string; originAddress: string; destAddress: string;
@@ -14,6 +15,15 @@ const STATUS_MSG: Record<number, string> = {
   1: 'Buscando conductor…', 2: 'Conductor en camino',
   3: 'Viaje en curso', 4: 'Completado', 5: 'Cancelado', 6: 'SOS activo',
 };
+
+const QUICK = [
+  { to: '/app/pasajero/solicitar',   icon: 'fa-route',             label: 'Pedir viaje o envío', desc: 'Un conductor verificado te lleva', requiresVerified: true },
+  { to: '/app/pasajero/seguimiento', icon: 'fa-location-dot',      label: 'Seguimiento',         desc: 'Tu viaje o envío en curso' },
+  { to: '/app/pasajero/viajes',      icon: 'fa-clock-rotate-left', label: 'Mis viajes',          desc: 'Historial, detalle y fotos' },
+  { to: '/app/pasajero/pagos',       icon: 'fa-credit-card',       label: 'Mis pagos',           desc: 'Historial de transacciones' },
+  { to: '/app/pasajero/puntos',      icon: 'fa-star',              label: 'Mis puntos',          desc: 'Saldo, canjes y cupones' },
+  { to: '/app/pasajero/sos',         icon: 'fa-shield-halved',     label: 'SOS / Emergencia',    desc: 'Alerta al centro de monitoreo', danger: true },
+];
 
 export default function PassengerDashboard() {
   const user = getUser();
@@ -37,150 +47,127 @@ export default function PassengerDashboard() {
     }).finally(() => setLoading(false));
   }, []);
 
-  const completed = history.filter(t => t.status === 4);
+  const completed  = history.filter(t => t.status === 4);
   const totalGasto = completed.reduce((s, t) => s + (t.finalFare ?? t.estimatedFare), 0);
 
   return (
-    <>
-      <PageHeader
-        title={`Hola, ${user?.fullName?.split(' ')[0] ?? 'pasajero'}`}
-        subtitle="Tu centro de movilidad segura."
-        icon="fa-solid fa-user"
-        actions={
-          isVerified
-            ? <Link className="btn btn-light rounded-pill fw-bold" to="/app/pasajero/solicitar">Solicitar viaje</Link>
-            : <button className="btn btn-light rounded-pill fw-bold" disabled title="Verifica tu cuenta primero">Solicitar viaje</button>
-        }
-      />
-
-      {/* Warning si no está verificado. Bloquea visualmente el acceso a
-          /pasajero/solicitar — y el backend también lo rechaza. */}
+    <Page
+      title={`Hola, ${user?.fullName?.split(' ')[0] ?? 'pasajero'}`}
+      subtitle="Tu centro de movilidad segura: pide, sigue y revisa tus viajes."
+      icon="fa-house"
+      actions={[{
+        label: 'Pedir viaje o envío', icon: 'fa-route', variant: 'primary',
+        to: '/app/pasajero/solicitar',
+        disabled: !isVerified,
+        title: isVerified ? undefined : 'Verifica tu cuenta primero',
+      }]}
+    >
+      {/* Sin verificación no puede solicitar (el backend también lo rechaza). */}
       {!loading && isVerified === false && (
-        <div className="alert alert-warning d-flex align-items-center gap-3 mb-3">
-          <i className="fa-solid fa-triangle-exclamation fa-lg" />
-          <div className="flex-grow-1">
-            <div className="fw-bold">Tu cuenta aún no está verificada</div>
-            <div className="small">
-              Sube tu DNI (frontal y reverso) desde tu perfil y espera la aprobación
-              del administrador. Sin esa verificación no puedes solicitar viajes.
-            </div>
-          </div>
-          <Link className="btn btn-warning btn-sm rounded-pill" to="/app/pasajero/verificacion">
-            Verificar ahora
-          </Link>
-        </div>
+        <Notice
+          tone="warn"
+          title="Tu cuenta aún no está verificada"
+          action={<Link className="btn btn-sm btn-bugie" to="/app/pasajero/verificacion">Verificar ahora</Link>}
+        >
+          Sube tu DNI (frontal y reverso) y espera la aprobación. Sin esa verificación no puedes pedir viajes.
+        </Notice>
       )}
 
-      {/* Viaje activo */}
       {!loading && activeTrip && (
-        <div className="alert alert-info d-flex align-items-center gap-3 mb-3">
-          <i className="fa-solid fa-car fa-lg" />
-          <div className="flex-grow-1">
-            <div className="fw-bold">{STATUS_MSG[activeTrip.status] ?? 'Viaje activo'}</div>
-            <div className="small">{activeTrip.originAddress} → {activeTrip.destAddress}</div>
-          </div>
-          <Link className="btn btn-sm btn-primary rounded-pill" to="/app/pasajero/seguimiento">Ver</Link>
-        </div>
+        <Notice
+          tone="info"
+          icon="fa-car"
+          title={STATUS_MSG[activeTrip.status] ?? 'Viaje activo'}
+          action={<Link className="btn btn-sm btn-bugie" to="/app/pasajero/seguimiento">Ver seguimiento</Link>}
+        >
+          {activeTrip.originAddress} → {activeTrip.destAddress}
+        </Notice>
       )}
 
-      {/* KPIs */}
-      <div className="row g-3 mb-3">
-        {[
-          ['Viajes realizados', loading ? '…' : String(completed.length)],
-          ['Total gastado',     loading ? '…' : `S/ ${totalGasto.toFixed(2)}`],
-          ['Viaje activo',      loading ? '…' : (activeTrip ? 'Sí' : 'No')],
-        ].map(([label, value]) => (
-          <div className="col-md-4" key={label}>
-            <div className="bugie-kpi">
-              <div className="label">{label}</div>
-              <div className="value">{value}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <StatGrid min={180}>
+        <StatCard label="Viajes realizados" value={<CountUp value={completed.length} />} icon="fa-route" loading={loading} />
+        <StatCard label="Total gastado" value={<CountUp value={totalGasto} format={money} decimals={2} />} icon="fa-wallet" tone="info" loading={loading} />
+        <StatCard
+          label="Viaje activo"
+          value={activeTrip ? 'Sí' : 'No'}
+          icon="fa-location-dot"
+          tone={activeTrip ? 'ok' : 'neutral'}
+          hint={activeTrip ? 'Toca para ver el seguimiento' : 'No tienes viajes en curso'}
+          pulse={!!activeTrip}
+          loading={loading}
+          to={activeTrip ? '/app/pasajero/seguimiento' : undefined}
+        />
+      </StatGrid>
 
-      {/* Acciones rápidas */}
-      <div className="bugie-card mb-3">
-        <div className="bugie-card-header">Acciones rápidas</div>
-        <div className="bugie-card-body d-grid gap-2">
-          {[
-            { to: '/app/pasajero/solicitar',   icon: 'fa-car',              label: 'Solicitar viaje',    desc: 'Pedir un conductor verificado ahora',
-              requiresVerified: true },
-            { to: '/app/pasajero/seguimiento', icon: 'fa-location-dot',     label: 'Ver seguimiento',    desc: 'Tracking de tu viaje activo'            },
-            { to: '/app/pasajero/viajes',      icon: 'fa-clock-rotate-left',label: 'Historial',          desc: 'Todos tus viajes anteriores'            },
-            { to: '/app/pasajero/pagos',       icon: 'fa-credit-card',      label: 'Mis pagos',          desc: 'Historial de transacciones'             },
-            { to: '/app/pasajero/sos',         icon: 'fa-shield-halved',    label: 'SOS / Emergencia',   desc: 'Activar alerta de seguridad'            },
-          ].map(item => {
-            // "Solicitar viaje" se deshabilita visualmente si el pasajero no está verificado.
-            const disabled = item.requiresVerified && !isVerified;
-            const content = (
-              <>
-                <div className="bugie-mini-icon"><i className={`fa-solid ${item.icon}`} /></div>
-                <div className="flex-grow-1">
-                  <div className="fw-semibold">{item.label}</div>
-                  <div className="small bugie-muted">
-                    {disabled ? 'Verifica tu cuenta para usar esta opción' : item.desc}
-                  </div>
-                </div>
-                <i className="fa-solid fa-chevron-right bugie-muted" />
-              </>
-            );
-            if (disabled) {
-              return (
-                <div key={item.to} className="bugie-list-item"
-                     style={{ opacity: 0.5, cursor: 'not-allowed' }}>
-                  {content}
-                </div>
+      <div className="bx-split">
+        <SectionCard title="Acciones rápidas" icon="fa-bolt" flush>
+          <div className="bx-list">
+            {QUICK.map(item => {
+              // "Pedir viaje" se deshabilita si el pasajero no está verificado.
+              const disabled = item.requiresVerified && !isVerified;
+              const body = (
+                <>
+                  <span className={`bx-list-icon ${item.danger ? 'bx-tone-bad' : ''}`} aria-hidden="true">
+                    <i className={`fa-solid ${item.icon}`} />
+                  </span>
+                  <span className="bx-list-text">
+                    <span className="bx-list-title">{item.label}</span>
+                    <span className="bx-list-sub d-block">
+                      {disabled ? 'Verifica tu cuenta para usar esta opción' : item.desc}
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+                </>
               );
-            }
-            return (
-              <Link key={item.to} to={item.to} className="bugie-list-item text-decoration-none">
-                {content}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Últimos viajes */}
-      {history.length > 0 && (
-        <div className="bugie-card">
-          <div className="bugie-card-header d-flex align-items-center justify-content-between">
-            <span>Últimos viajes</span>
-            <Link className="small" style={{ color: 'var(--bugie-primary)', textDecoration: 'none' }} to="/app/pasajero/viajes">
-              Ver todos <i className="fa-solid fa-arrow-right ms-1" style={{ fontSize: '0.7rem' }} />
-            </Link>
-          </div>
-          <div className="bugie-card-body p-0">
-            {history.slice(0, 5).map((t, i) => {
-              const isComp = t.status === 4;
-              const color  = isComp ? '#34d399' : '#94a3b8';
-              const date   = new Date(t.createdAt);
-              return (
-                <div key={t.id} className="d-flex align-items-center gap-3 px-3 py-2"
-                  style={{ borderBottom: i < Math.min(history.length, 5) - 1 ? '1px solid var(--bugie-border)' : 'none' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <i className={`fa-solid ${isComp ? 'fa-circle-check' : 'fa-circle-xmark'}`} style={{ color, fontSize: '0.85rem' }} />
-                  </div>
-                  <div className="flex-grow-1 min-w-0">
-                    <div className="small fw-semibold" style={{ color }}>
-                      {STATUS_MSG[t.status] ?? '?'}
-                    </div>
-                    <div className="small bugie-muted">
-                      {date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      {' · '}
-                      {date.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  </div>
-                  <div className="fw-bold" style={{ color: isComp ? '#34d399' : 'var(--bugie-muted)', flexShrink: 0 }}>
-                    S/ {(t.finalFare ?? t.estimatedFare).toFixed(2)}
-                  </div>
-                </div>
-              );
+              return disabled
+                ? <div key={item.to} className="bx-list-item is-disabled" aria-disabled="true">{body}</div>
+                : <Link key={item.to} to={item.to} className="bx-list-item">{body}</Link>;
             })}
           </div>
-        </div>
-      )}
-    </>
+        </SectionCard>
+
+        <SectionCard
+          title="Últimos viajes"
+          icon="fa-clock-rotate-left"
+          flush
+          actions={history.length > 0 && (
+            <Link className="btn btn-sm btn-bugie-outline" to="/app/pasajero/viajes">
+              Ver todos <i className="fa-solid fa-arrow-right" aria-hidden="true" />
+            </Link>
+          )}
+        >
+          {loading ? (
+            <div className="p-3"><Skeleton height={44} count={4} /></div>
+          ) : history.length === 0 ? (
+            <EmptyState
+              compact
+              icon="fa-route"
+              title="Todavía no tienes viajes"
+              text="Cuando pidas tu primer viaje o envío aparecerá aquí."
+            />
+          ) : (
+            <div className="bx-list">
+              {history.slice(0, 5).map(t => {
+                const st = tripStatus(t.status);
+                return (
+                  <div key={t.id} className="bx-list-item">
+                    <span className={`bx-list-icon bx-tone-${st.tone}`} aria-hidden="true">
+                      <i className={`fa-solid ${st.icon}`} />
+                    </span>
+                    <span className="bx-list-text">
+                      <StatusBadge tone={st.tone} size="sm">{st.label}</StatusBadge>
+                      <span className="bx-list-sub d-block mt-1">{fmtDateTime(t.createdAt)}</span>
+                    </span>
+                    <span className="bx-list-end">
+                      <span className={`amount ${t.status === 4 ? '' : 'bx-muted'}`}>{money(t.finalFare ?? t.estimatedFare)}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </Page>
   );
 }

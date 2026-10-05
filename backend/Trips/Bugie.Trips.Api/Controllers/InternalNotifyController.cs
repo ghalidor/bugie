@@ -1,4 +1,5 @@
-﻿using Bugie.Trips.Domain.External;
+﻿using Bugie.Trips.Application.Services;
+using Bugie.Trips.Domain.External;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -27,14 +28,20 @@ namespace Bugie.Trips.Api.Controllers;
 public class InternalNotifyController : ControllerBase
 {
     private readonly IAdminNotifier _notifier;
+    private readonly RouteDeviationService _deviations;
+    private readonly IFcmSender _fcm;
     private readonly IConfiguration _cfg;
     private readonly ILogger<InternalNotifyController> _log;
 
     public InternalNotifyController(IAdminNotifier notifier,
+                                     RouteDeviationService deviations,
+                                     IFcmSender fcm,
                                      IConfiguration cfg,
                                      ILogger<InternalNotifyController> log)
     {
         _notifier = notifier;
+        _deviations = deviations;
+        _fcm = fcm;
         _cfg = cfg;
         _log = log;
     }
@@ -52,7 +59,7 @@ public class InternalNotifyController : ControllerBase
             errorResult = StatusCode(500, new { error = "Configuración interna inválida." });
             return false;
         }
-        if(string.IsNullOrEmpty(token) || token != expected)
+        if(!Bugie.Trips.Api.Security.InternalToken.Matches(token, expected))
         {
             errorResult = Unauthorized(new { error = "Token interno inválido." });
             return false;
@@ -77,6 +84,20 @@ public class InternalNotifyController : ControllerBase
         // Pero awaitamos para que cualquier error se loguee.
         await _notifier.NotifyDriverLocationAsync(
             req.UserId, req.Lat, req.Lng, req.HasActiveTrip, ct);
+
+        // Detección de desvío de ruta (ver RouteDeviationService). Va después
+        // del broadcast y con CancellationToken.None: Drivers corta a los 3s,
+        // pero queremos que el cálculo termine igual. Un error aquí no debe
+        // afectar al GPS.
+        try
+        {
+            await _deviations.ProcessDriverLocationAsync(
+                req.UserId, req.Lat, req.Lng, req.HasActiveTrip, CancellationToken.None);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "Error al revisar desvío de ruta del conductor {UserId}.", req.UserId);
+        }
         return Ok();
     }
 
@@ -94,7 +115,34 @@ public class InternalNotifyController : ControllerBase
         await _notifier.NotifyDriverOfflineAsync(req.UserId, ct);
         return Ok();
     }
+
+    /// <summary>
+    /// POST /api/internal/notify/push
+    /// Envía un push FCM a un usuario (todos sus dispositivos). Lo usa Drivers.Api
+    /// para avisar al conductor (aprobación, documento rechazado, por vencer...).
+    /// Body: { userId, title, body, route?, data? }. Si FCM no está configurado
+    /// o el usuario no tiene tokens, responde 200 igual (no es error).
+    /// También lo usa Rewards (puntos y pagos de Payments). El FcmSender guarda
+    /// el aviso en la bandeja del usuario (trips.usernotifications) aunque no
+    /// tenga tokens, y agrega "notification_id" al data del push.
+    /// </summary>
+    [HttpPost("push")]
+    public async Task<IActionResult> SendPush(
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        [FromBody] SendPushRequest req,
+        CancellationToken ct)
+    {
+        if(!ValidateInternalToken(token, out var err)) return err!;
+        if(req.UserId == Guid.Empty || string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { error = "Faltan userId o title." });
+
+        await _fcm.SendToUserAsync(req.UserId,
+            new FcmPushMessage(req.Title, req.Body ?? "", req.Route, req.Data), ct);
+        return Ok(new { sent = true });
+    }
 }
 
 public record NotifyDriverLocationRequest(Guid UserId, double Lat, double Lng, bool HasActiveTrip);
 public record NotifyDriverOfflineRequest(Guid UserId);
+public record SendPushRequest(Guid UserId, string Title, string? Body, string? Route,
+                              Dictionary<string, string>? Data);

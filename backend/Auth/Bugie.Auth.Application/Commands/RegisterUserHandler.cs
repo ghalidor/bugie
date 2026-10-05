@@ -1,4 +1,5 @@
 using MediatR;
+using Bugie.Auth.Application.Common;
 using Bugie.Auth.Application.DTOs;
 using Bugie.Auth.Application.Email;
 using Bugie.Auth.Domain.Entities;
@@ -35,8 +36,23 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
         _rewardsClient = rewardsClient;
     }
 
+    // Roles que se pueden crear por el registro público. Los admin solo se
+    // crean desde el panel (AdminSecurityController).
+    private static readonly string[] AllowedRoles = ["passenger", "driver"];
+
     public async Task<AuthResponse> Handle(RegisterUserCommand cmd, CancellationToken ct)
     {
+        // El validador FluentValidation no se ejecuta en el pipeline: las reglas
+        // de seguridad se aplican aquí de forma explícita.
+        var role = (cmd.Role ?? "").Trim().ToLowerInvariant();
+        if(!AllowedRoles.Contains(role))
+            throw new InvalidOperationException("Rol inválido.");
+        cmd = cmd with { Role = role };
+
+        if(string.IsNullOrWhiteSpace(cmd.Email) || string.IsNullOrWhiteSpace(cmd.Password)
+            || string.IsNullOrWhiteSpace(cmd.Phone))
+            throw new InvalidOperationException("Correo, contraseña y teléfono son obligatorios.");
+
         // Debe aceptar términos y condiciones (el check del formulario).
         if(!cmd.AcceptedTerms)
             throw new InvalidOperationException("Debe aceptar los términos y condiciones.");
@@ -45,11 +61,25 @@ public class RegisterUserHandler : IRequestHandler<RegisterUserCommand, AuthResp
         if(string.IsNullOrWhiteSpace(cmd.SignatureImage))
             throw new InvalidOperationException("Debe firmar para completar el registro.");
 
-        if(await _users.EmailExistsAsync(cmd.Email, ct))
-            throw new InvalidOperationException("El correo ya está registrado.");
+        // Documento y nombres separados: obligatorios (materno opcional).
+        var (docType, docNumber) = IdentityRules.NormalizeDocument(cmd.DocType, cmd.DocNumber);
+        var (firstNames, paternal, maternal) = IdentityRules.NormalizeNames(
+            cmd.FirstNames, cmd.LastNamePaternal, cmd.LastNameMaternal);
+        IdentityRules.ValidatePassword(cmd.Password);
+
+        var existing = await _users.GetByEmailAsync(cmd.Email, ct);
+        if(existing is not null)
+            throw new InvalidOperationException(existing.IsDeleted
+                ? "Este correo pertenece a una cuenta eliminada. Si quieres recuperarla, contacta a soporte."
+                : "El correo ya está registrado.");
+
+        // Una sola cuenta NO eliminada por documento (409). El documento de
+        // una cuenta eliminada sí se puede volver a usar.
+        await IdentityRules.EnsureDocumentFreeAsync(_users, docType, docNumber, null, ct);
 
         // 1. Crear el usuario
-        var user = User.Create(cmd.Email, _hasher.Hash(cmd.Password), cmd.Role, cmd.FullName, cmd.Phone,
+        var user = User.Create(cmd.Email, _hasher.Hash(cmd.Password), cmd.Role,
+            firstNames, paternal, maternal, cmd.Phone, docType, docNumber,
             termsAccepted: cmd.AcceptedTerms, signatureImage: cmd.SignatureImage);
         await _users.AddAsync(user, ct);
 

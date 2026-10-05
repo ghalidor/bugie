@@ -93,4 +93,9 @@ public class RaffleWinner
     public Guid?     DeliveredBy  { get; set; }
     public string?   Note         { get; set; }
     public DateTime  CreatedAt    { get; set; }
+    /// <summary>
+    /// Código del premio (PZ-XXXXXX). Lo genera la base al guardar el ganador
+    /// y es el que el conductor presenta para cobrar.
+    /// </summary>
+    public string?   PrizeCode    { get; set; }
 }

@@ -22,7 +22,7 @@ public class TripProposalRepository : ITripProposalRepository
             WITH Candidatas AS (
                 SELECT *,
                        CASE
-                           WHEN Status = 'driver_accepted' THEN 0
+                           WHEN Status IN ('driver_accepted', 'accepted_by_passenger') THEN 0
                            WHEN Status = 'pending' THEN 1
                            WHEN Status = 'rejected' AND RejectedBy = 'driver'
                                 AND CreatedAt > ((now() at time zone 'utc') - INTERVAL '24 hours') THEN 2
@@ -33,6 +33,8 @@ public class TripProposalRepository : ITripProposalRepository
                   AND (
                         Status = 'pending'
                      OR Status = 'driver_accepted'
+                     -- Propuesta que el pasajero aceptó y espera la confirmación del conductor.
+                     OR Status = 'accepted_by_passenger'
                      OR (Status = 'rejected' AND RejectedBy = 'driver'
                          AND CreatedAt > ((now() at time zone 'utc') - INTERVAL '24 hours'))
                   )
@@ -204,6 +206,8 @@ public class TripProposalRepository : ITripProposalRepository
         _db.QueryFirstOrDefaultAsync<TripProposal?>(@"
             SELECT * FROM trips.TripProposals
             WHERE DriverId = @DriverId AND Status = 'accepted_by_passenger'
+              -- Una aceptacion en un PROGRAMADO no bloquea los viajes de ahora.
+              AND TripId IN (SELECT Id FROM trips.Trips WHERE ScheduledAt IS NULL)
             ORDER BY CreatedAt DESC LIMIT 1",
             new { DriverId = driverId });
 
@@ -222,7 +226,9 @@ public class TripProposalRepository : ITripProposalRepository
             SET Status = 'rejected', RejectedBy = 'driver_busy'
             WHERE DriverId   = @DriverId
               AND TripId    <> @ExceptTripId
-              AND Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')",
+              AND Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')
+              -- Las negociaciones de PROGRAMADOS siguen vigentes: no chocan con un viaje de ahora.
+              AND TripId IN (SELECT Id FROM trips.Trips WHERE ScheduledAt IS NULL)",
             new { DriverId = driverId, ExceptTripId = exceptTripId });
     }
 
@@ -259,4 +265,13 @@ public class TripProposalRepository : ITripProposalRepository
             new { TripId = tripId });
         return drivers.Distinct().ToList();
     }
+
+    public Task<int> RejectDriverOnTripAsync(
+        Guid tripId, Guid driverId, string rejectedBy, CancellationToken ct = default) =>
+        _db.ExecuteAsync(@"
+            UPDATE trips.TripProposals
+               SET Status = 'rejected', RejectedBy = @By
+             WHERE TripId = @TripId AND DriverId = @DriverId
+               AND Status <> 'rejected'",
+            new { TripId = tripId, DriverId = driverId, By = rejectedBy });
 }

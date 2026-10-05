@@ -1,173 +1,171 @@
-import { Link } from 'react-router-dom';
+import { ReactNode } from 'react';
 import { usePlatformConfig } from '../hooks/usePlatformConfig';
+import { SectionCard } from './ui';
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+/* ──────────────────────────────────────────────────────────────────────────
+   Panel derecho de ayuda. Solo se muestra en pantallas grandes (>= 1400 px,
+   ver .bx-aside en app.scss) y solo en las paginas donde aporta algo. En las
+   pantallas con mapa (pedir viaje, seguimiento) no se muestra para que el
+   mapa tenga todo el ancho.
+   ────────────────────────────────────────────────────────────────────────── */
+
+type Tip = [icon: string, title: string, desc?: string];
+
+function Tips({ items }: { items: Tip[] }) {
   return (
-    <div className="bugie-card mb-3">
-      <div className="bugie-card-header">{title}</div>
-      <div className="bugie-card-body">{children}</div>
-    </div>
+    <ul className="bx-tip-list">
+      {items.map(([icon, title, desc]) => (
+        <li key={title}>
+          <i className={`fa-solid ${icon}`} aria-hidden="true" />
+          <div style={{ minWidth: 0 }}>
+            <div className="t">{title}</div>
+            {desc && <div className="d">{desc}</div>}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function CheckItem({ text, done = true }: { text: string; done?: boolean }) {
-  return (
-    <div className="d-flex align-items-center gap-2 small">
-      <i className={`fa-solid fa-circle-${done ? 'check text-success' : 'xmark text-secondary'}`} />
-      <span>{text}</span>
-    </div>
-  );
+/** true si la ruta tiene panel derecho. */
+export function hasRightPanel(path: string): boolean {
+  return /\/app\/pasajero\/(inicio|pagos|sos|perfil|verificacion)$/.test(path)
+      || /\/app\/conductor\/(inicio|viajes|ganancias|documentos|sos)$/.test(path);
 }
 
 export default function RightPanel({ path }: { path: string }) {
-  // El tiempo objetivo del SOS sale de la configuracion del admin. Estaba
-  // escrito a mano en dos sitios de este archivo, mientras el campo
-  // "Tiempo objetivo respuesta SOS" existia en el admin sin efecto alguno.
+  // El tiempo objetivo del SOS sale de la configuracion del admin.
   const { sosResponseMin } = usePlatformConfig();
   const sosTexto = `Respuesta en menos de ${sosResponseMin} ${sosResponseMin === 1 ? 'minuto' : 'minutos'}`;
 
   const isDriver = path.startsWith('/app/conductor');
+  let content: ReactNode = null;
 
-  // ── Pasajero ────────────────────────────────────────────────────────────────
   if (!isDriver) {
-    if (path.includes('/solicitar')) {
-      return (
-        <>
-          <Card title="Cómo solicitar un viaje">
-            <div className="d-grid gap-2 small bugie-muted">
-              <CheckItem text="Escribe tu dirección de origen" />
-              <CheckItem text="Escribe tu destino" />
-              <CheckItem text="Elige cómo vas a pagar" />
-              <CheckItem text="Pulsa Solicitar y espera al conductor" />
-            </div>
-          </Card>
-          <Card title="Métodos de pago">
-            <div className="d-grid gap-2 small">
-              {[
-                ['fa-money-bill-wave', 'Efectivo', 'Pagas al llegar al destino'],
-                ['fa-mobile-screen',  'Yape',     'Transferencia digital inmediata'],
-                ['fa-mobile-screen',  'Plin',     'Transferencia digital inmediata'],
-              ].map(([icon, name, desc]) => (
-                <div key={name} className="d-flex gap-2 align-items-start">
-                  <i className={`fa-solid ${icon} text-bugie-accent mt-1`} style={{ width: 16 }} />
-                  <div>
-                    <div className="fw-semibold">{name}</div>
-                    <div className="bugie-muted">{desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </>
+    if (path.endsWith('/sos')) {
+      content = (
+        <SectionCard title="Cómo funciona el SOS" icon="fa-circle-question">
+          <Tips items={[
+            ['fa-1', 'Pulsa el botón rojo', 'Solo durante un viaje activo.'],
+            ['fa-2', 'Llega tu ubicación', 'El centro de monitoreo la recibe al instante.'],
+            ['fa-3', sosTexto],
+            ['fa-4', 'Atención', 'Los administradores reciben la alerta y atienden el caso; tu contacto de emergencia recibe un correo.'],
+          ]} />
+        </SectionCard>
+      );
+    } else if (path.endsWith('/pagos')) {
+      content = (
+        <SectionCard title="Sobre tus pagos" icon="fa-circle-info">
+          <Tips items={[
+            ['fa-receipt', 'Registro automático', 'Cada pago se registra al completar el viaje.'],
+            ['fa-money-bill-wave', 'Efectivo', 'Pagas al llegar a tu destino.'],
+            ['fa-mobile-screen', 'Yape o Plin', 'Transferencia digital inmediata.'],
+          ]} />
+        </SectionCard>
+      );
+    } else if (path.endsWith('/verificacion')) {
+      content = (
+        <SectionCard title="Consejos para tu DNI" icon="fa-lightbulb">
+          <Tips items={[
+            ['fa-sun', 'Buena luz', 'Sin reflejos ni sombras sobre el documento.'],
+            ['fa-crop-simple', 'Documento completo', 'Que se vean las 4 esquinas.'],
+            ['fa-file-image', 'Formatos', 'JPG, PNG, WEBP o PDF de hasta 10 MB.'],
+          ]} />
+        </SectionCard>
+      );
+    } else {
+      content = (
+        <SectionCard title="Seguridad Bugie" icon="fa-shield-halved">
+          <Tips items={[
+            ['fa-id-card', 'Conductores verificados', 'Documentos y antecedentes revisados.'],
+            ['fa-fingerprint', 'Face ID diario', 'Identidad confirmada cada jornada.'],
+            ['fa-location-dot', 'Seguimiento en tiempo real', 'Tu ruta es monitoreada activamente.'],
+            ['fa-triangle-exclamation', 'Botón SOS', sosTexto],
+          ]} />
+        </SectionCard>
       );
     }
-
-    if (path.includes('/seguimiento')) {
-      return (
-        <Card title="Tu viaje en tiempo real">
-          <div className="d-grid gap-2 small bugie-muted">
-            <CheckItem text="Conductor asignado y en camino" />
-            <CheckItem text="Ruta visible en el mapa" />
-            <CheckItem text="Botón SOS disponible en todo momento" />
-            <CheckItem text="Puedes cancelar antes de que inicie" />
-          </div>
-        </Card>
-      );
-    }
-
-    if (path.includes('/sos')) {
-      return (
-        <Card title="Cómo funciona el SOS">
-          <div className="d-grid gap-2 small bugie-muted">
-            <div className="d-flex gap-2"><i className="fa-solid fa-1 text-bugie-accent mt-1" style={{ width: 16 }} /><span>Pulsa el botón rojo SOS</span></div>
-            <div className="d-flex gap-2"><i className="fa-solid fa-2 text-bugie-accent mt-1" style={{ width: 16 }} /><span>El centro de monitoreo recibe tu ubicación</span></div>
-            <div className="d-flex gap-2"><i className="fa-solid fa-3 text-bugie-accent mt-1" style={{ width: 16 }} /><span>{sosTexto}</span></div>
-            <div className="d-flex gap-2"><i className="fa-solid fa-4 text-bugie-accent mt-1" style={{ width: 16 }} /><span>Policía Nacional es notificada si es necesario</span></div>
-          </div>
-        </Card>
-      );
-    }
-
-    if (path.includes('/pagos')) {
-      return (
-        <Card title="Sobre tus pagos">
-          <div className="small bugie-muted d-grid gap-2">
-            <span>Los pagos se registran automáticamente al completar cada viaje.</span>
-            <span>Puedes ver el historial completo y el monto de cada transacción aquí.</span>
-          </div>
-        </Card>
-      );
-    }
-
-    // Default pasajero
-    return (
-      <Card title="Seguridad Bugie">
-        <div className="d-grid gap-2 small">
-          {[
-            ['fa-id-card',             'Conductores verificados',  'Documentos y antecedentes revisados'],
-            ['fa-fingerprint',         'Face ID diario',           'Identidad confirmada cada jornada'],
-            ['fa-location-dot',        'Tracking en tiempo real',  'Tu ruta es monitoreada activamente'],
-            ['fa-triangle-exclamation','Botón SOS',                sosTexto],
-          ].map(([icon, title, desc]) => (
-            <div key={title} className="d-flex gap-2 align-items-start">
-              <i className={`fa-solid ${icon} text-bugie-accent mt-1`} style={{ width: 16 }} />
-              <div>
-                <div className="fw-semibold">{title}</div>
-                <div className="bugie-muted">{desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+  } else if (path.endsWith('/viajes')) {
+    content = (
+      <SectionCard title="Tu historial" icon="fa-circle-info">
+        <Tips items={[
+          ['fa-route', 'Recorrido real', 'Abre un viaje para ver su recorrido en el mapa.'],
+          ['fa-flag', 'Incidencias', 'Reporta si algo salió mal en un viaje.'],
+        ]} />
+      </SectionCard>
+    );
+  } else if (path.endsWith('/ganancias')) {
+    content = (
+      <SectionCard title="Cómo cobras" icon="fa-circle-info">
+        <Tips items={[
+          ['fa-hand-holding-dollar', 'Cobras en mano', 'El pasajero te paga en efectivo, Yape o Plin.'],
+          ['fa-receipt', 'Comisión Bugie', 'Por cada viaje se genera una comisión que pagas a Bugie.'],
+          ['fa-gift', 'Bonos y premios', 'Te los paga Bugie y los ves en «Pagos recibidos».'],
+        ]} />
+      </SectionCard>
+    );
+  } else if (path.endsWith('/documentos')) {
+    content = (
+      <SectionCard title="Antes de subir" icon="fa-lightbulb">
+        <Tips items={[
+          ['fa-calendar-day', 'Fecha de caducidad', 'Licencia, SOAT y revisión técnica la necesitan.'],
+          ['fa-file-image', 'Formatos', 'JPG, PNG, WEBP o PDF de hasta 10 MB.'],
+          ['fa-clock', 'Revisión', 'El equipo de Bugie revisa en 24 a 48 horas.'],
+        ]} />
+      </SectionCard>
+    );
+  } else if (path.endsWith('/sos')) {
+    content = (
+      <SectionCard title="Cómo funciona el SOS" icon="fa-circle-question">
+        <Tips items={[
+          ['fa-1', 'Activa la alerta', 'Durante un viaje activo.'],
+          ['fa-2', 'Llega tu ubicación', 'El centro de monitoreo la recibe al instante.'],
+          ['fa-3', sosTexto],
+        ]} />
+      </SectionCard>
+    );
+  } else {
+    content = (
+      <SectionCard title="Tu operación" icon="fa-circle-info">
+        <Tips items={[
+          ['fa-mobile-screen', 'Usa la app Bugie', 'Para conectarte y recibir solicitudes.'],
+          ['fa-id-card', 'Documentos al día', 'Evita que tu cuenta pase a revisión.'],
+          ['fa-wallet', 'Revisa tu billetera', 'Mantente al día con la comisión.'],
+        ]} />
+      </SectionCard>
     );
   }
 
-  // ── Conductor ───────────────────────────────────────────────────────────────
-  if (path.includes('/en-linea')) {
-    return (
-      <Card title="Antes de conectarte">
-        <div className="d-grid gap-2 small bugie-muted">
-          <CheckItem text="Verifica que tu vehículo activo es correcto" />
-          <CheckItem text="Activa la ubicación del dispositivo" />
-          <CheckItem text="Revisa que tienes batería suficiente" />
-        </div>
-      </Card>
-    );
-  }
+  return <>{content}<SupportCard /></>;
+}
 
-  if (path.includes('/solicitudes')) {
-    return (
-      <Card title="Cómo aceptar un viaje">
-        <div className="d-grid gap-2 small bugie-muted">
-          <CheckItem text="Revisa origen y destino antes de aceptar" />
-          <CheckItem text="Verifica el método de pago del pasajero" />
-          <CheckItem text="Acepta solo si puedes llegar al origen" />
-        </div>
-      </Card>
-    );
-  }
-
-  if (path.includes('/viaje')) {
-    return (
-      <Card title="Durante el viaje">
-        <div className="d-grid gap-2 small bugie-muted">
-          <CheckItem text="Pulsa 'Pasajero a bordo' al recogerlo" />
-          <CheckItem text="Sigue la ruta del mapa" />
-          <CheckItem text="Pulsa 'Completar' al llegar al destino" />
-          <CheckItem text="Botón SOS disponible en todo momento" />
-        </div>
-      </Card>
-    );
-  }
-
-  // Default conductor
+/** Contacto de soporte configurado en el admin. No se muestra si no hay ninguno. */
+function SupportCard() {
+  const { supportEmail, supportPhone } = usePlatformConfig();
+  if (!supportEmail && !supportPhone) return null;
+  const tel = supportPhone.replace(/[^\d+]/g, '');
   return (
-    <Card title="Tu estado">
-      <div className="d-grid gap-2 small bugie-muted">
-        <CheckItem text="Conectarte para recibir solicitudes" />
-        <CheckItem text="Mantener documentos al día" />
-        <CheckItem text="Revisar ganancias diariamente" />
-      </div>
-    </Card>
+    <SectionCard title="¿Necesitas ayuda?" icon="fa-headset" className="mt-3">
+      <ul className="bx-tip-list">
+        {supportPhone && (
+          <li>
+            <i className="fa-solid fa-phone" aria-hidden="true" />
+            <div style={{ minWidth: 0 }}>
+              <div className="t"><a href={`tel:${tel}`}>{supportPhone}</a></div>
+              <div className="d">Llámanos</div>
+            </div>
+          </li>
+        )}
+        {supportEmail && (
+          <li>
+            <i className="fa-solid fa-envelope" aria-hidden="true" />
+            <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+              <div className="t"><a href={`mailto:${supportEmail}`}>{supportEmail}</a></div>
+              <div className="d">Escríbenos</div>
+            </div>
+          </li>
+        )}
+      </ul>
+    </SectionCard>
   );
 }

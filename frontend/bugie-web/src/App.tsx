@@ -5,7 +5,6 @@ import AuthLayout from './layouts/AuthLayout';
 import AppShell from './layouts/AppShell';
 import RequireRole from './router/RequireRole';
 import RequireVerified from './router/RequireVerified';
-import RequireApprovedDriver from './router/RequireApprovedDriver';
 
 import NotFound from './pages/NotFound';
 
@@ -19,6 +18,7 @@ import Faq from './pages/public/Faq';
 import Terms from './pages/public/Terms';
 import Privacy from './pages/public/Privacy';
 import ComplaintsBook from './pages/public/ComplaintsBook';
+import ComplaintStatus from './pages/public/ComplaintStatus';
 import EarnWithBugie from './pages/public/EarnWithBugie';
 
 // Auth
@@ -41,12 +41,10 @@ import PassengerVerification from './pages/passenger/Verification';
 
 // Driver
 import DriverDashboard from './pages/driver/Dashboard';
-import DriverGoOnline from './pages/driver/GoOnline';
-import DriverIncoming from './pages/driver/IncomingRequest';
-import DriverInProgress from './pages/driver/TripInProgress';
 import DriverEarnings from './pages/driver/Earnings';
 import DriverTrips from './pages/driver/Trips';
 import DriverRatings from './pages/driver/MyRatings';
+import DriverConnections from './pages/driver/MyConnections';
 import DriverDocuments from './pages/driver/Documents';
 import DriverProfile from './pages/driver/Profile';
 import DriverVehicles from './pages/driver/Vehicles';
@@ -59,6 +57,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/libro-reclamaciones" element={<ComplaintsBook />} />
+      <Route path="/libro-reclamaciones/consulta/:code" element={<ComplaintStatus />} />
 
       {/* Public */}
       <Route element={<PublicLayout />}>
@@ -109,23 +108,18 @@ export default function App() {
         <Route element={<RequireRole allowed={['driver']} />}>
           <Route path="/app/conductor"            element={<Navigate to="/app/conductor/inicio" replace />} />
 
-          {/* Rutas disponibles para cualquier conductor (aprobado o no) */}
+          {/* La web del conductor es solo de consulta: conectarse, ver
+              solicitudes y gestionar viajes se hace en la app Bugie. */}
           <Route path="/app/conductor/inicio"     element={<DriverDashboard />} />
-          <Route path="/app/conductor/en-linea"   element={<DriverGoOnline />} />
           <Route path="/app/conductor/ganancias"  element={<DriverEarnings />} />
           <Route path="/app/conductor/puntos"     element={<RewardsPage />} />
           <Route path="/app/conductor/viajes"     element={<DriverTrips />} />
           <Route path="/app/conductor/calificaciones" element={<DriverRatings />} />
+          <Route path="/app/conductor/conexiones" element={<DriverConnections />} />
           <Route path="/app/conductor/documentos" element={<DriverDocuments />} />
           <Route path="/app/conductor/vehiculos"  element={<DriverVehicles />} />
           <Route path="/app/conductor/perfil"     element={<DriverProfile />} />
           <Route path="/app/conductor/sos"        element={<DriverSOS />} />
-
-          {/* Rutas que requieren conductor APROBADO */}
-          <Route element={<RequireApprovedDriver />}>
-            <Route path="/app/conductor/solicitudes" element={<DriverIncoming />} />
-            <Route path="/app/conductor/viaje"       element={<DriverInProgress />} />
-          </Route>
         </Route>
       </Route>
 

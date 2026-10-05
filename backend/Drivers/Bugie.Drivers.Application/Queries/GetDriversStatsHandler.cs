@@ -11,7 +11,9 @@ namespace Bugie.Drivers.Application.Queries;
 public record GetDriversStatsQuery(
     int? Status,
     bool? Online,
-    string? Search) : IRequest<DriversStatsDto>;
+    string? Search,
+    bool? OpenReview = null,
+    bool? Deleted = false) : IRequest<DriversStatsDto>;
 
 public record DriversStatsDto(
     int Total,
@@ -19,7 +21,10 @@ public record DriversStatsDto(
     int PendingDocs,
     int UnderReview,
     int Approved,
-    int Expired);
+    int Expired,
+    int Suspended,
+    int Rejected,
+    int OpenReviewRequests);
 
 public class GetDriversStatsHandler
     : IRequestHandler<GetDriversStatsQuery, DriversStatsDto> {
@@ -27,8 +32,8 @@ public class GetDriversStatsHandler
     public GetDriversStatsHandler(IDriverRepository drivers) => _drivers = drivers;
 
     public async Task<DriversStatsDto> Handle(GetDriversStatsQuery q, CancellationToken ct) {
-        var (total, online, pendingDocs, underReview, approved, expired) =
-            await _drivers.GetStatsAsync(q.Status, q.Online, q.Search, ct);
-        return new DriversStatsDto(total, online, pendingDocs, underReview, approved, expired);
+        var s = await _drivers.GetStatsAsync(q.Status, q.Online, q.Search, q.OpenReview, ct, q.Deleted);
+        return new DriversStatsDto(s.Total, s.Online, s.PendingDocs, s.UnderReview, s.Approved, s.Expired,
+            s.Suspended, s.Rejected, s.OpenReviewRequests);
     }
 }

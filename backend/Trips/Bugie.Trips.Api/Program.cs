@@ -1,3 +1,4 @@
+using Bugie.Api.Theming;
 using Bugie.Trips.Infrastructure.Time;
 using System.Data;
 using System.Text;
@@ -26,6 +27,10 @@ BugieTimeSetup.ConfigureDapper();
 // Configuración tipada (binding con appsettings.json)
 builder.Services.Configure<TripFilteringOptions>(
     builder.Configuration.GetSection("TripFiltering"));
+// Misma seccion que usa ProposalExpirationService: la lista del conductor
+// calcula con ella cuando vence una propuesta aceptada por el pasajero.
+builder.Services.Configure<ProposalExpirationWindowOptions>(
+    builder.Configuration.GetSection("ProposalExpiration"));
 
 // ?? Repositorios ?????????????????????????????????????????????????????????
 builder.Services.AddScoped<ITripRepository, TripRepository>();
@@ -35,6 +40,7 @@ builder.Services.Configure<Bugie.Trips.Infrastructure.Storage.LocalStorageOption
 builder.Services.AddScoped<Bugie.Trips.Domain.External.IFileStorageService,
     Bugie.Trips.Infrastructure.Storage.LocalFileStorageService>();
 builder.Services.AddScoped<ISosRepository, SosRepository>();
+builder.Services.AddScoped<ISosAdminQueries, SosAdminQueries>();
 builder.Services.AddScoped<ITripRouteRepository, TripRouteRepository>();
 builder.Services.AddScoped<ITripProposalRepository, TripProposalRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();  // ? NUEVO
@@ -46,6 +52,9 @@ builder.Services.AddScoped<IPassengerAcceptanceCancellationRepository,
     PassengerAcceptanceCancellationRepository>();
 builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
 builder.Services.AddScoped<IDriverDayStatsRepository, DriverDayStatsRepository>();
+// Desvío de ruta: rutas planificadas + alertas (ver RouteDeviationService).
+builder.Services.AddScoped<IRouteDeviationRepository, RouteDeviationRepository>();
+builder.Services.AddScoped<Bugie.Trips.Application.Services.RouteDeviationService>();
 
 builder.Services.AddHttpClient<IRoutingService, GraphHopperRoutingService>(client =>
 {
@@ -92,6 +101,12 @@ builder.Services.AddHttpClient<ILandingClient, LandingClient>(c =>
 // pero NO manda push reales (falta el service-account.json). El módulo
 // que consume IFcmSender (CreateTripHandler) funciona igual; los logs
 // aparecen pero no llega notificación al celular.
+// Bandeja de notificaciones del usuario: FcmSender guarda cada push visible.
+// Singleton (abre su propia conexion por llamada) porque FcmSender es singleton.
+builder.Services.AddSingleton<IUserNotificationRepository, UserNotificationRepository>();
+// Historial de avisos del panel admin (admin:event y deviation:new) y permisos del admin (Auth).
+builder.Services.AddSingleton<IAdminNotificationRepository, AdminNotificationRepository>();
+builder.Services.AddScoped<Bugie.Trips.Api.Realtime.AdminPermissionsClient>();
 builder.Services.AddSingleton<IFcmSender, FcmSender>();
 builder.Services.AddSingleton<ITripNotificationService, TripNotificationService>();
 
@@ -129,13 +144,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 return Task.CompletedTask;
             }
         };
+        // Sesion: claim "sst" vs sello vigente (cierre de sesiones). Ver Security/SessionState.cs.
+        Bugie.Security.SessionValidation.Configure(o);
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
+// URLs firmadas de /uploads: el filtro firma las URLs sensibles de toda respuesta JSON.
+Bugie.Api.Security.SignedUploads.Configure(builder.Configuration);
+// Filtro [RequirePermission]: permisos del admin pedidos a Auth (cache corta).
+Bugie.Security.AdminPermissions.AddBugieAdminPermissionsFromAuth(builder.Services);
+// Estado de sesion pedido a Auth (cache corta) para validar el JWT.
+Bugie.Security.SessionValidation.AddBugieSessionStateFromAuth(builder.Services);
+builder.Services.AddControllers(o => o.Filters.Add<Bugie.Api.Security.SignUploadUrlsFilter>())
+    .AddJsonOptions(o => { o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()); o.AllowInputFormatterExceptionMessages = false; }); // JSON mal formado: error generico, sin nombres internos de clases
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddBugieSwagger("Trips",
+    "Viajes: solicitud, propuestas de conductores, seguimiento, rutas, historial, favoritos, calificaciones, envíos, incidencias y SOS. Panel admin: viajes, desvíos de ruta, reportes y notificaciones. Endpoints internos: notificaciones y eventos del panel.");
 
 builder.Services.Configure<OutboxDispatcherOptions>(
     builder.Configuration.GetSection("Outbox"));
@@ -154,6 +178,9 @@ builder.Services.AddScoped<IAdminNotifier, SignalRAdminNotifier>();
 builder.Services.Configure<ProposalExpirationOptions>(
     builder.Configuration.GetSection("ProposalExpiration"));
 builder.Services.AddHostedService<ProposalExpirationService>();
+
+// Recordatorios push de viajes/envios programados (30 y 10 min antes).
+builder.Services.AddHostedService<ScheduledTripReminderService>();
 
 // CORS: SignalR usa WebSocket o LongPolling. Para que el navegador pueda
 // pasar el JWT como query string del handshake, hay que permitir AllowCredentials
@@ -202,14 +229,26 @@ catch (Exception _fixEx)
 }
 // ──────────────────────────────────────────────────────────────────────────
 
+// Errores sin detalles internos (ver Middleware/ExceptionMiddleware.cs).
+app.UseMiddleware<Bugie.Trips.Api.Middleware.ExceptionMiddleware>();
 app.UseCors();
-if(app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(c =>
+if(app.Environment.IsDevelopment()) { app.UseBugieSwagger("Trips"); }
+// Fotos de envios: se sirven desde la carpeta configurada (LocalStorage),
+// la misma raiz que usan Auth y Drivers.
+var storagePath = builder.Configuration["LocalStorage:StoragePath"] ?? "wwwroot/uploads";
+var publicUrl   = builder.Configuration["LocalStorage:PublicUrlPath"] ?? "/uploads";
+var absoluteStoragePath = Path.IsPathRooted(storagePath)
+    ? storagePath
+    : Path.Combine(AppContext.BaseDirectory, storagePath);
+Directory.CreateDirectory(absoluteStoragePath);
+// Archivos sensibles (documentos, selfies, fotos de envios) solo con firma valida.
+Bugie.Api.Security.SignedUploads.UseSignedUploads(app);
+app.UseStaticFiles(new StaticFileOptions
 {
-    c.DocumentTitle = "Bugie API - Trips";
-    c.HeadContent = Bugie.Api.Theming.BugieSwaggerTheme.HeadContent;
-    c.DefaultModelsExpandDepth(-1); // oculta la seccion Schemas/Models
-}); }
-app.UseStaticFiles(); // sirve wwwroot/uploads (fotos de envios)
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(absoluteStoragePath),
+    RequestPath  = publicUrl,
+    OnPrepareResponse = Bugie.Api.Security.SignedUploads.PrepareResponse,
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

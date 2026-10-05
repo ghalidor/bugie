@@ -86,4 +86,22 @@ public class TripRatingRepository : ITripRatingRepository
 
         return rows.ToDictionary(r => r.TripId);
     }
+
+    public async Task<Dictionary<Guid, RatingStats>> GetDriverStatsAsync(
+        IEnumerable<Guid> driverUserIds, CancellationToken ct = default)
+    {
+        var ids = driverUserIds?.Distinct().ToList() ?? new List<Guid>();
+        if(ids.Count == 0) return new Dictionary<Guid, RatingStats>();
+
+        var rows = await _db.QueryAsync<RatingStats>(@"
+            SELECT DriverId AS UserId,
+                   ROUND(AVG(Stars)::numeric, 2) AS Average,
+                   COUNT(*)::int AS Count
+            FROM trips.TripRatings
+            WHERE DriverId = ANY(@Ids)
+            GROUP BY DriverId",
+            new { Ids = ids.ToArray() });
+
+        return rows.ToDictionary(r => r.UserId);
+    }
 }

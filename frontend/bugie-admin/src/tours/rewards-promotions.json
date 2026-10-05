@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-promo-list']",
+      "title": "Tus promociones",
+      "text": "Enciende o apaga cada una con su interruptor. Toca la fila para editarla."
+    },
+    {
+      "title": "Cómo se combinan",
+      "text": "Día y franja horaria compiten: solo paga una. Primer viaje y método de pago se suman encima. El botón «¿Cómo se combinan?» trae un ejemplo."
+    },
+    {
+      "title": "Crear en 4 pasos",
+      "text": "«Nueva promoción» abre un panel: qué es, cuándo aplica, qué beneficio da y su vigencia. Arriba verás un resumen en una frase."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

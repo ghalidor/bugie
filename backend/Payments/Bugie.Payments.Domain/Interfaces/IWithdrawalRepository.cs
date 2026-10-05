@@ -26,6 +26,12 @@ public interface IWithdrawalRepository
     /// <summary>true si ese canje/premio ya tiene un pago registrado.</summary>
     Task<bool> ExistsBySourceAsync(string sourceType, string sourceRef, CancellationToken ct = default);
 
+    /// <summary>Pago ya registrado para ese canje/premio (busca por cualquiera de las referencias).</summary>
+    Task<Withdrawal?> GetBySourceAsync(string sourceType, IEnumerable<string> sourceRefs, CancellationToken ct = default);
+
+    /// <summary>Siguiente codigo de comprobante de pago manual: PAG-2026-000123.</summary>
+    Task<string> NextReceiptCodeAsync(int year, CancellationToken ct = default);
+
     Task<(List<Withdrawal> Items, int Total)> GetPagedAsync(
         PayoutFilter filter, int page, int pageSize, CancellationToken ct = default);
 

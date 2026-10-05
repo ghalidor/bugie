@@ -1,14 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch, API, ApiError } from '../../state/api';
+import {
+  Column, DataTable, FilterBar, Page, Pagination, SectionCard, StatusBadge, Tone, useDebouncedValue, useTabParam, useToast,
+} from '../../components/ui';
+import { csvDateTag, csvDateTime, csvResultMessage, downloadCsv, fetchAllPages } from '../../state/csv';
+import { DriverStatusBadge, PersonCell, StarRating, driverDocMeta, fmtDate } from './people/PeopleShared';
+import { DeletedBadge } from './people/AccountShared';
 
 interface Driver {
   id: string; userId: string; fullName?: string;
+  deletedAt?: string | null; deletedReason?: string | null;
   status: number; isOnline: boolean;
   rating: number; totalRatings: number;
   createdAt: string; approvedAt: string | null;
+  suspendedUntil?: string | null;
+  openReviewRequest?: { id: string; message: string; createdAt: string } | null;
+  /** Placa del vehículo activo. */
+  activePlate?: string | null;
 }
+
+/** Estado del conductor en texto (para el CSV). */
+const DRIVER_STATUS_TEXT: Record<number, string> = {
+  1: 'Faltan documentos', 2: 'En revisión', 3: 'Aprobado', 4: 'Suspendido', 5: 'Rechazado', 6: 'Documentos vencidos',
+};
 
 interface ExpiringDriver {
   driverId: string;
@@ -43,429 +58,288 @@ interface DriversStatsResponse {
   underReview: number;
   approved: number;
   expired: number;
+  suspended?: number;
+  rejected?: number;
+  openReviewRequests?: number;
 }
 
-const STATUS: Record<number, { label: string; color: string; icon: string }> = {
-  1: { label: 'Pendiente docs', color: '#f59e0b', icon: 'fa-clock'            },
-  2: { label: 'En revisión',    color: '#38bdf8', icon: 'fa-magnifying-glass' },
-  3: { label: 'Aprobado',       color: '#34d399', icon: 'fa-circle-check'     },
-  4: { label: 'Suspendido',     color: '#f87171', icon: 'fa-ban'              },
-  5: { label: 'Rechazado',      color: '#94a3b8', icon: 'fa-circle-xmark'     },
-  6: { label: 'Docs vencidos',  color: '#ef4444', icon: 'fa-calendar-xmark'   },
-};
+const EMPTY_STATS: DriversStatsResponse = { total: 0, online: 0, pendingDocs: 0, underReview: 0, approved: 0, expired: 0, suspended: 0, rejected: 0, openReviewRequests: 0 };
 
-const DOC_LABEL: Record<string, string> = {
-  license:          'Licencia',
-  soat:             'SOAT',
-  revision_tecnica: 'Rev. técnica',
-};
+// El primero es el filtro por defecto: Todos, para no abrir en una lista vacía.
+const FILTERS = ['all', 'pending_docs', 'under_review', 'expired', 'expiring_soon', 'online', 'approved', 'suspended', 'rejected', 'open_review', 'deleted'] as const;
+type FilterKey = typeof FILTERS[number];
 
-type TabKey = 'pending_docs' | 'under_review' | 'expired' | 'expiring_soon' | 'online' | 'all';
-
-const PAGE_SIZE = 25;
-
-/// Mapea cada tab a los parámetros del backend.
-/// expiring_soon NO usa paginación (lista corta, endpoint separado).
-function tabToParams(tab: TabKey): { status?: number; online?: boolean } {
-  switch (tab) {
+/// Cada filtro → parámetros del backend. "Por vencer" usa otro endpoint (lista corta, sin paginar).
+/// "Eliminadas" = deleted=true (por defecto el backend no devuelve cuentas eliminadas).
+function filterToParams(f: FilterKey): { status?: number; online?: boolean; openReview?: boolean; deleted?: boolean } {
+  switch (f) {
+    case 'deleted':      return { deleted: true };
     case 'pending_docs': return { status: 1 };
     case 'under_review': return { status: 2 };
+    case 'approved':     return { status: 3 };
     case 'expired':      return { status: 6 };
+    case 'suspended':    return { status: 4 };
+    case 'rejected':     return { status: 5 };
+    case 'open_review':  return { openReview: true };
     case 'online':       return { online: true };
-    case 'all':          return {};
     default:             return {};
   }
 }
 
-function StarRating({ rating, total }: { rating: number; total: number }) {
-  // Si el conductor no tiene reseñas reales, no tiene sentido mostrar
-  // "5.0 (0)" — el 5.0 es el valor por defecto al crearse el conductor,
-  // no una calificación real. Mostramos "Sin calificación" para que el
-  // admin no se confunda.
-  const hasRatings = total > 0;
-  return (
-    <div className="d-flex align-items-center gap-1">
-      {[1,2,3,4,5].map(i => (
-        <i key={i} className="fa-solid fa-star"
-          style={{
-            fontSize: '0.7rem',
-            color: hasRatings && i <= Math.round(rating) ? '#f59e0b' : '#334155',
-          }} />
-      ))}
-      <span className="small bugie-muted ms-1">
-        {hasRatings ? `${rating.toFixed(1)} (${total})` : 'Sin calificación'}
-      </span>
-    </div>
-  );
-}
+const driverName = (d: Driver) => d.fullName || `Conductor ${d.userId.slice(0, 8)}…`;
 
 export default function Drivers() {
-  const [drivers,         setDrivers]         = useState<Driver[]>([]);
-  const [total,           setTotal]           = useState(0);
-  const [page,            setPage]            = useState(1);
-  const [expiringSoon,    setExpiringSoon]    = useState<ExpiringDriver[]>([]);
-  const [thresholdDays,   setThresholdDays]   = useState(15);
-  const [tab,             setTab]             = useState<TabKey>('pending_docs');
-  const [search,          setSearch]          = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [stats, setStats] = useState<DriversStatsResponse>({
-    total: 0, online: 0, pendingDocs: 0, underReview: 0, approved: 0, expired: 0,
-  });
-  const [loading,         setLoading]         = useState(true);
-  const [error,           setError]           = useState<string | null>(null);
-  // (Antes había aquí un state `acting` para el botón Aprobar de la lista.
-  // Se removió: la aprobación ahora pasa obligatoriamente por el detalle.)
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
+  const [filterRaw, setFilter] = useTabParam([...FILTERS], 'filtro');
+  const filter = filterRaw as FilterKey;
+  const [drivers,       setDrivers]       = useState<Driver[]>([]);
+  const [total,         setTotal]         = useState(0);
+  const [page,          setPage]          = useState(1);
+  const [pageSize,      setPageSize]      = useState(25);
+  const [expiringSoon,  setExpiringSoon]  = useState<ExpiringDriver[]>([]);
+  const [thresholdDays, setThresholdDays] = useState(15);
+  const [search,        setSearch]        = useState('');
+  const searchDebounced = useDebouncedValue(search, 300);
+  const [stats,   setStats]   = useState<DriversStatsResponse>(EMPTY_STATS);
+  const [deletedCount, setDeletedCount] = useState<number | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
-  // Debounce 300ms en el search
-  const debounceRef = useRef<number | null>(null);
+  // Cambiar un filtro vuelve a la página 1 (sin pedir dos veces); reqId descarta respuestas viejas.
+  const filterKey = `${filter}|${searchDebounced.trim()}|${pageSize}`;
+  const lastKey = useRef(filterKey);
+  const reqId = useRef(0);
+  const statsReq = useRef(0);
   useEffect(() => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      setSearchDebounced(search);
-      setPage(1);
-    }, 300);
-    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current); };
-  }, [search]);
-
-  // Al cambiar de tab, volver a página 1
-  useEffect(() => { setPage(1); }, [tab]);
-
-  // Cargar al cambiar tab / página / búsqueda
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, searchDebounced]);
-
-  // Cargar KPIs (independientes del tab y de paginación). Una vez al inicio
-  // y cuando el search cambia (para que reflejen filtro). NO depende del tab
-  // para que los KPIs siempre muestren el total global, no solo "lo del tab".
+    if (lastKey.current !== filterKey) {
+      lastKey.current = filterKey;
+      if (page !== 1) { setPage(1); return; }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, page]);
+  // Contadores globales: solo respetan la búsqueda (no el filtro), así cada chip muestra su total.
   useEffect(() => { loadStats(); /* eslint-disable-next-line */ }, [searchDebounced]);
 
+  /** Filtro y búsqueda actuales como parámetros (listado y CSV). */
+  function listParams() {
+    const p = filterToParams(filter);
+    const params = new URLSearchParams();
+    if (p.status !== undefined) params.append('status', String(p.status));
+    if (p.online !== undefined) params.append('online', String(p.online));
+    if (p.openReview !== undefined) params.append('openReview', String(p.openReview));
+    if (p.deleted !== undefined) params.append('deleted', String(p.deleted));
+    if (searchDebounced.trim()) params.append('search', searchDebounced.trim());
+    return params;
+  }
+
   async function load() {
+    const id = ++reqId.current;
     setLoading(true); setError(null);
     try {
-      // Tab "expiring_soon" usa endpoint distinto, sin paginación (lista corta).
-      if (tab === 'expiring_soon') {
+      if (filter === 'expiring_soon') {
         const data = await apiFetch<ExpiringResponse>(`${API.drivers}/drivers/expiring-soon`);
+        if (id !== reqId.current) return;
         const items = data.drivers ?? [];
-        // Filtrado en cliente (lista típicamente pequeña, <100).
-        const filtered = !searchDebounced.trim() ? items :
-          items.filter(d =>
-            d.fullName.toLowerCase().includes(searchDebounced.toLowerCase()) ||
-            d.email.toLowerCase().includes(searchDebounced.toLowerCase())
-          );
-        setExpiringSoon(filtered);
+        const q = searchDebounced.trim().toLowerCase();
+        // Filtrado en cliente (lista típicamente pequeña).
+        setExpiringSoon(!q ? items : items.filter(d =>
+          d.fullName.toLowerCase().includes(q) || d.email.toLowerCase().includes(q)));
         setThresholdDays(data.thresholdDays ?? 15);
         setDrivers([]); setTotal(0);
       } else {
-        const tabParams = tabToParams(tab);
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: String(PAGE_SIZE),
-        });
-        if (tabParams.status !== undefined) params.append('status', String(tabParams.status));
-        if (tabParams.online !== undefined) params.append('online', String(tabParams.online));
-        if (searchDebounced.trim())         params.append('search', searchDebounced.trim());
-
-        const data = await apiFetch<DriversPagedResponse>(
-          `${API.drivers}/drivers/paged?${params.toString()}`);
+        const params = listParams();
+        params.append('page', String(page));
+        params.append('pageSize', String(pageSize));
+        const data = await apiFetch<DriversPagedResponse>(`${API.drivers}/drivers/paged?${params.toString()}`);
+        if (id !== reqId.current) return;
         setDrivers(data.items ?? []);
         setTotal(data.total ?? 0);
         setExpiringSoon([]);
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar los conductores.');
-    } finally { setLoading(false); }
+      if (id === reqId.current) setError(err instanceof ApiError ? err.message : 'No se pudo cargar los conductores.');
+    } finally { if (id === reqId.current) setLoading(false); }
+  }
+
+  /** CSV de los conductores del filtro actual (todas las páginas). */
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const base = listParams();
+      const all = await fetchAllPages(async (p, size) => {
+        const params = new URLSearchParams(base);
+        params.append('page', String(p));
+        params.append('pageSize', String(size));
+        return apiFetch<DriversPagedResponse>(`${API.drivers}/drivers/paged?${params.toString()}`);
+      });
+      downloadCsv(
+        ['Conductor', 'Estado', 'Placa', 'En línea', 'Calificación', 'N° de calificaciones', 'Registro', 'Aprobado', 'Cuenta eliminada', 'Id del conductor'],
+        all.items.map(d => [
+          driverName(d), d.deletedAt ? 'Eliminada' : DRIVER_STATUS_TEXT[d.status] ?? String(d.status), d.activePlate ?? '',
+          d.isOnline ? 'Sí' : 'No', (d.rating ?? 0).toFixed(2), d.totalRatings ?? 0,
+          csvDateTime(d.createdAt), csvDateTime(d.approvedAt), csvDateTime(d.deletedAt), d.id,
+        ]),
+        `conductores-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'conductor', 'conductores'));
+      else toast.success(csvResultMessage(all, 'conductor', 'conductores'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar los conductores.');
+    } finally { setExporting(false); }
   }
 
   async function loadStats() {
+    const id = ++statsReq.current;
     try {
-      // KPIs globales: respetan solo el search (no el tab, así siempre vemos
-      // el panorama completo de todos los estados).
       const params = new URLSearchParams();
       if (searchDebounced.trim()) params.append('search', searchDebounced.trim());
-      const data = await apiFetch<DriversStatsResponse>(
-        `${API.drivers}/drivers/stats?${params.toString()}`);
-      setStats(data ?? { total: 0, online: 0, pendingDocs: 0, underReview: 0, approved: 0, expired: 0 });
-    } catch {}
+      const deletedParams = new URLSearchParams(params);
+      deletedParams.append('deleted', 'true');
+      const [data, deletedData] = await Promise.all([
+        apiFetch<DriversStatsResponse>(`${API.drivers}/drivers/stats?${params.toString()}`),
+        apiFetch<DriversStatsResponse>(`${API.drivers}/drivers/stats?${deletedParams.toString()}`).catch(() => null),
+      ]);
+      if (id !== statsReq.current) return;
+      setStats(data ?? EMPTY_STATS);
+      setDeletedCount(deletedData?.total);
+    } catch { /* los contadores no son críticos */ }
   }
 
-  // (Función `approve(id)` removida: la aprobación ahora se hace solo
-  // desde la pantalla de detalle, donde el admin revisa los documentos.)
+  const columns: Column<Driver>[] = [
+    { key: 'name', header: 'Conductor', priority: 1, width: '32%',
+      render: d => <PersonCell name={driverName(d)} sub={d.isOnline ? 'En línea ahora' : undefined} tone={d.isOnline ? 'ok' : 'primary'} muted={!!d.deletedAt} /> },
+    { key: 'status', header: 'Estado', priority: 1,
+      render: d => d.deletedAt ? <DeletedBadge deletedAt={d.deletedAt} deletedReason={d.deletedReason} /> : (
+        <span className="d-inline-flex flex-wrap gap-1">
+          <DriverStatusBadge status={d.status} suspendedUntil={d.suspendedUntil ?? null} />
+          {d.openReviewRequest && <StatusBadge tone="warn" icon="fa-envelope-open-text" size="sm">Revisión pendiente</StatusBadge>}
+        </span>
+      ) },
+    { key: 'plate', header: 'Placa', priority: 2,
+      render: d => d.activePlate ? <span className="lm-plate ops-nowrap">{d.activePlate}</span> : <span className="bugie-muted">—</span> },
+    { key: 'online', header: 'Conexión', priority: 2,
+      render: d => <StatusBadge tone={d.isOnline ? 'ok' : 'neutral'} dot>{d.isOnline ? 'En línea' : 'Desconectado'}</StatusBadge> },
+    { key: 'rating', header: 'Calificación', priority: 2, render: d => <StarRating rating={d.rating ?? 0} total={d.totalRatings ?? 0} /> },
+    { key: 'createdAt', header: 'Registro', priority: 1, mobileLabel: 'Registro', render: d => fmtDate(d.createdAt) },
+  ];
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const fromIdx = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const toIdx   = Math.min(page * PAGE_SIZE, total);
+  const chips = [
+    { value: 'all',           label: 'Todos',             count: stats.total },
+    { value: 'pending_docs',  label: 'Faltan documentos', count: stats.pendingDocs },
+    { value: 'under_review',  label: 'En revisión',       count: stats.underReview },
+    { value: 'expired',       label: 'Docs vencidos',     count: stats.expired },
+    { value: 'expiring_soon', label: 'Por vencer' },
+    { value: 'online',        label: 'En línea',          count: stats.online },
+    { value: 'approved',      label: 'Aprobados',         count: stats.approved },
+    { value: 'suspended',     label: 'Suspendidos',       count: stats.suspended },
+    { value: 'rejected',      label: 'Rechazados',        count: stats.rejected },
+    { value: 'open_review',   label: 'Con solicitud de revisión', count: stats.openReviewRequests },
+    { value: 'deleted',       label: 'Eliminadas',        count: deletedCount },
+  ];
 
   return (
-    <>
-      <PageHeader
-        title="Conductores"
-        subtitle="Gestión de conductores registrados en la plataforma."
-        icon="fa-solid fa-car"
-      />
-
-      {/* KPIs (calculados en BD, no varían con el tab) */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Total',       value: stats.total,       color: '#818cf8', icon: 'fa-car-side'        },
-          { label: 'Aprobados',   value: stats.approved,    color: '#34d399', icon: 'fa-circle-check'     },
-          { label: 'Sin docs',    value: stats.pendingDocs, color: '#f59e0b', icon: 'fa-clock'            },
-          { label: 'En revisión', value: stats.underReview, color: '#38bdf8', icon: 'fa-magnifying-glass' },
-          { label: 'Vencidos',    value: stats.expired,     color: '#ef4444', icon: 'fa-calendar-xmark'   },
-          { label: 'En línea',    value: stats.online,      color: '#38bdf8', icon: 'fa-circle-dot'       },
-        ].map(k => (
-          <div className="col-6 col-md-4 col-xl-2" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value.toLocaleString('es-PE')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filtros */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        <div className="position-relative" style={{ width: 260 }}>
-          <i className="fa-solid fa-magnifying-glass position-absolute"
-            style={{ left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--bugie-muted)', fontSize: '0.8rem' }} />
-          <input className="form-control ps-4" placeholder="Buscar conductor…"
-            value={search} onChange={e => setSearch(e.target.value)} />
+    <Page
+      title="Conductores"
+      subtitle="Consulta a los conductores por estado y abre su ficha para revisarlos."
+      icon="fa-car"
+      helpKey="drivers"
+      actions={[
+        { label: 'Bandeja de verificación', icon: 'fa-id-card', to: '/admin/verificacion' },
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: exportCsv, loading: exporting,
+          disabled: filter === 'expiring_soon' || !total },
+        { label: 'Actualizar', icon: 'fa-rotate-right', onClick: () => { load(); loadStats(); }, loading },
+      ]}
+    >
+      <SectionCard flush tourId="drivers-list">
+        <div className="p-3" data-tour="drivers-filters">
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Nombre, correo, teléfono, documento o placa"
+            chips={chips}
+            chip={filter}
+            onChipChange={setFilter}
+          />
         </div>
-        <div className="d-flex gap-2 flex-wrap">
-          {([
-            { key: 'pending_docs',   label: 'Sin docs'       },
-            { key: 'under_review',   label: 'En revisión'    },
-            { key: 'expired',        label: 'Docs vencidos'  },
-            { key: 'expiring_soon',  label: 'Por vencer'     },
-            { key: 'online',         label: 'En línea'       },
-            { key: 'all',            label: 'Todos'           },
-          ] as Array<{ key: TabKey; label: string }>).map(f => (
-            <button key={f.key}
-              className={`btn btn-sm rounded-pill ${tab === f.key ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-              onClick={() => setTab(f.key)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto"
-                onClick={() => { load(); loadStats(); }}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
 
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
+        {error && <div className="alert alert-danger small mx-3">{error}</div>}
 
-      {/* ── Vista: Conductores con docs por vencer (sin paginación) ─── */}
-      {tab === 'expiring_soon' ? (
-        <ExpiringView
-          drivers={expiringSoon}
-          loading={loading}
-          thresholdDays={thresholdDays}
-        />
-      ) : (
-        /* ── Vista: Lista paginada ─────────────────────────────────── */
-        loading ? (
-          <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-        ) : drivers.length === 0 ? (
-          <EmptyState />
+        {filter === 'expiring_soon' ? (
+          <ExpiringTable drivers={expiringSoon} loading={loading} thresholdDays={thresholdDays}
+                         onOpen={id => navigate(`/admin/conductores/${id}`)} />
         ) : (
           <>
-            <div className="d-flex flex-column gap-2">
-              {drivers.map(d => (
-                <DriverRow key={d.id} d={d} />
-              ))}
-            </div>
-
-            {/* Paginación */}
-            <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
-              <div className="small bugie-muted">
-                Mostrando <strong>{fromIdx}–{toIdx}</strong> de <strong>{total.toLocaleString('es-PE')}</strong>
-              </div>
-              <div className="d-flex align-items-center gap-2">
-                <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                  onClick={() => setPage(1)} disabled={page === 1}>
-                  <i className="fa-solid fa-angles-left" />
-                </button>
-                <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                  onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                  <i className="fa-solid fa-chevron-left" />
-                </button>
-                <span className="small fw-semibold mx-2">
-                  Página {page} de {totalPages}
-                </span>
-                <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                  <i className="fa-solid fa-chevron-right" />
-                </button>
-                <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                  onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                  <i className="fa-solid fa-angles-right" />
-                </button>
-              </div>
+            <DataTable
+              columns={columns}
+              rows={drivers}
+              rowKey={d => d.id}
+              loading={loading}
+              onRowClick={d => navigate(`/admin/conductores/${d.id}`)}
+              actions={d => [{ label: 'Ver ficha', icon: 'fa-eye', to: `/admin/conductores/${d.id}` }]}
+              empty={filter === 'deleted' && !searchDebounced
+                ? { title: 'Sin cuentas eliminadas', text: 'Ningún conductor ha eliminado su cuenta.', icon: 'fa-user-xmark' }
+                : { title: 'Sin conductores', icon: 'fa-car-side',
+                    text: searchDebounced ? `No hay resultados para «${searchDebounced}».` : 'No hay conductores en esta categoría.' }}
+            />
+            <div className="px-3">
+              <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           </>
-        )
-      )}
-    </>
+        )}
+      </SectionCard>
+    </Page>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Subcomponentes
-// ─────────────────────────────────────────────────────────────────────
-
-function DriverRow({ d }: {
-  d: Driver;
-}) {
-  const s = STATUS[d.status] ?? { label: '?', color: '#94a3b8', icon: 'fa-circle' };
-
-  return (
-    <div className="bugie-card px-3 py-3" style={{ overflow: 'hidden', position: 'relative' }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-                    background: s.color, borderRadius: '12px 0 0 12px' }} />
-      <div className="d-flex align-items-center gap-3 ps-1">
-
-        <div style={{
-          width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: s.color + '22',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <i className="fa-solid fa-car-side" style={{ color: s.color }} />
-        </div>
-
-        <div className="flex-grow-1 min-w-0">
-          <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
-            <Link to={`/admin/conductores/${d.id}`} className="fw-semibold text-decoration-none" style={{ color: 'inherit' }}>
-              {d.fullName || `Conductor ${d.userId.slice(0, 8)}…`}
-            </Link>
-            <span className="badge rounded-pill" style={{ background: s.color + '22', color: s.color, fontSize: '0.72rem' }}>
-              <i className={`fa-solid ${s.icon} me-1`} style={{ fontSize: '0.65rem' }} />
-              {s.label}
-            </span>
-            {d.isOnline && (
-              <span className="badge rounded-pill" style={{ background: '#34d39922', color: '#34d399', fontSize: '0.72rem' }}>
-                ● En línea
-              </span>
-            )}
-          </div>
-          <StarRating rating={d.rating ?? 0} total={d.totalRatings ?? 0} />
-        </div>
-
-        <div className="text-end flex-shrink-0">
-          <div className="small bugie-muted mb-2">
-            {new Date(d.createdAt).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}
-          </div>
-          <div className="d-flex gap-2 justify-content-end">
-            <Link to={`/admin/conductores/${d.id}`}
-              className="btn btn-sm btn-bugie-outline rounded-pill"
-              style={{ fontSize: '0.75rem' }}>
-              <i className="fa-solid fa-eye me-1" />Ver detalle
-            </Link>
-            {/* Antes había aquí un botón "Aprobar" que aprobaba directo sin
-                validar documentos. Lo quitamos: ahora la aprobación pasa
-                obligatoriamente por el detalle, donde se revisan los docs
-                uno por uno. */}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+/// Tono según los días que faltan para que venza el documento.
+function expiryTone(days: number): Tone {
+  if (days <= 0) return 'bad';
+  if (days <= 6) return 'warn';
+  return 'info';
+}
+function expiryText(days: number): string {
+  if (days < 0) return `venció hace ${Math.abs(days)} día${Math.abs(days) === 1 ? '' : 's'}`;
+  if (days === 0) return 'vence hoy';
+  return `vence en ${days} día${days === 1 ? '' : 's'}`;
 }
 
-function ExpiringView({ drivers, loading, thresholdDays }: {
-  drivers: ExpiringDriver[]; loading: boolean; thresholdDays: number;
+function ExpiringTable({ drivers, loading, thresholdDays, onOpen }: {
+  drivers: ExpiringDriver[]; loading: boolean; thresholdDays: number; onOpen: (driverId: string) => void;
 }) {
-  if (loading) return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
-
-  if (drivers.length === 0) return (
-    <div className="bugie-card p-5 text-center">
-      <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-        <i className="fa-solid fa-calendar-check" />
-      </div>
-      <div className="fw-semibold mb-1">Sin conductores con documentos por vencer</div>
-      <div className="small bugie-muted">No hay documentos próximos a caducar en los próximos {thresholdDays} días.</div>
-    </div>
-  );
-
+  const columns: Column<ExpiringDriver>[] = [
+    { key: 'name', header: 'Conductor', priority: 1, width: '30%',
+      render: d => <PersonCell name={d.fullName} sub={d.email} tone="warn" /> },
+    { key: 'docs', header: 'Documentos', priority: 1,
+      render: d => (
+        <span className="d-inline-flex flex-wrap gap-1">
+          {d.documents.map(doc => (
+            <StatusBadge key={doc.documentId} tone={expiryTone(doc.daysUntilExpiry)} icon="fa-calendar-day" size="sm">
+              {driverDocMeta(doc.docType).label}: {expiryText(doc.daysUntilExpiry)}
+            </StatusBadge>
+          ))}
+        </span>
+      ) },
+    { key: 'phone', header: 'Teléfono', priority: 2, render: d => d.phone ? <a href={`tel:${d.phone}`} onClick={e => e.stopPropagation()}>{d.phone}</a> : '—' },
+  ];
   return (
     <>
-      <div className="alert alert-warning small mb-3 d-flex align-items-center gap-2">
-        <i className="fa-solid fa-triangle-exclamation" />
-        <span>Mostrando conductores con documentos que caducan en los próximos <strong>{thresholdDays} días</strong> (o ya vencidos).</span>
-      </div>
-
-      <div className="d-flex flex-column gap-2">
-        {drivers.map(d => (
-          <div key={d.driverId} className="bugie-card p-3">
-            <div className="d-flex align-items-start gap-3 flex-wrap">
-              <div style={{
-                width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                background: '#f59e0b22',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <i className="fa-solid fa-car-side" style={{ color: '#f59e0b' }} />
-              </div>
-
-              <div className="flex-grow-1 min-w-0">
-                <div className="fw-semibold mb-1">{d.fullName}</div>
-                <div className="small bugie-muted mb-2">
-                  <i className="fa-solid fa-envelope me-1" />{d.email}
-                  <span className="ms-3"><i className="fa-solid fa-phone me-1" />{d.phone}</span>
-                </div>
-
-                <div className="d-flex flex-wrap gap-2">
-                  {d.documents.map(doc => {
-                    const isExpired = doc.daysUntilExpiry < 0;
-                    const isToday   = doc.daysUntilExpiry === 0;
-                    const color     = isExpired || isToday ? '#ef4444'
-                                    : doc.daysUntilExpiry <= 6 ? '#f59e0b'
-                                    : '#38bdf8';
-                    const label     = DOC_LABEL[doc.docType] ?? doc.docType;
-                    const dayText   = isExpired ? `vencido hace ${Math.abs(doc.daysUntilExpiry)} días`
-                                    : isToday   ? 'caduca hoy'
-                                    : `${doc.daysUntilExpiry} días`;
-                    return (
-                      <span key={doc.documentId} className="badge rounded-pill"
-                        style={{ background: color + '22', color, fontSize: '0.72rem' }}>
-                        <i className="fa-solid fa-calendar-day me-1" style={{ fontSize: '0.65rem' }} />
-                        {label}: {dayText}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex-shrink-0">
-                <Link to={`/admin/conductores/${d.driverId}`}
-                  className="btn btn-sm btn-bugie-outline rounded-pill"
-                  style={{ fontSize: '0.75rem' }}>
-                  <i className="fa-solid fa-eye me-1" />Ver detalle
-                </Link>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {!loading && drivers.length > 0 && (
+        <div className="alert alert-warning small mx-3 d-flex align-items-center gap-2">
+          <i className="fa-solid fa-triangle-exclamation" aria-hidden="true" />
+          <span>Conductores con documentos que vencen en los próximos <strong>{thresholdDays} días</strong> (o ya vencidos). Avísales para que los renueven.</span>
+        </div>
+      )}
+      <DataTable
+        columns={columns}
+        rows={drivers}
+        rowKey={d => d.driverId}
+        loading={loading}
+        onRowClick={d => onOpen(d.driverId)}
+        actions={d => [{ label: 'Ver ficha', icon: 'fa-eye', onClick: () => onOpen(d.driverId) }]}
+        empty={{ variant: 'done', title: 'Nada por vencer', text: `No hay documentos que venzan en los próximos ${thresholdDays} días.` }}
+      />
     </>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="bugie-card p-5 text-center">
-      <div className="bugie-mini-icon mx-auto mb-3" style={{ width: 56, height: 56, fontSize: '1.5rem' }}>
-        <i className="fa-solid fa-car-side" />
-      </div>
-      <div className="fw-semibold mb-1">Sin conductores</div>
-      <div className="small bugie-muted">No hay conductores en esta categoría.</div>
-    </div>
   );
 }

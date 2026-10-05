@@ -21,11 +21,14 @@ public class CheckExpiredDocumentsHandler : IRequestHandler<CheckExpiredDocument
 {
     private readonly IDriverRepository _drivers;
     private readonly IDocumentRepository _docs;
+    private readonly IApprovalAuditRepository _audit;
 
-    public CheckExpiredDocumentsHandler(IDriverRepository drivers, IDocumentRepository docs)
+    public CheckExpiredDocumentsHandler(IDriverRepository drivers, IDocumentRepository docs,
+        IApprovalAuditRepository audit)
     {
         _drivers = drivers;
         _docs = docs;
+        _audit = audit;
     }
 
     public async Task<CheckExpiredResult> Handle(CheckExpiredDocumentsCommand cmd, CancellationToken ct)
@@ -54,6 +57,10 @@ public class CheckExpiredDocumentsHandler : IRequestHandler<CheckExpiredDocument
         // Hay docs caducados → marcar conductor como ExpiredDocs
         driver.MarkAsExpired();
         await _drivers.UpdateAsync(driver, ct);
+        await _audit.AddAsync(Domain.Entities.ApprovalAudit.Create(
+            driver.Id, Domain.Entities.ApprovalAudit.ActionExpired, null, null,
+            "Documentos vencidos", expired, null,
+            (int)DriverStatus.Approved, (int)DriverStatus.ExpiredDocs), ct);
 
         return new CheckExpiredResult(true, (int)driver.Status, expired);
     }

@@ -22,5 +22,6 @@ public class GetLevelsHandler : IRequestHandler<GetLevelsQuery, List<RewardLevel
     internal static RewardLevelDto ToDto(RewardLevel l) => new(
         l.Id, l.UserType, l.Name, l.DisplayName, l.SortOrder,
         l.MinPoints, l.MaxPoints, l.DiscountPercentage,
-        l.MonthlyFreeTrips, l.WeeklyRaffleTickets, l.MonthlyRaffleTickets, l.IsActive);
+        l.MonthlyFreeTrips, l.WeeklyRaffleTickets, l.MonthlyRaffleTickets, l.IsActive,
+        l.MonthlyDiscountCoupons, l.FreeTripMaxAmount);
 }

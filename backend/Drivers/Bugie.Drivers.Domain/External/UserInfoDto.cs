@@ -15,4 +15,16 @@ public record UserInfoDto(
     bool IsActive,
     DateTime CreatedAt,
     bool TermsAccepted = false,
-    string? SignatureImage = null);
+    string? SignatureImage = null,
+    // Documento y nombres separados (el documento solo llega si consulta un admin)
+    string? DocType = null,
+    string? DocNumber = null,
+    string? FirstNames = null,
+    string? LastNamePaternal = null,
+    string? LastNameMaternal = null,
+    // Cuenta eliminada (null = no eliminada)
+    DateTime? DeletedAt = null,
+    string? DeletedReason = null,
+    // Cuenta desactivada por el admin (null = no desactivada)
+    DateTime? DeactivatedAt = null,
+    string? DeactivatedReason = null);

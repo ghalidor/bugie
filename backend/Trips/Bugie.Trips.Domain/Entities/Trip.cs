@@ -1,3 +1,4 @@
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.Enums;
 
 namespace Bugie.Trips.Domain.Entities;
@@ -63,6 +64,38 @@ public class Trip
     // Fotos: paquete del cliente (solicitud) + verificacion del conductor (pickup)
     public List<TripPhoto> Photos { get; set; } = new();
 
+    // ---- Programado ----
+    /// <summary>Hora programada del recojo (UTC). null = viaje "ahora".</summary>
+    public DateTime? ScheduledAt { get; set; }
+    /// <summary>Marcas de los recordatorios push (30 y 10 min antes), para no duplicarlos.</summary>
+    public DateTime? Reminder30SentAt { get; set; }
+    public DateTime? Reminder10SentAt { get; set; }
+
+    public bool IsScheduled => ScheduledAt.HasValue;
+
+    /// <summary>
+    /// Programado que todavia no "llega": no cuenta como viaje activo
+    /// (ni bloquea al conductor ni al pasajero) hasta que falten
+    /// ScheduledTrips.ActivateBeforeMinutes o el conductor marque llegada / inicie.
+    /// </summary>
+    public bool IsFutureScheduled(DateTime nowUtc) =>
+        ScheduledAt.HasValue &&
+        Status is TripStatus.Pending or TripStatus.Negotiating or TripStatus.Accepted &&
+        DriverArrivedAt is null &&
+        ScheduledAt.Value > nowUtc.AddMinutes(ScheduledTrips.ActivateBeforeMinutes);
+
+    /// <summary>
+    /// El conductor de un programado no llego: pasaron NoShowMinutes desde la
+    /// hora programada y no marco "Ya llegue". El pasajero puede cancelar
+    /// sin penalidad o republicar.
+    /// </summary>
+    public bool IsDriverLate(DateTime nowUtc) =>
+        ScheduledAt.HasValue &&
+        Status == TripStatus.Accepted &&
+        DriverId.HasValue &&
+        DriverArrivedAt is null &&
+        nowUtc >= ScheduledAt.Value.AddMinutes(ScheduledTrips.NoShowMinutes);
+
     public static Trip Create(
         Guid passengerId,
         string originAddress, double originLat, double originLng,
@@ -76,7 +109,8 @@ public class Trip
         bool packageIsFragile = false,
         string? packageDetails = null,
         string? recipientName = null,
-        string? recipientPhone = null) => new()
+        string? recipientPhone = null,
+        DateTime? scheduledAt = null) => new()
         {
             Id = Guid.NewGuid(),
             PassengerId = passengerId,
@@ -96,6 +130,7 @@ public class Trip
             PackageDetails = packageDetails,
             RecipientName = recipientName,
             RecipientPhone = recipientPhone,
+            ScheduledAt = scheduledAt,
             Status = TripStatus.Pending,
             CreatedAt = DateTime.UtcNow,
         };
@@ -122,35 +157,13 @@ public class Trip
         Status = TripStatus.Negotiating;
     }
 
-    // Pasajero acepta la tarifa propuesta
-    public void AcceptProposedFare()
-    {
-        if(Status != TripStatus.Negotiating || ProposedFare is null || ProposedDriverId is null)
-            throw new InvalidOperationException("No hay tarifa propuesta para aceptar.");
-        EstimatedFare = ProposedFare.Value;
-        DriverId = ProposedDriverId;
-        ProposedFare = null;
-        ProposedDriverId = null;
-        Status = TripStatus.Accepted;
-        AcceptedAt = DateTime.UtcNow;
-    }
-
-    // Pasajero rechaza la tarifa propuesta
-    public void RejectProposedFare()
-    {
-        if(Status != TripStatus.Negotiating)
-            throw new InvalidOperationException("No hay tarifa propuesta.");
-        ProposedFare = null;
-        ProposedDriverId = null;
-        Status = TripStatus.Pending;
-    }
-
     // El conductor avisa que ya esta en el punto de recojo (antes de iniciar).
     // Se guarda la primera vez; si vuelve a avisar se conserva esa hora.
     public void MarkDriverArrived()
     {
         if (Status != TripStatus.Accepted)
             throw new InvalidOperationException("Solo puedes avisar tu llegada con el viaje aceptado y antes de iniciarlo.");
+        EnsureScheduledWindow(DateTime.UtcNow);
         DriverArrivedAt ??= DateTime.UtcNow;
     }
 
@@ -163,6 +176,8 @@ public class Trip
             throw new InvalidOperationException("La verificacion de paquete solo aplica a envios.");
         if(Status != TripStatus.Accepted)
             throw new InvalidOperationException("El envio debe estar aceptado para verificar el paquete.");
+        if(PickupVerified)
+            throw new InvalidOperationException("El paquete ya fue verificado.");
         PickupObservation = observation;
         PickupVerified = true;
     }
@@ -174,6 +189,7 @@ public class Trip
         // En envios no se puede iniciar (paquete a bordo) sin verificar el paquete.
         if(ServiceType == ServiceType.Delivery && !PickupVerified)
             throw new InvalidOperationException("Debes verificar el paquete antes de iniciar el envio.");
+        if(DriverArrivedAt is null) EnsureScheduledWindow(DateTime.UtcNow);
         Status = TripStatus.InProgress;
         StartedAt = DateTime.UtcNow;
     }
@@ -185,6 +201,8 @@ public class Trip
             throw new InvalidOperationException("Este viaje no es un envío.");
         if(Status != TripStatus.InProgress)
             throw new InvalidOperationException("Solo se confirma la entrega con el envío en curso.");
+        if(DeliveryConfirmedAt is not null)
+            throw new InvalidOperationException("La entrega ya fue confirmada.");
         DeliveryReceivedBy = receivedBy;
         DeliveryConfirmedAt = DateTime.UtcNow;
     }
@@ -198,6 +216,41 @@ public class Trip
         Status = TripStatus.Completed;
         FinalFare = finalFare;
         CompletedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Programado cuyo conductor no llego: el viaje vuelve a pendiente para
+    /// otros conductores (sin conductor asignado). Como ya paso la hora
+    /// programada, queda como un pedido "ahora" (ScheduledAt = null).
+    /// Devuelve el conductor que se quito.
+    /// </summary>
+    public Guid Republish(DateTime nowUtc)
+    {
+        if(!IsDriverLate(nowUtc))
+            throw new InvalidOperationException(
+                $"Solo puedes republicar si el conductor no llegó {ScheduledTrips.NoShowMinutes} minutos después de la hora programada.");
+        var removed = DriverId!.Value;
+        DriverId = null;
+        VehicleId = null;
+        ProposedFare = null;
+        ProposedDriverId = null;
+        AcceptedAt = null;
+        DriverArrivedAt = null;
+        ScheduledAt = null;
+        Reminder30SentAt = null;
+        Reminder10SentAt = null;
+        Status = TripStatus.Pending;
+        return removed;
+    }
+
+    // Programado: no se puede avisar llegada ni iniciar con demasiada anticipacion.
+    private void EnsureScheduledWindow(DateTime nowUtc)
+    {
+        if(ScheduledAt is null) return;
+        if(ScheduledAt.Value > nowUtc.AddMinutes(ScheduledTrips.EarliestStartMinutes))
+            throw new InvalidOperationException(
+                $"Todavía es muy pronto: este programado es para el {BugieTime.ToPeru(ScheduledAt.Value):dd/MM HH:mm}. " +
+                $"Puedes empezar desde {ScheduledTrips.EarliestStartMinutes} minutos antes.");
     }
 
     public void Cancel(string cancelledBy, string? reason = null)

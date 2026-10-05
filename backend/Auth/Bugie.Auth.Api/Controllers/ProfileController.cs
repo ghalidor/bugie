@@ -28,15 +28,21 @@ public class ProfileController : ControllerBase
 
     private readonly IUserRepository _users;
     private readonly IFileStorageService _storage;
+    private readonly IPassengerDocumentRepository _passengerDocs;
+    private readonly IAdminEventsPublisher _adminEvents;
     private readonly ILogger<ProfileController> _log;
 
     public ProfileController(
         IUserRepository users,
         IFileStorageService storage,
+        IPassengerDocumentRepository passengerDocs,
+        IAdminEventsPublisher adminEvents,
         ILogger<ProfileController> log)
     {
         _users = users;
         _storage = storage;
+        _passengerDocs = passengerDocs;
+        _adminEvents = adminEvents;
         _log = log;
     }
 
@@ -52,6 +58,8 @@ public class ProfileController : ControllerBase
             return BadRequest(new { error = "Archivo demasiado grande (máx 5 MB)." });
         if(!AllowedMime.Contains(file.ContentType?.ToLowerInvariant()))
             return BadRequest(new { error = "Formato no permitido. Usa JPG, PNG o WEBP." });
+        if(Bugie.Auth.Api.Security.UploadCheck.Error(file) is { } fileError)
+            return BadRequest(new { error = fileError });
 
         // Carpeta: profiles/{userId}/
         var folder = $"profiles/{userId}";
@@ -62,6 +70,11 @@ public class ProfileController : ControllerBase
         await _users.UpdateProfilePhotoAsync(userId.Value, stored.PublicUrl, ct);
 
         _log.LogInformation("Foto de perfil actualizada: user {UserId}", userId);
+
+        // Pasajero: la foto es requisito de la verificación. Si con ella ya
+        // completó todo, se avisa al panel admin (no hace nada para otros roles).
+        await PassengerDocumentsController.NotifyIfReadyForReviewAsync(
+            _users, _passengerDocs, _adminEvents, _log, userId.Value, ct);
         return Ok(new { profilePhotoUrl = stored.PublicUrl });
     }
 

@@ -69,5 +69,11 @@
 		</dict>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<!-- url_launcher: esquemas que la app consulta (canLaunchUrl). -->
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>https</string>
+			<string>http</string>
+		</array>
 	</dict>
 </plist>

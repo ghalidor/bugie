@@ -70,7 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
           break;
         case UserRole.admin:
           setState(() => _error = 'El admin debe usar la web (back office).');
-          await context.read<Session>().clear();
+          await context.read<AuthRepository>().logout();
           break;
       }
     } on ApiException catch (e) {

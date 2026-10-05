@@ -8,21 +8,27 @@ import 'package:provider/provider.dart';
 
 import 'core/api/api_client.dart';
 import 'core/services/default_location_service.dart';
+import 'core/services/active_trip_service.dart';
 import 'core/services/admin_settings_service.dart';
 import 'core/services/fcm_service.dart';
 import 'core/services/in_app_alert_service.dart';
 import 'core/services/location_tracking_service.dart';
+import 'core/services/notification_prefs.dart';
+import 'core/services/request_alert_service.dart';
 import 'core/session/session.dart';
 import 'core/theme/bugie_theme.dart';
 import 'core/theme/theme_controller.dart';
+import 'core/widgets/active_trip_strip.dart';
 import 'core/widgets/alert_banner.dart';
+import 'core/widgets/request_alert_panel.dart';
 import 'modules/auth/data/auth_repository.dart';
 import 'modules/driver/data/driver_repository.dart';
-import 'modules/passenger/data/passenger_repository.dart';
 import 'modules/payments/data/payments_repository.dart';
 import 'modules/rewards/data/rewards_repository.dart';
 import 'modules/sos/data/sos_repository.dart';
 import 'modules/favorites/data/favorites_repository.dart';
+import 'modules/notifications/data/notifications_badge.dart';
+import 'modules/notifications/data/notifications_repository.dart';
 import 'modules/presence/data/presence_repository.dart';
 import 'modules/trips/data/trips_repository.dart';
 import 'router/app_router.dart';
@@ -64,6 +70,9 @@ Future<void> main() async {
   final themeController = ThemeController();
   await themeController.load();
 
+  // Preferencias de notificación (sonido, vibración, solicitudes).
+  await NotificationPrefs().load();
+
   runApp(BugieApp(session: session, themeController: themeController));
 }
 
@@ -88,6 +97,9 @@ class BugieApp extends StatelessWidget {
         // Tema (claro / oscuro / sistema)
         ChangeNotifierProvider.value(value: themeController),
 
+        // Preferencias de notificación (singleton, ver NotificationPrefs).
+        ChangeNotifierProvider.value(value: NotificationPrefs()),
+
         // Cliente HTTP único
         Provider.value(value: apiClient),
 
@@ -108,19 +120,30 @@ class BugieApp extends StatelessWidget {
         Provider(create: (_) => SosRepository(apiClient)),
         Provider(create: (_) => FavoritesRepository(apiClient)),
         Provider(create: (_) => PresenceRepository(apiClient)),
-
-        // Repos compuestos (orquestadores)
-        ProxyProvider3<TripsRepository, DriverRepository, PaymentsRepository, PassengerRepository>(
-          update: (_, t, d, p, __) => PassengerRepository(t, d, p),
-        ),
+        Provider(create: (_) => NotificationsRepository(apiClient)),
       ],
+      // OJO: este Builder NO debe depender del tema (ni de nada que cambie):
+      // si se reconstruye, se crea OTRO GoRouter y la app vuelve al splash.
+      // Por eso el tema se escucha más abajo con un Consumer.
       child: Builder(
         builder: (context) {
           final router = createRouter(session);
 
           // Conectar el router al servicio de alertas in-app para que
           // los banners puedan navegar al tocarlos.
-          InAppAlertService().attachRouter(router);
+          InAppAlertService().attachRouter(router, session: session);
+          // Panel grande de "solicitud nueva" (conductor).
+          RequestAlertService().attachRouter(router);
+          // Viaje activo del conductor (franja "Viaje en curso · Volver").
+          ActiveTripService().attach(
+            router: router,
+            session: session,
+            trips: context.read<TripsRepository>(),
+          );
+
+          // Contador de notificaciones sin leer (campana). Antes de FCM para
+          // que un push tocado con la app cerrada pueda marcarse como leído.
+          NotificationsBadge().attach(api: apiClient, session: session);
 
           // Inicializar FCM. Lo hacemos acá (después de crear router y
           // ApiClient) para que el servicio pueda navegar al tocar
@@ -128,29 +151,36 @@ class BugieApp extends StatelessWidget {
           // Es seguro llamar varias veces — el FcmService es singleton.
           // Si Firebase no se inicializó (ej. faltan archivos config),
           // el init falla silenciosamente y la app sigue normal.
-          FcmService().init(api: apiClient, router: router).catchError((e) {
+          FcmService()
+              .init(api: apiClient, router: router, session: session)
+              .catchError((e) {
             debugPrint('FcmService.init falló: $e');
           });
 
-          return MaterialApp.router(
-            scaffoldMessengerKey: rootMessengerKey,
-            title: 'Bugie',
-            theme: BugieTheme.light(),
-            darkTheme: BugieTheme.dark(),
-            themeMode: context.watch<ThemeController>().mode,
-            debugShowCheckedModeBanner: false,
-            routerConfig: router,
-            // El builder envuelve toda la app con un Stack que monta el
-            // AlertOverlay encima. Los banners aparecen sobre cualquier
-            // pantalla, incluyendo BottomSheets y Dialogs.
-            builder: (context, child) {
-              return Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  const AlertOverlay(),
-                ],
-              );
-            },
+          return Consumer<ThemeController>(
+            builder: (context, themeCtrl, _) => MaterialApp.router(
+              scaffoldMessengerKey: rootMessengerKey,
+              title: 'Bugie',
+              theme: BugieTheme.light(),
+              darkTheme: BugieTheme.dark(),
+              themeMode: themeCtrl.mode,
+              debugShowCheckedModeBanner: false,
+              routerConfig: router,
+              // El builder envuelve toda la app con un Stack que monta el
+              // AlertOverlay encima. Los banners aparecen sobre cualquier
+              // pantalla, incluyendo BottomSheets y Dialogs.
+              builder: (context, child) {
+                return Stack(
+                  children: [
+                    // Franja "Viaje en curso · Volver" arriba de todas las
+                    // pantallas del conductor mientras tenga un viaje activo.
+                    ActiveTripFrame(child: child ?? const SizedBox.shrink()),
+                    const AlertOverlay(),
+                    const RequestAlertPanel(),
+                  ],
+                );
+              },
+            ),
           );
         },
       ),

@@ -1,0 +1,72 @@
+// Sistema > Avisos (NotificationsSettings). Colores con bx-tone-* y tokens.
+
+.bx-nset { display: grid; gap: 1rem; min-width: 0; }
+
+.bx-nset-list { list-style: none; margin: 0; padding: 0; }
+.bx-nset-row {
+  padding: .9rem 1rem;
+  border-top: 1px solid var(--bugie-border);
+  display: grid; gap: .8rem;
+  min-width: 0;
+}
+.bx-nset-row:first-child { border-top: 0; }
+
+.bx-nset-head { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.bx-nset-icon {
+  width: 38px; height: 38px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  background: var(--tone-bg); color: var(--tone);
+  transition: background var(--bugie-dur) var(--bugie-ease), color var(--bugie-dur) var(--bugie-ease);
+}
+.bx-nset-name { flex: 1; min-width: 0; }
+.bx-nset-row.is-off .bx-nset-icon { background: var(--bugie-soft-neutral); color: var(--bugie-neutral); }
+.bx-nset-row.is-off .bx-nset-name { opacity: .7; }
+
+.bx-nset-body.bx-form-grid {
+  --bx-form-min: 13rem;
+  padding-left: calc(38px + .75rem);
+}
+@media (max-width: 575.98px) { .bx-nset-body.bx-form-grid { padding-left: 0; } }
+
+/* Selector de color */
+.bx-nset-colors { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; min-height: var(--bx-control-h, 2.5rem); }
+.bx-nset-swatch { cursor: pointer; display: inline-flex; }
+.bx-nset-swatch > span[aria-hidden] {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--tone);
+  border: 3px solid var(--bugie-surface);
+  box-shadow: 0 0 0 1px var(--bugie-border);
+  transition: box-shadow var(--bugie-dur) var(--bugie-ease), transform var(--bugie-dur) var(--bugie-ease);
+}
+.bx-nset-swatch:hover > span[aria-hidden] { transform: scale(1.08); }
+// Mismo color sólido que el fondo del aviso (notificationCenter.scss).
+.bx-nset-swatch.bx-tone-primary > span[aria-hidden] { background: #5B5BD6; }
+.bx-nset-swatch.bx-tone-ok      > span[aria-hidden] { background: #15803d; }
+.bx-nset-swatch.bx-tone-warn    > span[aria-hidden] { background: #f59e0b; }
+.bx-nset-swatch.bx-tone-bad     > span[aria-hidden] { background: #dc2626; }
+.bx-nset-swatch.bx-tone-info    > span[aria-hidden] { background: #0284c7; }
+.bx-nset-swatch.bx-tone-neutral > span[aria-hidden] { background: #475569; }
+.bx-nset-swatch input:checked + span { box-shadow: 0 0 0 2px var(--tone); }
+.bx-nset-swatch input:focus-visible + span { outline: 2px solid var(--bugie-primary); outline-offset: 3px; }
+
+/* Chips (horas fijas y días de aviso) */
+.bx-nset-chips-wrap { display: grid; gap: .55rem; min-width: 0; }
+.bx-nset-chips { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.bx-nset-chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .2rem .25rem .2rem .65rem;
+  border-radius: 999px;
+  font-size: .82rem; font-weight: 600;
+  background: var(--bugie-soft-primary);
+  color: var(--bugie-primary-soft);
+}
+.bx-nset-chip button {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: inherit; font-size: .72rem;
+}
+.bx-nset-chip button:hover:not(:disabled) { background: color-mix(in srgb, var(--bugie-primary) 18%, transparent); }
+.bx-nset-chip button:disabled { opacity: .4; }
+.bx-nset-chip button:focus-visible { outline: 2px solid var(--bugie-primary); outline-offset: 1px; }
+.bx-nset-add { max-width: 22rem; }

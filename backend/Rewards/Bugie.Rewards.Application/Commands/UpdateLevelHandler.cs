@@ -24,7 +24,19 @@ public class UpdateLevelHandler : IRequestHandler<UpdateLevelCommand, RewardLeve
         if (cmd.MonthlyFreeTrips < 0 || cmd.WeeklyRaffleTickets < 0 || cmd.MonthlyRaffleTickets < 0)
             throw new ArgumentException("Los beneficios no pueden ser negativos.");
 
-        // Validar que no se solape con otro nivel del mismo tipo de usuario.
+        var cupones = cmd.MonthlyDiscountCoupons ?? level.MonthlyDiscountCoupons;
+        if (cupones < 0)
+            throw new ArgumentException("Los cupones de descuento al mes no pueden ser negativos.");
+
+        if (cmd.FreeTripMaxAmount is <= 0)
+            throw new ArgumentException("El tope del viaje gratis debe ser mayor que 0 (o vacío).");
+
+        var tope = cmd.FreeTripMaxAmount
+                   ?? (cmd.MonthlyFreeTrips > 0 ? level.FreeTripMaxAmount : null);
+        if (cmd.MonthlyFreeTrips > 0 && tope is null)
+            throw new ArgumentException("Si el nivel da viajes gratis, indica el tope en soles de cada viaje.");
+
+                // Validar que no se solape con otro nivel del mismo tipo de usuario.
         var siblings = await _levels.GetByUserTypeAsync(level.UserType, ct);
         foreach (var other in siblings.Where(l => l.Id != level.Id && l.IsActive))
         {
@@ -42,6 +54,8 @@ public class UpdateLevelHandler : IRequestHandler<UpdateLevelCommand, RewardLeve
         level.MonthlyFreeTrips     = cmd.MonthlyFreeTrips;
         level.WeeklyRaffleTickets  = cmd.WeeklyRaffleTickets;
         level.MonthlyRaffleTickets = cmd.MonthlyRaffleTickets;
+        level.MonthlyDiscountCoupons = cupones;
+        level.FreeTripMaxAmount    = tope;
         level.IsActive             = cmd.IsActive;
         level.UpdatedAt            = DateTime.UtcNow;
 

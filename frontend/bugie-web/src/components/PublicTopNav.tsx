@@ -1,5 +1,6 @@
 import { Link, NavLink } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
+import { NAV_LANGUAGES, NAV_LINKS, NAV_TEXT } from '../content/landing/nav';
 
 interface Props {
   lang?: string;
@@ -8,15 +9,9 @@ interface Props {
   onThemeToggle?: () => void;
 }
 
-const NAV_LINKS = [
-  ['Inicio',          '/'],
-  ['Empresa',         '/empresa'],
-  ['Seguridad',       '/seguridad'],
-  ['Comunidad',       '/comunidad'],
-  ['Gana con Bugie',  '/gana-con-bugie'],
-  ['Contacto',        '/contacto'],
-] as const;
-
+/** Menú superior de la landing. Enlaces e idiomas en src/content/landing/nav.ts.
+    Desde 1200px se ven los enlaces; por debajo, el botón de menú abre el
+    panel lateral (offcanvas). */
 export default function PublicTopNav({ lang = 'es', onLangChange, theme, onThemeToggle }: Props) {
   return (
     <>
@@ -25,23 +20,23 @@ export default function PublicTopNav({ lang = 'es', onLangChange, theme, onTheme
 
         {/* Logo */}
         <div className="d-flex align-items-center gap-2">
-          <button className="btn btn-sm btn-bugie-outline d-md-none bugie-icon-btn"
+          <button className="btn btn-sm btn-bugie-outline d-xl-none bugie-icon-btn"
             type="button" data-bs-toggle="offcanvas" data-bs-target="#publicNav">
             <i className="fa-solid fa-bars" />
           </button>
           <Link to="/" className="text-decoration-none d-flex align-items-center gap-3">
-            <img src="/bugie.png" alt="Bugie" style={{ height: 32, width: "auto", objectFit: "contain" }} />
+            <img src="/bugie.png" alt="Bugie" className="bugie-nav-logo" />
             <span className="bugie-chip d-none d-sm-inline-flex">
-              <i className="fa-solid fa-shield-halved text-bugie-accent" /> Transporte seguro
+              <i className="fa-solid fa-shield-halved text-bugie-accent" /> {NAV_TEXT.chip}
             </span>
           </Link>
         </div>
 
         {/* Nav links */}
-        <div className="d-none d-md-flex align-items-center gap-1">
-          {NAV_LINKS.map(([label, href]) => (
-            <NavLink className="bugie-navlink" to={href} key={href} end={href === '/'}>
-              {label}
+        <div className="d-none d-xl-flex align-items-center gap-1">
+          {NAV_LINKS.map(l => (
+            <NavLink className="bugie-navlink" to={l.href} key={l.href} end={l.href === '/'}>
+              {l.label}
             </NavLink>
           ))}
         </div>
@@ -53,22 +48,21 @@ export default function PublicTopNav({ lang = 'es', onLangChange, theme, onTheme
           {onLangChange && (
             <div className="dropdown d-none d-md-block">
               <button
-                className="btn btn-sm btn-bugie-outline dropdown-toggle"
+                className="btn btn-sm btn-bugie-outline dropdown-toggle bugie-lang-btn"
                 type="button"
                 data-bs-toggle="dropdown"
-                aria-expanded="false"
-                style={{ fontSize: '0.78rem', padding: '0 .75rem', gap: '.5rem' }}>
+                aria-expanded="false">
                 <i className="fa-solid fa-globe" />
-                <span style={{ fontWeight: 600 }}>{lang.toUpperCase()}</span>
+                <span>{lang.toUpperCase()}</span>
               </button>
               <ul className="dropdown-menu dropdown-menu-end bugie-lang-menu">
-                {[['es','🇵🇪 Español'], ['en','🇺🇸 English'], ['pt','🇧🇷 Português']].map(([l, label]) => (
-                  <li key={l}>
+                {NAV_LANGUAGES.map(l => (
+                  <li key={l.code}>
                     <button type="button"
-                      className={`dropdown-item bugie-lang-item ${lang === l ? 'active' : ''}`}
-                      onClick={() => onLangChange(l)}>
-                      <span>{label}</span>
-                      {lang === l && <i className="fa-solid fa-check ms-auto" />}
+                      className={`dropdown-item bugie-lang-item ${lang === l.code ? 'active' : ''}`}
+                      onClick={() => onLangChange(l.code)}>
+                      <span>{l.label}</span>
+                      {lang === l.code && <i className="fa-solid fa-check ms-auto" />}
                     </button>
                   </li>
                 ))}
@@ -81,11 +75,10 @@ export default function PublicTopNav({ lang = 'es', onLangChange, theme, onTheme
           )}
           {/* Botón Ingresar — gradiente violeta. El SCSS le asegura alto 36px
               y centrado del icono. */}
-          <Link className="btn btn-sm btn-bugie text-white d-none d-sm-inline-flex"
-                to="/auth/login"
-                style={{ padding: '0 1rem', gap: '.5rem' }}>
+          <Link className="btn btn-sm btn-bugie text-white d-none d-sm-inline-flex bugie-login-btn"
+                to="/auth/login">
             <i className="fa-solid fa-arrow-right-to-bracket" />
-            <span>Ingresar</span>
+            <span>{NAV_TEXT.login}</span>
           </Link>
         </div>
       </div>
@@ -99,7 +92,7 @@ export default function PublicTopNav({ lang = 'es', onLangChange, theme, onTheme
           Es el mismo patron que usa AppShell.tsx en el area logueada. */}
       <div className="offcanvas offcanvas-start bugie-offcanvas" tabIndex={-1} id="publicNav" aria-labelledby="publicNavLabel">
         <div className="offcanvas-header">
-          <img src="/bugie.png" alt="Bugie" style={{ height: 28, width: "auto", objectFit: "contain" }} />
+          <img src="/bugie.png" alt="Bugie" className="bugie-offcanvas-logo" />
           <button type="button" className="btn-close" data-bs-dismiss="offcanvas" aria-label="Close" />
         </div>
         <div className="offcanvas-body d-flex flex-column gap-2">
@@ -108,33 +101,33 @@ export default function PublicTopNav({ lang = 'es', onLangChange, theme, onTheme
               data-bs-dismiss es un <a>, y entonces React Router no navega.
               Sobre un <div>, Bootstrap cierra el menu y deja pasar el clic. */}
           <div className="d-flex flex-column gap-2" data-bs-dismiss="offcanvas">
-            {NAV_LINKS.map(([label, href]) => (
-              <NavLink className="bugie-sidebar-link" to={href} key={href} end={href === '/'}>
+            {NAV_LINKS.map(l => (
+              <NavLink className="bugie-sidebar-link" to={l.href} key={l.href} end={l.href === '/'}>
                 <i className="fa-solid fa-chevron-right" />
-                <span>{label}</span>
+                <span>{l.label}</span>
               </NavLink>
             ))}
           </div>
           {onLangChange && (
             <div className="d-flex gap-2 mt-2">
-              {[['es','🇵🇪 ES'],['en','🇺🇸 EN'],['pt','🇧🇷 PT']].map(([l, label]) => (
-                <button key={l} onClick={() => onLangChange(l)}
-                  className={`btn btn-sm ${lang === l ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}>
-                  {label}
+              {NAV_LANGUAGES.map(l => (
+                <button key={l.code} onClick={() => onLangChange(l.code)}
+                  className={`btn btn-sm ${lang === l.code ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}>
+                  {l.short}
                 </button>
               ))}
             </div>
           )}
           <div className="bugie-divider my-3" />
           <div className="d-flex flex-column gap-2" data-bs-dismiss="offcanvas">
-            <Link className="btn btn-bugie-outline" to="/auth/login">Ingresar</Link>
-            <Link className="btn btn-bugie text-white" to="/auth/registro">Crear cuenta</Link>
+            <Link className="btn btn-bugie-outline" to="/auth/login">{NAV_TEXT.login}</Link>
+            <Link className="btn btn-bugie text-white" to="/auth/registro">{NAV_TEXT.register}</Link>
           </div>
           <div className="mt-auto pt-3 border-top">
-            <a href="http://localhost:5174/auth/login"
-              className="small bugie-muted text-decoration-none d-flex align-items-center gap-2">
-              <i className="fa-solid fa-lock" style={{ fontSize: '0.7rem' }} />
-              Acceso panel administrativo
+            <a href={NAV_TEXT.adminHref}
+              className="small bugie-muted text-decoration-none d-flex align-items-center gap-2 bugie-offcanvas-admin">
+              <i className="fa-solid fa-lock" />
+              {NAV_TEXT.adminLabel}
             </a>
           </div>
         </div>

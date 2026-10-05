@@ -5,7 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/bugie_theme.dart';
+import '../../../core/utils/auto_refresh.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../../core/widgets/schedule_picker.dart';
+import '../../passenger/presentation/trip_detail_screen.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/trip_model.dart';
 
@@ -16,26 +20,33 @@ import '../../trips/domain/trip_model.dart';
 ///   - Sus propios registros (aceptado/en curso/terminado, de /trips/history).
 /// Ordenadas por estado: solicitudes -> en curso -> terminados.
 ///
-/// No abre vistas nuevas: al tocar una SOLICITUD va al detalle para negociar
-/// (/driver/incoming/:id, que ya existe). Los terminados solo muestran su estado.
+/// Al tocar una SOLICITUD va al detalle para negociar (/driver/incoming/:id).
+/// Los terminados (completado/cancelado) abren el detalle de solo lectura
+/// (TripDetailScreen) con la galería de fotos si es envío.
 class DriverTypedListScreen extends StatefulWidget {
-  /// 0 = viaje, 1 = envío.
-  final int serviceType;
+  /// 0 = viaje, 1 = envío, null = ambos.
+  final int? serviceType;
   final String title;
   final IconData icon;
+
+  /// true = solo la lista, sin Scaffold ni cabecera (para incrustarla en
+  /// otra pantalla, ej. "Mis viajes y envíos").
+  final bool embedded;
 
   const DriverTypedListScreen({
     super.key,
     required this.serviceType,
     required this.title,
     required this.icon,
+    this.embedded = false,
   });
 
   @override
   State<DriverTypedListScreen> createState() => _DriverTypedListScreenState();
 }
 
-class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
+class _DriverTypedListScreenState extends State<DriverTypedListScreen>
+    with AutoRefreshOnReturn {
   List<Trip> _items = [];
   bool _loading = true;
   Timer? _pollTimer;
@@ -55,6 +66,9 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
     super.dispose();
   }
 
+  @override
+  Future<void> onAutoRefresh() => _load();
+
   Future<void> _load() async {
     try {
       final repo = context.read<TripsRepository>();
@@ -70,7 +84,8 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
       // Filtramos por tipo (viaje / envío) y unimos evitando duplicados por id.
       final byId = <String, Trip>{};
       for (final t in [...pending, ...history]) {
-        if (t.serviceType == widget.serviceType) {
+        if (widget.serviceType == null ||
+            t.serviceType == widget.serviceType) {
           byId[t.id] = t;
         }
       }
@@ -105,6 +120,11 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
       context.push('/driver/incoming/${t.id}').then((_) {
         if (mounted) _load();
       });
+    } else if (s == TripStatus.accepted && t.isFutureScheduled) {
+      // Programado aceptado que aún no llega su hora: lista de Programados.
+      context.push('/driver/scheduled').then((_) {
+        if (mounted) _load();
+      });
     } else if (s == TripStatus.accepted ||
         s == TripStatus.inProgress ||
         s == TripStatus.sosActive) {
@@ -112,13 +132,30 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
       context.push('/driver/trip-in-progress').then((_) {
         if (mounted) _load();
       });
+    } else if (s == TripStatus.completed || s == TripStatus.cancelled) {
+      // Terminados: detalle de solo lectura (fotos, recojo, entrega, motivo).
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => TripDetailScreen(trip: t, viewerIsDriver: true),
+      ));
     }
-    // Terminados (completado/cancelado): solo lectura del estado en la card.
+  }
+
+  String get _emptyText {
+    switch (widget.serviceType) {
+      case 0:
+        return 'No hay viajes ni solicitudes';
+      case 1:
+        return 'No hay envíos ni solicitudes';
+      default:
+        return 'No hay viajes, envíos ni solicitudes';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.bugie;
+    final list = _buildList(c);
+    if (widget.embedded) return list;
     return Scaffold(
       backgroundColor: c.bg,
       appBar: BugieInternalHeader(
@@ -126,16 +163,22 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
         showBack: false,
         leadingIcon: widget.icon,
       ),
-      body: SafeArea(
-        child: _loading
+      body: SafeArea(child: list),
+    );
+  }
+
+  Widget _buildList(BugieColorsExt c) {
+    return _loading
             ? const Center(child: CircularProgressIndicator())
             : _items.isEmpty
                 ? Center(
-                    child: Text(
-                      widget.serviceType == 1
-                          ? 'No hay envíos ni solicitudes'
-                          : 'No hay viajes ni solicitudes',
-                      style: TextStyle(color: c.textMuted),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _emptyText,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: c.textMuted),
+                      ),
                     ),
                   )
                 : RefreshIndicator(
@@ -152,9 +195,7 @@ class _DriverTypedListScreenState extends State<DriverTypedListScreen> {
                         );
                       },
                     ),
-                  ),
-      ),
-    );
+                  );
   }
 }
 
@@ -179,7 +220,7 @@ class _DriverItemCard extends StatelessWidget {
     if (s == TripStatus.sosActive) return Icons.emergency;
     if (s == TripStatus.pending) return Icons.notifications_active;
     if (s == TripStatus.negotiating) return Icons.forum; // negociando
-    return isDelivery ? Icons.local_shipping : Icons.directions_car;
+    return serviceIcon(isDelivery);
   }
 
   /// Etiqueta pensada para el conductor.
@@ -210,7 +251,9 @@ class _DriverItemCard extends StatelessWidget {
     final color = _statusColor(trip.status);
     final isPending = trip.status == TripStatus.pending ||
         trip.status == TripStatus.negotiating;
-    final fare = trip.finalFare ?? trip.proposedFare ?? trip.estimatedFare;
+    final isFinished = trip.status == TripStatus.completed ||
+        trip.status == TripStatus.cancelled;
+    final fare = trip.finalFare ?? trip.estimatedFare;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -225,9 +268,17 @@ class _DriverItemCard extends StatelessWidget {
                 children: [
                   Icon(_statusIcon(trip.status, trip.isDelivery), color: color),
                   const SizedBox(width: 8),
-                  Text(_statusLabel(trip.status),
-                      style:
-                          TextStyle(color: color, fontWeight: FontWeight.bold)),
+                  Flexible(
+                    child: Text(
+                        trip.status == TripStatus.accepted && trip.isFutureScheduled
+                            ? 'Programado — aceptado'
+                            : _statusLabel(trip.status),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: color, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 6),
+                  ServiceBadge(isDelivery: trip.isDelivery, compact: true),
                   const Spacer(),
                   Text('S/ ${fare.toStringAsFixed(2)}',
                       style: TextStyle(
@@ -236,6 +287,40 @@ class _DriverItemCard extends StatelessWidget {
                           color: c.text)),
                 ],
               ),
+              // Envío: qué paquete es (y si es frágil).
+              if (trip.isDelivery &&
+                  (trip.packageDescription ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.inventory_2,
+                        size: 14, color: BugieColors.accent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(trip.packageDescription!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: c.text)),
+                    ),
+                    if (trip.packageIsFragile) ...[
+                      const SizedBox(width: 6),
+                      const Text('Frágil',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: BugieColors.danger)),
+                    ],
+                  ],
+                ),
+              ],
+              // Programado: fecha y hora del recojo.
+              if (trip.scheduledAt != null) ...[
+                const SizedBox(height: 6),
+                ScheduledBadge(at: trip.scheduledAt!, compact: true),
+              ],
               const SizedBox(height: 8),
               _AddressLine(
                   color: BugieColors.mapOrigin,
@@ -244,13 +329,16 @@ class _DriverItemCard extends StatelessWidget {
               _AddressLine(
                   color: BugieColors.mapDestination,
                   text: trip.destAddress),
-              if (isPending) ...[
+              if (isPending || isFinished) ...[
                 const SizedBox(height: 10),
                 Row(
                   children: [
                     Icon(Icons.touch_app, size: 14, color: c.textMuted),
                     const SizedBox(width: 6),
-                    Text('Toca para negociar y aceptar',
+                    Text(
+                        isPending
+                            ? 'Toca para negociar y aceptar'
+                            : 'Toca para ver el detalle',
                         style: TextStyle(fontSize: 12, color: c.textMuted)),
                   ],
                 ),

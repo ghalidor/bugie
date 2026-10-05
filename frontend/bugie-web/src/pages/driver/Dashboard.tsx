@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
+import ServiceIcon from '../../components/ServiceIcon';
+import DriverAccountStatus, { DriverAccountInfo } from '../../components/DriverAccountStatus';
 import { API, apiFetch } from '../../state/api';
 import { getUser } from '../../state/session';
+import { CountUp, InfoList, Notice, Page, SectionCard, StatCard, StatGrid, StatusBadge } from '../../components/ui';
+import { money } from '../../components/tripFormat';
 
-interface DriverProfile { id: string; status: number; isOnline: boolean; }
-interface ActiveTrip    { id: string; originAddress: string; destAddress: string; status: number; }
+interface DriverProfile extends DriverAccountInfo { id: string; status: number; isOnline: boolean; }
+// serviceType: 0 = viaje, 1 = envío
+interface ActiveTrip    { id: string; originAddress: string; destAddress: string; status: number; serviceType?: number; passengerName?: string | null; }
 interface Earnings      { totalEarnings: number; totalTrips: number; earningsThisMonth: number; }
 
 interface UpcomingDoc {
@@ -30,6 +34,15 @@ const DOC_LABEL: Record<string, string> = {
   revision_tecnica: 'Revisión técnica',
 };
 
+const QUICK = [
+  { to: '/app/conductor/viajes',         icon: 'fa-clock-rotate-left', label: 'Historial',          desc: 'Viajes pasados y su recorrido' },
+  { to: '/app/conductor/ganancias',      icon: 'fa-wallet',            label: 'Mis ganancias',      desc: 'Ingresos, billetera y comisión' },
+  { to: '/app/conductor/calificaciones', icon: 'fa-star-half-stroke',  label: 'Mis calificaciones', desc: 'Lo que opinan tus pasajeros' },
+  { to: '/app/conductor/puntos',         icon: 'fa-star',              label: 'Mis puntos',         desc: 'Saldo y nivel' },
+  { to: '/app/conductor/documentos',     icon: 'fa-id-card',           label: 'Documentos',         desc: 'Estado de verificación' },
+  { to: '/app/conductor/sos',            icon: 'fa-shield-halved',     label: 'SOS / Emergencia',   desc: 'Activar alerta en ruta', danger: true },
+];
+
 export default function DriverDashboard() {
   const user = getUser();
   const [driver,     setDriver]     = useState<DriverProfile | null>(null);
@@ -52,100 +65,115 @@ export default function DriverDashboard() {
     }).finally(() => setLoading(false));
   }, []);
 
+  // Recarga solo el conductor (tras pedir una revisión).
+  function reloadDriver() {
+    apiFetch<DriverProfile>(`${API.drivers}/drivers/me`).then(setDriver).catch(() => { /* se verá al recargar */ });
+  }
+
   const approved = driver?.status === 3;
+  // Suspendido o rechazado: tiene su propia tarjeta.
+  const blocked  = driver?.status === 4 || driver?.status === 5;
   const docsToShow = upcoming?.documents ?? [];
+  const tripDelivery = activeTrip?.serviceType === 1;
 
   return (
-    <>
-      <PageHeader
-        title={`Hola, ${user?.fullName?.split(' ')[0] ?? 'conductor'}`}
-        subtitle="Tu centro de operación como conductor Bugie."
-        icon="fa-solid fa-car-side"
-        actions={
-          approved
-            ? <Link className="btn btn-light rounded-pill fw-bold" to="/app/conductor/en-linea">
-                {driver?.isOnline ? 'Desconectarme' : 'Conectarme'}
-              </Link>
-            : undefined
-        }
-      />
+    <Page
+      title={`Hola, ${user?.fullName?.split(' ')[0] ?? 'conductor'}`}
+      subtitle="Consulta tu actividad. Para conectarte y tomar viajes usa la app Bugie."
+      icon="fa-gauge"
+      extra={!loading && driver && (
+        <StatusBadge tone={driver.isOnline ? 'ok' : 'neutral'} dot>
+          {driver.isOnline ? 'En línea' : 'Desconectado'}
+        </StatusBadge>
+      )}
+    >
+      {/* Cuenta suspendida o rechazada: motivo y solicitud de revisión */}
+      {!loading && driver && blocked && <DriverAccountStatus driver={driver} onChanged={reloadDriver} />}
 
-      {/* Viaje activo */}
-      {!loading && activeTrip && (
-        <div className="alert alert-info d-flex align-items-center gap-3 mb-3">
-          <i className="fa-solid fa-route fa-lg" />
-          <div className="flex-grow-1">
-            <div className="fw-bold">{STATUS_MSG[activeTrip.status] ?? 'Viaje activo'}</div>
-            <div className="small">{activeTrip.originAddress} → {activeTrip.destAddress}</div>
-          </div>
-          <Link className="btn btn-sm btn-primary rounded-pill" to="/app/conductor/viaje">Ver</Link>
-        </div>
+      {/* Cuenta no aprobada */}
+      {!loading && driver && !approved && !blocked && (
+        <Notice
+          tone="warn"
+          title="Tu cuenta está pendiente de aprobación"
+          action={<Link className="btn btn-sm btn-bugie" to="/app/conductor/documentos">Ir a documentos</Link>}
+        >
+          Completa tus documentos para empezar a recibir viajes.
+        </Notice>
       )}
 
-      {/* Banner de documentos próximos a caducar */}
+      {/* Documentos próximos a caducar */}
       {!loading && approved && docsToShow.length > 0 && (
-        <UpcomingExpirationsBanner
-          docs={docsToShow}
-          thresholdDays={upcoming?.thresholdDays ?? 15}
+        <UpcomingExpirationsBanner docs={docsToShow} thresholdDays={upcoming?.thresholdDays ?? 15} />
+      )}
+
+      <StatGrid min={170}>
+        <StatCard
+          label="Estado"
+          value={driver?.isOnline ? 'En línea' : 'Desconectado'}
+          icon="fa-signal"
+          tone={driver?.isOnline ? 'ok' : 'neutral'}
+          hint="Se cambia desde la app"
+          pulse={!!driver?.isOnline}
+          loading={loading}
         />
+        <StatCard label="Ganancia este mes" value={<CountUp value={earnings?.earningsThisMonth} format={money} decimals={2} />} icon="fa-calendar" tone="info" loading={loading} to="/app/conductor/ganancias" />
+        <StatCard label="Ganancia total" value={<CountUp value={earnings?.totalEarnings} format={money} decimals={2} />} icon="fa-wallet" loading={loading} to="/app/conductor/ganancias" />
+        <StatCard label="Viajes totales" value={<CountUp value={earnings?.totalTrips ?? 0} />} icon="fa-route" tone="ok" loading={loading} to="/app/conductor/viajes" />
+      </StatGrid>
+
+      {/* Viaje activo (iniciado en la app), solo lectura */}
+      {!loading && activeTrip && (
+        <SectionCard
+          title={tripDelivery && activeTrip.status === 3
+            ? 'Envío en curso'
+            : (STATUS_MSG[activeTrip.status] ?? (tripDelivery ? 'Envío activo' : 'Viaje activo'))}
+          icon={tripDelivery ? 'fa-box' : 'fa-car'}
+          description="Solo lectura: gestiónalo desde la app Bugie."
+          actions={<ServiceIcon delivery={tripDelivery} />}
+        >
+          <div className="bx-stack">
+            <ol className="bx-stops">
+              <li><span className="lbl">Origen</span><span className="addr">{activeTrip.originAddress}</span></li>
+              <li className="dest"><span className="lbl">Destino</span><span className="addr">{activeTrip.destAddress}</span></li>
+            </ol>
+            {activeTrip.passengerName && (
+              <InfoList items={[{ label: 'Pasajero', value: activeTrip.passengerName }]} />
+            )}
+          </div>
+        </SectionCard>
       )}
 
-      {/* Estado si no aprobado */}
-      {!loading && driver && !approved && (
-        <div className="alert alert-warning mb-3">
-          <i className="fa-solid fa-triangle-exclamation me-2" />
-          Tu cuenta está pendiente de aprobación. Completa tus documentos para empezar a recibir viajes.
-          <div className="mt-2">
-            <Link className="btn btn-sm btn-warning rounded-pill" to="/app/conductor/documentos">Ir a documentos</Link>
+      <div className="bx-split">
+        <SectionCard title="Accesos rápidos" icon="fa-bolt" flush>
+          <div className="bx-list">
+            {QUICK.map(item => (
+              <Link key={item.to} to={item.to} className="bx-list-item">
+                <span className={`bx-list-icon ${item.danger ? 'bx-tone-bad' : ''}`} aria-hidden="true"><i className={`fa-solid ${item.icon}`} /></span>
+                <span className="bx-list-text">
+                  <span className="bx-list-title">{item.label}</span>
+                  <span className="bx-list-sub d-block">{item.desc}</span>
+                </span>
+                <i className="fa-solid fa-chevron-right chev" aria-hidden="true" />
+              </Link>
+            ))}
           </div>
-        </div>
-      )}
+        </SectionCard>
 
-      {/* KPIs */}
-      <div className="row g-3 mb-3">
-        {[
-          ['Estado',            loading ? '…' : (driver?.isOnline ? 'En línea' : 'Desconectado')],
-          ['Ganancia este mes', loading ? '…' : `S/ ${earnings?.earningsThisMonth.toFixed(2) ?? '0.00'}`],
-          ['Viajes totales',    loading ? '…' : String(earnings?.totalTrips ?? 0)],
-        ].map(([label, value]) => (
-          <div className="col-md-4" key={label}>
-            <div className="bugie-kpi">
-              <div className="label">{label}</div>
-              <div className="value">{value}</div>
-            </div>
-          </div>
-        ))}
+        <SectionCard title="La web es de consulta" icon="fa-mobile-screen">
+          <ul className="bx-tip-list">
+            <li><i className="fa-solid fa-toggle-on" aria-hidden="true" /><div><div className="t">Conectarte</div><div className="d">Activa tu disponibilidad desde la app Bugie.</div></div></li>
+            <li><i className="fa-solid fa-bell" aria-hidden="true" /><div><div className="t">Recibir solicitudes</div><div className="d">Las propuestas y viajes llegan a la app.</div></div></li>
+            <li><i className="fa-solid fa-fingerprint" aria-hidden="true" /><div><div className="t">Face ID diario</div><div className="d">Confirma tu identidad cada jornada en la app.</div></div></li>
+            <li><i className="fa-solid fa-chart-line" aria-hidden="true" /><div><div className="t">Aquí en la web</div><div className="d">Revisa ganancias, historial, documentos y perfil.</div></div></li>
+          </ul>
+        </SectionCard>
       </div>
-
-      {/* Acciones */}
-      <div className="bugie-card">
-        <div className="bugie-card-header">Acciones rápidas</div>
-        <div className="bugie-card-body d-grid gap-2">
-          {[
-            { to: '/app/conductor/en-linea',    icon: 'fa-circle-dot',     label: 'Cambiar disponibilidad', desc: 'Conectarte o desconectarte'  },
-            { to: '/app/conductor/solicitudes', icon: 'fa-bell',           label: 'Ver solicitudes',        desc: 'Viajes pendientes de aceptar' },
-            { to: '/app/conductor/viaje',       icon: 'fa-car',            label: 'Viaje en curso',         desc: 'Continuar el viaje activo'   },
-            { to: '/app/conductor/ganancias',   icon: 'fa-wallet',         label: 'Mis ganancias',          desc: 'Ingresos y resumen financiero' },
-            { to: '/app/conductor/documentos',  icon: 'fa-id-card',        label: 'Documentos',             desc: 'Estado de verificación'      },
-            { to: '/app/conductor/sos',         icon: 'fa-shield-halved',  label: 'SOS / Emergencia',       desc: 'Activar alerta en ruta'      },
-          ].map(item => (
-            <Link key={item.to} to={item.to} className="bugie-list-item text-decoration-none">
-              <div className="bugie-mini-icon"><i className={`fa-solid ${item.icon}`} /></div>
-              <div className="flex-grow-1">
-                <div className="fw-semibold">{item.label}</div>
-                <div className="small bugie-muted">{item.desc}</div>
-              </div>
-              <i className="fa-solid fa-chevron-right bugie-muted" />
-            </Link>
-          ))}
-        </div>
-      </div>
-    </>
+    </Page>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Banner de documentos próximos a caducar
+// Aviso de documentos próximos a caducar
 // ─────────────────────────────────────────────────────────────────────
 function UpcomingExpirationsBanner({ docs, thresholdDays }: {
   docs: UpcomingDoc[]; thresholdDays: number;
@@ -153,54 +181,33 @@ function UpcomingExpirationsBanner({ docs, thresholdDays }: {
   // Día mínimo que falta → define la urgencia visual
   const minDays = Math.min(...docs.map(d => d.daysUntilExpiry));
   const isUrgent = minDays <= 3;
-  const color = isUrgent ? '#ef4444' : '#f59e0b';
 
   return (
-    <div
-      className="mb-3 p-3"
-      style={{
-        background: color + '15',
-        border: `1px solid ${color}55`,
-        borderRadius: 12,
-      }}
+    <Notice
+      tone={isUrgent ? 'bad' : 'warn'}
+      icon="fa-triangle-exclamation"
+      title={isUrgent ? '¡Atención! Documentos por caducar pronto' : 'Tienes documentos próximos a caducar'}
+      action={
+        <Link to="/app/conductor/documentos" className={`btn btn-sm ${isUrgent ? 'btn-danger' : 'btn-warning'}`}>
+          <i className="fa-solid fa-arrow-right" aria-hidden="true" />Renovar documentos
+        </Link>
+      }
     >
-      <div className="d-flex align-items-start gap-3">
-        <div className="d-flex align-items-center justify-content-center flex-shrink-0"
-             style={{ width: 40, height: 40, borderRadius: '50%', background: color + '22' }}>
-          <i className="fa-solid fa-triangle-exclamation" style={{ color, fontSize: 18 }} />
-        </div>
-        <div className="flex-grow-1">
-          <div className="fw-bold mb-1" style={{ color }}>
-            {isUrgent ? '¡Atención! Documentos por caducar pronto' : 'Tienes documentos próximos a caducar'}
-          </div>
-          <div className="small mb-2">
-            En los próximos <strong>{thresholdDays} días</strong> caducan estos documentos. Renuévalos a tiempo
-            para evitar que tu cuenta pase a pendiente de revisión.
-          </div>
-          <div className="d-flex flex-wrap gap-2 mb-2">
-            {docs.map(doc => {
-              const label = DOC_LABEL[doc.docType] ?? doc.docType;
-              const dayText = doc.daysUntilExpiry === 0  ? 'caduca hoy'
-                            : doc.daysUntilExpiry === 1  ? 'caduca mañana'
-                            : `en ${doc.daysUntilExpiry} días`;
-              return (
-                <span key={doc.documentId} className="badge rounded-pill"
-                      style={{ background: color + '22', color, fontSize: '0.75rem' }}>
-                  <i className="fa-solid fa-calendar-day me-1" style={{ fontSize: '0.7rem' }} />
-                  {label}: {dayText}
-                </span>
-              );
-            })}
-          </div>
-          <Link
-            to="/app/conductor/documentos"
-            className="btn btn-sm rounded-pill text-white"
-            style={{ background: color }}
-          >
-            <i className="fa-solid fa-arrow-right me-1" />Ir a renovar documentos
-          </Link>
-        </div>
+      En los próximos <strong>{thresholdDays} días</strong> caducan estos documentos. Renuévalos a tiempo
+      para evitar que tu cuenta pase a pendiente de revisión.
+      <div className="d-flex flex-wrap gap-2 mt-2">
+        {docs.map(doc => {
+          const label = DOC_LABEL[doc.docType] ?? doc.docType;
+          const dayText = doc.daysUntilExpiry === 0  ? 'caduca hoy'
+                        : doc.daysUntilExpiry === 1  ? 'caduca mañana'
+                        : `en ${doc.daysUntilExpiry} días`;
+          return (
+            <StatusBadge key={doc.documentId} tone={isUrgent ? 'bad' : 'warn'} icon="fa-calendar-day">
+              {label}: {dayText}
+            </StatusBadge>
+          );
+        })}
       </div>
-    </div>
+    </Notice>
   );
 }

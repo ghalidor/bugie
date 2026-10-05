@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../state/api';
+import { IconButton } from '../../components/ui';
 import {
   rewardsApi, Redemption,
   STATUS_LABEL, STATUS_COLOR, REWARD_ICON, fmtPoints, fmtDate, describeReward,
@@ -16,9 +17,11 @@ const FILTERS: { key: string | null; label: string }[] = [
 /// Tipos que entrega el equipo de Bugie fuera de la app.
 const MANUAL_TYPES = new Set(['wallet_bonus', 'physical', 'partner_benefit']);
 
-export default function RewardsCoupons({ highlightCode, onDismissHighlight }: {
+export default function RewardsCoupons({ highlightCode, onDismissHighlight, onGoToRaffles }: {
   highlightCode: string | null;
   onDismissHighlight: () => void;
+  /** Abre la pestana de sorteos (para usar un cupon de ticket). */
+  onGoToRaffles?: () => void;
 }) {
   const [status,  setStatus]  = useState<string | null>(null);
   const [items,   setItems]   = useState<Redemption[]>([]);
@@ -42,18 +45,20 @@ export default function RewardsCoupons({ highlightCode, onDismissHighlight }: {
           <div className="flex-grow-1">
             Canje realizado. Tu cupón es <strong>{highlightCode}</strong>.
           </div>
-          <button type="button" className="btn-close" aria-label="Cerrar" onClick={onDismissHighlight} />
+          <IconButton icon="fa-xmark" label="Cerrar aviso" size="sm" variant="ghost" onClick={onDismissHighlight} />
         </div>
       )}
 
-      <div className="d-flex flex-wrap gap-2 mb-3">
+      <div className="bx-chips mb-3" role="group" aria-label="Filtrar cupones">
         {FILTERS.map(f => (
           <button
             key={f.label}
             type="button"
             onClick={() => setStatus(f.key)}
-            className={`btn btn-sm rounded-pill ${status === f.key ? 'btn-bugie' : 'btn-bugie-outline'}`}
+            className="bx-chip"
+            aria-pressed={status === f.key}
           >
+
             {f.label}
           </button>
         ))}
@@ -74,7 +79,7 @@ export default function RewardsCoupons({ highlightCode, onDismissHighlight }: {
       ) : (
         <div className="d-grid gap-2">
           {items.map(r => (
-            <CouponCard key={r.id} coupon={r} highlighted={r.code === highlightCode} />
+            <CouponCard key={r.id} coupon={r} highlighted={r.code === highlightCode} onGoToRaffles={onGoToRaffles} />
           ))}
         </div>
       )}
@@ -82,7 +87,11 @@ export default function RewardsCoupons({ highlightCode, onDismissHighlight }: {
   );
 }
 
-function CouponCard({ coupon, highlighted }: { coupon: Redemption; highlighted: boolean }) {
+function CouponCard({ coupon, highlighted, onGoToRaffles }: {
+  coupon: Redemption;
+  highlighted: boolean;
+  onGoToRaffles?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const color = STATUS_COLOR[coupon.status] ?? '#94a3b8';
 
@@ -109,12 +118,15 @@ function CouponCard({ coupon, highlighted }: { coupon: Redemption; highlighted: 
             <div className="fw-semibold">{coupon.itemName}</div>
             <div className="small bugie-muted">{describeReward(coupon)}</div>
             <div className="small bugie-muted mt-1">
-              Canjeado el {fmtDate(coupon.createdAt)} por {fmtPoints(coupon.pointsSpent)} pts
+              {/* Los cupones de nivel no cuestan puntos: decir «0 pts» confunde. */}
+              {coupon.pointsSpent > 0
+                ? <>Canjeado el {fmtDate(coupon.createdAt)} por {fmtPoints(coupon.pointsSpent)} pts</>
+                : <>Beneficio de nivel · obtenido el {fmtDate(coupon.createdAt)}</>}
             </div>
           </div>
 
           <span className="small fw-semibold px-2 py-1" style={{
-            borderRadius: 999, background: `${color}22`, color,
+            borderRadius: 999, background: `color-mix(in srgb, ${color} 13%, transparent)`, color,
           }}>
             {STATUS_LABEL[coupon.status] ?? coupon.status}
           </span>
@@ -147,6 +159,17 @@ function CouponCard({ coupon, highlighted }: { coupon: Redemption; highlighted: 
           <div className="small bugie-muted mt-2">
             <i className="fa-solid fa-circle-info me-1" />
             La entrega la coordina el equipo de Bugie.
+          </div>
+        )}
+
+        {coupon.status === 'active' && coupon.rewardType === 'raffle_ticket' && (
+          <div className="small mt-2 d-flex flex-wrap align-items-center gap-2">
+            <span className="bugie-muted"><i className="fa-solid fa-ticket me-1" aria-hidden="true" />Úsalo en un sorteo abierto.</span>
+            {onGoToRaffles && (
+              <button type="button" className="btn btn-sm btn-link p-0" onClick={onGoToRaffles}>
+                Ver sorteos
+              </button>
+            )}
           </div>
         )}
 

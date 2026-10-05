@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Rewards.Application.Commands;
 using Bugie.Rewards.Application.Queries;
+using Bugie.Rewards.Api.Filters;
+using Bugie.Rewards.Domain.External;
 
 namespace Bugie.Rewards.Api.Controllers;
 
@@ -11,20 +13,24 @@ namespace Bugie.Rewards.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/rewards/internal")]
+[InternalToken] // todo el controlador exige X-Internal-Token
 public class RewardsInternalController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _config;
     private readonly ILogger<RewardsInternalController> _log;
+    private readonly ITripsStatsClient _trips;
 
     public RewardsInternalController(
         IMediator mediator,
         IConfiguration config,
-        ILogger<RewardsInternalController> log)
+        ILogger<RewardsInternalController> log,
+        ITripsStatsClient trips)
     {
         _mediator = mediator;
         _config   = config;
         _log      = log;
+        _trips    = trips;
     }
 
     public record TripRatedRequest(
@@ -36,13 +42,35 @@ public class RewardsInternalController : ControllerBase
     /// <summary>
     /// POST /api/rewards/internal/trip-rated
     /// Lo manda la bandeja de salida de Trips cuando el pasajero califica.
+    ///
+    /// Antes de dar puntos se confirma con Trips que el viaje existe, está
+    /// completado y que ESE pasajero lo calificó (las estrellas salen de Trips).
     /// </summary>
     [HttpPost("trip-rated")]
     public async Task<IActionResult> TripRated(
-        [FromBody] TripRatedRequest req, CancellationToken ct)
+        [FromBody] TripRatedRequest req,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
     {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
+        if (req.TripId == Guid.Empty || req.PassengerId == Guid.Empty || req.DriverId == Guid.Empty)
+            return BadRequest(new { error = "TripId, PassengerId y DriverId son requeridos." });
+
+        var check = await _trips.GetRatingCheckAsync(req.TripId, ct);
+        if (check is null)
+            // Trips no respondió: 503 para que la bandeja de salida reintente.
+            return StatusCode(503, new { error = "No se pudo verificar el viaje en Trips." });
+
+        if (!check.Exists || !check.Completed || !check.Rated
+            || check.PassengerId != req.PassengerId || check.RatedBy != req.PassengerId
+            || check.DriverId != req.DriverId || check.Stars is null)
+        {
+            _log.LogWarning("Calificación del viaje {TripId} rechazada: no coincide con Trips.", req.TripId);
+            return BadRequest(new { error = "El viaje no existe, no está completado o no fue calificado por ese pasajero." });
+        }
+
         var result = await _mediator.Send(new AccrueRatingPointsCommand(
-            req.TripId, req.PassengerId, req.DriverId, req.Stars), ct);
+            req.TripId, req.PassengerId, req.DriverId, check.Stars.Value), ct);
 
         _log.LogInformation(
             "Calificación del viaje {TripId}: {P} puntos al pasajero, {D} al conductor",
@@ -67,8 +95,11 @@ public class RewardsInternalController : ControllerBase
     /// </summary>
     [HttpPost("referral")]
     public async Task<IActionResult> Referral(
-        [FromBody] ReferralRequest req, CancellationToken ct)
+        [FromBody] ReferralRequest req,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
     {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
         try
         {
             var result = await _mediator.Send(new RegisterReferralCommand(
@@ -103,17 +134,7 @@ public class RewardsInternalController : ControllerBase
         [FromHeader(Name = "X-Internal-Token")] string? token,
         CancellationToken ct)
     {
-        var expected = _config["InternalToken"] ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(expected))
-        {
-            _log.LogError("InternalToken no configurado en appsettings.");
-            return StatusCode(500, new { error = "Configuracion incompleta." });
-        }
-        if (string.IsNullOrWhiteSpace(token) || token != expected)
-        {
-            _log.LogWarning("Intento de acceso a /rewards/internal/trip-completed con token invalido.");
-            return Unauthorized(new { error = "Token interno invalido." });
-        }
+        if (!IsInternalTokenValid(token, out var tokenError)) return tokenError!;
 
         if (req.TripId == Guid.Empty)
             return BadRequest(new { error = "TripId requerido." });
@@ -140,29 +161,7 @@ public class RewardsInternalController : ControllerBase
         }
     }
 
-    // ─────────────────── CUPONES (para Trips, mas adelante) ───────────────────
-
-    /// <summary>
-    /// GET /api/rewards/internal/coupon/{code}
-    /// Valida un cupon sin consumirlo. Lo usara Trips para mostrar el descuento
-    /// antes de confirmar el viaje.
-    ///
-    /// Hoy nadie lo llama: queda listo para el paso en que se apliquen los
-    /// descuentos en la tarifa. Trips NO fue modificado en este paso.
-    /// </summary>
-    [HttpGet("coupon/{code}")]
-    public async Task<IActionResult> GetCoupon(
-        string code,
-        [FromHeader(Name = "X-Internal-Token")] string? token,
-        CancellationToken ct)
-    {
-        if (!IsInternalTokenValid(token, out var error)) return error!;
-
-        var dto = await _mediator.Send(new GetRedemptionByCodeQuery(code), ct);
-        return dto is null
-            ? NotFound(new { error = "Cupon no encontrado." })
-            : Ok(dto);
-    }
+    // ─────────────────── CUPONES (para Trips) ─────────────────────────────────
 
     public record ValidateCouponRequest(
         string  Code,
@@ -216,6 +215,41 @@ public class RewardsInternalController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>
+    /// GET /api/rewards/internal/payout-codes/{code}
+    /// Payments consulta un código de cobro (canje BG-... o premio PZ-...):
+    /// qué es, de quién, monto y si se puede pagar.
+    /// </summary>
+    [HttpGet("payout-codes/{code}")]
+    public async Task<IActionResult> LookupPayoutCode(
+        string code,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
+    {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
+        try   { return Ok(await _mediator.Send(new LookupPayoutCodeQuery(code), ct)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+    }
+
+    public record SettlePayoutCodeRequest(Guid? AdminId, string? Note);
+
+    /// <summary>
+    /// POST /api/rewards/internal/payout-codes/{code}/settle
+    /// Payments ya registró el pago: el canje queda usado o el premio entregado.
+    /// </summary>
+    [HttpPost("payout-codes/{code}/settle")]
+    public async Task<IActionResult> SettlePayoutCode(
+        string code,
+        [FromBody] SettlePayoutCodeRequest? body,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        CancellationToken ct)
+    {
+        if (!IsInternalTokenValid(token, out var error)) return error!;
+        try   { return Ok(await _mediator.Send(new SettlePayoutCodeCommand(code, body?.AdminId, body?.Note), ct)); }
+        catch (KeyNotFoundException ex)      { return NotFound(new { error = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
     public record NotifyPayoutRequest(
         Guid UserId, decimal Amount, string Method,
         string? OperationNumber, string? SourceType, string? Note);
@@ -251,7 +285,7 @@ public class RewardsInternalController : ControllerBase
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(token) || token != expected)
+        if (!InternalTokenAttribute.Matches(token, expected))
         {
             _log.LogWarning("Intento de acceso interno con token invalido.");
             error = Unauthorized(new { error = "Token interno invalido." });

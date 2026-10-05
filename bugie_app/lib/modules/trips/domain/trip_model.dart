@@ -75,6 +75,9 @@ class Trip {
   final String id;
   final String passengerId;
   final String? passengerName;
+  // "Nombre A." armado por el backend (solo en /trips/pending). null si
+  // el pasajero no tiene los nombres separados.
+  final String? passengerShortName;
   final String? passengerPhotoUrl;
   final String? driverName;
   final String? driverPhotoUrl;
@@ -134,12 +137,38 @@ class Trip {
   final String? cancelReason;
   final String? pickupObservation;
 
+  // ---- Programado ----
+  /// Hora programada del recojo (hora de Perú). null = viaje "ahora".
+  final DateTime? scheduledAt;
+  /// El programado ya cuenta como viaje activo (faltan 30 min o menos, el
+  /// conductor marcó llegada o ya inició): el conductor puede ir.
+  final bool scheduledActive;
+  /// El conductor del programado no llegó (15 min después de la hora sin
+  /// "Ya llegué"): el pasajero puede cancelar sin penalidad o republicar.
+  final bool driverLate;
+
+  // ---- Datos extra para el conductor (GET /api/trips/pending) ----
+  /// Calificación del pasajero (hoy siempre null: aún no existe).
+  final double? passengerRating;
+  final int? passengerRatingCount;
+  /// Hora límite (hora de Perú). Solo en /pending; null si no aplica.
+  final DateTime? expiresAt;
+  /// 'proposal_confirm' | 'scheduled_time' | null.
+  final String? expiresReason;
+  /// Lo que ofrece el pasajero (en /pending: su última contraoferta a este
+  /// conductor o la tarifa estimada; en otras respuestas = estimatedFare).
+  final double? passengerOfferFare;
+
   bool get isDelivery => serviceType == 1;
+  bool get isScheduled => scheduledAt != null;
+  /// Programado que todavía no llega su momento (no es el viaje activo).
+  bool get isFutureScheduled => scheduledAt != null && !scheduledActive;
 
   Trip({
     required this.id,
     required this.passengerId,
     this.passengerName,
+    this.passengerShortName,
     this.passengerPhotoUrl,
     this.driverName,
     this.driverPhotoUrl,
@@ -185,12 +214,21 @@ class Trip {
     this.cancelledBy,
     this.cancelReason,
     this.pickupObservation,
+    this.scheduledAt,
+    this.scheduledActive = false,
+    this.driverLate = false,
+    this.passengerRating,
+    this.passengerRatingCount,
+    this.expiresAt,
+    this.expiresReason,
+    this.passengerOfferFare,
   });
 
   factory Trip.fromJson(Map<String, dynamic> j) => Trip(
         id:             j['id'].toString(),
         passengerId:    (j['passengerId'] ?? '').toString(),
         passengerName:  j['passengerName']?.toString(),
+        passengerShortName: j['passengerShortName']?.toString(),
         passengerPhotoUrl: j['passengerPhotoUrl']?.toString(),
         driverName:     j['driverName']?.toString(),
         driverPhotoUrl: j['driverPhotoUrl']?.toString(),
@@ -239,5 +277,13 @@ class Trip {
         cancelledBy:        j['cancelledBy']?.toString(),
         cancelReason:       j['cancelReason']?.toString(),
         pickupObservation: j['pickupObservation']?.toString(),
+        scheduledAt:       DateTime.tryParse(j['scheduledAt'] ?? ''),
+        scheduledActive:   j['scheduledActive'] == true,
+        driverLate:        j['driverLate'] == true,
+        passengerRating:   (j['passengerRating'] as num?)?.toDouble(),
+        passengerRatingCount: (j['passengerRatingCount'] as num?)?.toInt(),
+        expiresAt:         DateTime.tryParse(j['expiresAt'] ?? ''),
+        expiresReason:     j['expiresReason']?.toString(),
+        passengerOfferFare: (j['passengerOfferFare'] as num?)?.toDouble(),
       );
 }

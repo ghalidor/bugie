@@ -25,10 +25,10 @@ public class AuthClient : IAuthClient
         if(idList.Count == 0) return new Dictionary<Guid, UserInfoDto>();
 
         var query = string.Join("&", idList.Select(id => $"ids={id}"));
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/auth/users/bulk?{query}");
-
-        var token = _httpContext.HttpContext?.Request.Headers["Authorization"].ToString();
-        if(!string.IsNullOrEmpty(token)) req.Headers.Add("Authorization", token);
+        // Endpoint interno de Auth (X-Internal-Token): el publico /api/auth/users/bulk
+        // ya solo devuelve datos minimos a quien no es admin.
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/internal/users/bulk?{query}");
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
 
         try
         {
@@ -81,5 +81,61 @@ public class AuthClient : IAuthClient
             // próximo push fallido.
         }
         catch { /* Idempotente, ignoramos errores. */ }
+    }
+
+    public async Task SendEmailToUserAsync(
+        Guid userId, string subject, string title, string message, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/internal/notify/email");
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+        req.Content = JsonContent.Create(new { userId, subject, title, message });
+        try
+        {
+            using var res = await _http.SendAsync(req, ct);
+            if(!res.IsSuccessStatusCode)
+                Console.WriteLine($"[Email] Auth respondio {(int)res.StatusCode} al enviar correo a {userId}.");
+        }
+        catch(Exception ex)
+        {
+            // El correo es un aviso extra: si falla, el flujo sigue.
+            Console.WriteLine($"[Email] No se pudo enviar correo a {userId}: {ex.Message}");
+        }
+    }
+
+    public async Task<EmergencyContactInfo?> GetEmergencyContactAsync(Guid userId, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/internal/emergency-contact/{userId}");
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+        try
+        {
+            using var res = await _http.SendAsync(req, ct);
+            // 404 = el usuario no registró contacto.
+            if(!res.IsSuccessStatusCode) return null;
+            return await res.Content.ReadFromJsonAsync<EmergencyContactInfo>(cancellationToken: ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task SendEmailToAddressAsync(
+        string toEmail, string? toName, string subject, string title, string message,
+        string? linkUrl = null, string? linkText = null, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/internal/notify/email-to");
+        req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+        req.Content = JsonContent.Create(new { toEmail, toName, subject, title, message, linkUrl, linkText });
+        try
+        {
+            using var res = await _http.SendAsync(req, ct);
+            if(!res.IsSuccessStatusCode)
+                Console.WriteLine($"[Email] Auth respondio {(int)res.StatusCode} al enviar correo a {toEmail}.");
+        }
+        catch(Exception ex)
+        {
+            // El correo es un aviso extra: si falla, el flujo sigue.
+            Console.WriteLine($"[Email] No se pudo enviar correo a {toEmail}: {ex.Message}");
+        }
     }
 }

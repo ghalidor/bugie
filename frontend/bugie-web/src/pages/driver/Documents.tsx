@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import PageHeader from '../../components/PageHeader';
-import { API, apiFetch, ApiError } from '../../state/api';
+import { Link } from 'react-router-dom';
+import { API, apiFetch, ApiError, driversFileUrl } from '../../state/api';
+import { Notice, Page, SectionCard, Skeleton, StatusBadge, Tone, useToast } from '../../components/ui';
 
 interface Doc {
   id:               string;
@@ -15,7 +16,14 @@ interface Doc {
   createdAt:        string;
 }
 
-interface DriverProfile { id: string; status: number; }
+interface DriverProfile {
+  id: string; status: number;
+  // Aprobación por excepción: fecha límite para completar documentos,
+  // faltas acumuladas y documentos obligatorios que faltan (los calcula el backend).
+  documentsDeadline?: string | null;
+  strikes?: number;
+  missingDocuments?: string[] | null;
+}
 
 const REQUIRED_DOCS: Array<{
   key: string; label: string; icon: string; description: string; needsExpiry?: boolean;
@@ -29,17 +37,16 @@ const REQUIRED_DOCS: Array<{
   { key: 'certificado_unico_laboral', label: 'Certificado único laboral',  icon: 'fa-clipboard-check',   description: 'Certificado único laboral del MTPE.' },
 ];
 
-const STATUS_COLOR: Record<string, string> = {
-  pending:    '#f59e0b',
-  approved:   '#10b981',
-  rejected:   '#ef4444',
-  superseded: '#94a3b8',
+// Requisitos que no son documentos de esta lista pero pueden venir en missingDocuments.
+const EXTRA_LABELS: Record<string, string> = {
+  profile_photo: 'Foto de perfil',
 };
-const STATUS_LABEL: Record<string, string> = {
-  pending:    'Pendiente de revisión',
-  approved:   'Aprobado',
-  rejected:   'Rechazado',
-  superseded: 'Reemplazado',
+
+const STATUS_CFG: Record<string, { label: string; tone: Tone }> = {
+  pending:    { label: 'En revisión', tone: 'warn' },
+  approved:   { label: 'Aprobado',    tone: 'ok' },
+  rejected:   { label: 'Rechazado',   tone: 'bad' },
+  superseded: { label: 'Reemplazado', tone: 'neutral' },
 };
 
 function isExpired(doc: Doc): boolean {
@@ -48,12 +55,12 @@ function isExpired(doc: Doc): boolean {
 }
 
 export default function DriverDocuments() {
-  const [_profile, setProfile] = useState<DriverProfile | null>(null);
+  const toast = useToast();
+  const [profile,  setProfile] = useState<DriverProfile | null>(null);
   const [docs,     setDocs]    = useState<Doc[]>([]);
   const [loading,  setLoading] = useState(true);
   const [uploading, setUploading] = useState<string | null>(null);
   const [error,    setError]   = useState<string | null>(null);
-  const [success,  setSuccess] = useState<string | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -72,7 +79,7 @@ export default function DriverDocuments() {
   }
 
   async function handleUpload(docType: string, file: File, expiresAt?: string) {
-    setError(null); setSuccess(null);
+    setError(null);
 
     // Validar fecha obligatoria para licencia/soat/revision_tecnica
     const requirement = REQUIRED_DOCS.find(d => d.key === docType);
@@ -119,8 +126,7 @@ export default function DriverDocuments() {
       const saved = await res.json();
       // Reemplazar el doc anterior del mismo tipo
       setDocs(prev => [...prev.filter(d => d.docType !== docType), saved]);
-      setSuccess(`${labelOf(docType)} subido correctamente.`);
-      setTimeout(() => setSuccess(null), 4000);
+      toast.success(`${labelOf(docType)} subido correctamente.`);
     } catch (e: any) {
       setError(e.message ?? 'No se pudo subir el archivo.');
     } finally {
@@ -129,63 +135,79 @@ export default function DriverDocuments() {
   }
 
   function labelOf(docType: string) {
-    return REQUIRED_DOCS.find(d => d.key === docType)?.label ?? docType;
+    return REQUIRED_DOCS.find(d => d.key === docType)?.label ?? EXTRA_LABELS[docType] ?? docType;
   }
 
   // Solo cuentan los activos (no superseded)
   const activeDocs  = docs.filter(d => d.status !== 'superseded');
   const completed   = activeDocs.filter(d => d.status !== 'rejected').length;
+  const approvedN   = activeDocs.filter(d => d.status === 'approved').length;
   const allUploaded = REQUIRED_DOCS.every(r =>
     activeDocs.some(x => x.docType === r.key && x.status !== 'rejected'));
 
   return (
-    <>
-      <PageHeader
-        title="Mis documentos"
-        subtitle="Sube los documentos necesarios para activar tu cuenta de conductor."
-        icon="fa-folder-open"
-      />
+    <Page
+      title="Mis documentos"
+      subtitle="Sube y mantén al día los documentos que habilitan tu cuenta de conductor."
+      icon="fa-folder-open"
+    >
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {error && (
-        <div className="alert alert-danger small py-2 mb-3 d-flex align-items-center gap-2">
-          <i className="fa-solid fa-circle-exclamation" /> {error}
-        </div>
+      {/* Aviso de plazo: aprobado por excepción con documentos pendientes */}
+      {profile?.documentsDeadline && (
+        <Notice
+          tone="warn"
+          icon="fa-hourglass-half"
+          title={`Tienes hasta el ${new Date(profile.documentsDeadline).toLocaleString('es-PE', {
+            day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+          })} para completar tus documentos.`}
+        >
+          {(profile.missingDocuments?.length ?? 0) > 0 && (
+            <div>Te faltan (subidos y aprobados): {profile.missingDocuments!.map(labelOf).join(', ')}.</div>
+          )}
+          <div className="mt-1">
+            Si no los completas a tiempo, tu cuenta se desactivará automáticamente y se te registrará una falta.
+          </div>
+        </Notice>
       )}
-      {success && (
-        <div className="alert alert-success small py-2 mb-3 d-flex align-items-center gap-2">
-          <i className="fa-solid fa-circle-check" /> {success}
-        </div>
+
+      {/* La foto de perfil también es obligatoria (se sube desde Mi perfil) */}
+      {profile?.missingDocuments?.includes('profile_photo') && (
+        <Notice
+          tone="warn"
+          icon="fa-camera"
+          title="Te falta tu foto de perfil"
+          action={<Link className="btn btn-sm btn-bugie" to="/app/conductor/perfil">Subir foto</Link>}
+        >
+          Es obligatoria para que podamos aprobar tu cuenta.
+        </Notice>
       )}
 
       {/* Progreso */}
-      <div className="bugie-card p-3 mb-3">
-        <div className="d-flex justify-content-between align-items-center mb-2 small">
+      <SectionCard>
+        <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
           <span className="fw-bold">Avance de verificación</span>
-          <span className="bugie-muted">{completed} / {REQUIRED_DOCS.length}</span>
+          <span className="small bx-muted">
+            {completed} de {REQUIRED_DOCS.length} subidos · {approvedN} aprobados
+          </span>
         </div>
-        <div className="progress" style={{ height: 8 }}>
-          <div className="progress-bar"
-            style={{
-              width: `${(completed / REQUIRED_DOCS.length) * 100}%`,
-              background: 'linear-gradient(90deg, #4F7DF5, #B85FE6, #E673D9)',
-            }}
-          />
+        <div className="bx-progress" role="progressbar" aria-label="Documentos subidos"
+             aria-valuemin={0} aria-valuemax={REQUIRED_DOCS.length} aria-valuenow={completed}>
+          <span style={{ width: `${(completed / REQUIRED_DOCS.length) * 100}%` }} />
         </div>
         {allUploaded && (
-          <div className="small mt-2 text-success">
-            <i className="fa-solid fa-circle-check me-1" />
+          <p className="small mt-2 mb-0 bx-text-ok">
+            <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />
             Todos los documentos subidos. El equipo de Bugie los revisará en 24-48 horas.
-          </div>
+          </p>
         )}
-      </div>
+      </SectionCard>
 
       {/* Lista de documentos */}
       {loading ? (
-        <div className="d-flex justify-content-center py-5">
-          <span className="spinner-border" />
-        </div>
+        <div className="bx-rows">{[0, 1, 2].map(i => <Skeleton key={i} height={96} radius={14} />)}</div>
       ) : (
-        <div className="d-grid gap-3">
+        <div className="bx-rows">
           {REQUIRED_DOCS.map(req => {
             const doc = activeDocs.find(d => d.docType === req.key);
             return (
@@ -200,7 +222,7 @@ export default function DriverDocuments() {
           })}
         </div>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -214,21 +236,22 @@ interface RowProps {
 function DocumentRow({ req, doc, uploading, onUpload }: RowProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [expiresAt, setExpiresAt] = useState(doc?.expiresAt?.slice(0, 10) ?? '');
+  const [needDate, setNeedDate] = useState(false);
 
-  const status   = doc?.status;
-  const color    = status ? STATUS_COLOR[status] : '#94a3b8';
+  const cfg      = doc ? STATUS_CFG[doc.status] : null;
   const expired  = doc ? isExpired(doc) : false;
 
-  // ¿Está bloqueado para cambios?
-  // Aprobado y NO vencido = bloqueado completo (no se puede reemplazar ni cambiar fecha)
-  // Aprobado y vencido = se permite subir uno nuevo y editar fecha (porque va a renovar)
+  // Aprobado y NO vencido = bloqueado (no se puede reemplazar ni cambiar fecha).
+  // Aprobado y vencido = se permite subir uno nuevo y editar la fecha.
   const lockedByApproval = doc?.status === 'approved' && !expired;
+  const dateId = `exp-${req.key}`;
 
   function pick() {
     if (lockedByApproval) return;
-    // Si requiere fecha y no la escogió, no permitir abrir el selector de archivos
+    // Si requiere fecha y no la escogió, no abrir el selector de archivos
     if (req.needsExpiry && !expiresAt) {
-      alert('Primero escoge la fecha de caducidad.');
+      setNeedDate(true);
+      document.getElementById(dateId)?.focus();
       return;
     }
     fileRef.current?.click();
@@ -241,121 +264,93 @@ function DocumentRow({ req, doc, uploading, onUpload }: RowProps) {
     e.target.value = '';
   }
 
+  const tone: Tone = expired && doc?.status === 'approved' ? 'bad' : cfg?.tone ?? 'neutral';
+
   return (
-    <div className="bugie-card p-3">
-      <div className="d-flex align-items-start gap-3">
-        <div
-          className="d-flex align-items-center justify-content-center flex-shrink-0"
-          style={{
-            width: 48, height: 48, borderRadius: 12,
-            background: color + '22', color, fontSize: 20,
-          }}
-        >
-          <i className={`fa-solid ${req.icon}`} />
-        </div>
+    <div className="bx-row">
+      <span className={`bx-list-icon bx-tone-${tone}`} aria-hidden="true">
+        <i className={`fa-solid ${req.icon}`} />
+      </span>
 
-        <div className="flex-grow-1" style={{ minWidth: 0 }}>
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-1">
-            <span className="fw-bold">{req.label}</span>
-            {status && (
-              <span
-                className="badge rounded-pill"
-                style={{ background: color + '22', color, fontSize: '0.72rem' }}
-              >
-                {STATUS_LABEL[status]}
-              </span>
-            )}
-            {expired && doc?.status === 'approved' && (
-              <span
-                className="badge rounded-pill"
-                style={{ background: '#ef444422', color: '#ef4444', fontSize: '0.72rem' }}
-              >
-                <i className="fa-solid fa-calendar-xmark me-1" />Vencido
-              </span>
-            )}
+      <div className="bx-list-text">
+        <div className="bx-list-title">
+          {req.label}
+          {cfg ? <StatusBadge tone={cfg.tone} size="sm">{cfg.label}</StatusBadge> : <StatusBadge tone="neutral" size="sm">Falta subir</StatusBadge>}
+          {expired && doc?.status === 'approved' && (
+            <StatusBadge tone="bad" icon="fa-calendar-xmark" size="sm">Vencido</StatusBadge>
+          )}
+        </div>
+        <div className="bx-list-sub">{req.description}</div>
+
+        {doc?.status === 'rejected' && doc.rejectionReason && (
+          <div className="small bx-text-bad mt-1">
+            <i className="fa-solid fa-circle-info me-1" aria-hidden="true" />Motivo: {doc.rejectionReason}
           </div>
-          <div className="small bugie-muted">{req.description}</div>
+        )}
 
-          {doc?.status === 'rejected' && doc.rejectionReason && (
-            <div className="small text-danger mt-1">
-              <i className="fa-solid fa-circle-info me-1" />
-              Motivo: {doc.rejectionReason}
-            </div>
-          )}
+        {doc && (
+          <div className="bx-list-sub mt-1">
+            <i className="fa-solid fa-paperclip me-1" aria-hidden="true" />
+            {doc.originalFileName ?? 'archivo'}
+            {doc.sizeBytes ? ` · ${(doc.sizeBytes / 1024).toFixed(0)} KB` : ''}
+            {doc.expiresAt && ` · vence el ${new Date(doc.expiresAt).toLocaleDateString('es-PE')}`}
+          </div>
+        )}
 
-          {doc && (
-            <div className="small bugie-muted mt-1">
-              <i className="fa-solid fa-paperclip me-1" />
-              {doc.originalFileName ?? 'archivo'}
-              {doc.sizeBytes ? ` · ${(doc.sizeBytes / 1024).toFixed(0)} KB` : ''}
-            </div>
-          )}
-
-          {req.needsExpiry && (
-            <div className="mt-2" style={{ maxWidth: 240 }}>
-              <label className="form-label small mb-1">
-                Fecha de caducidad <span className="text-danger">*</span>
-              </label>
-              <input
-                type="date"
-                className="form-control form-control-sm"
-                value={expiresAt}
-                onChange={e => setExpiresAt(e.target.value)}
-                disabled={lockedByApproval}
-                min={new Date().toISOString().slice(0, 10)}
-              />
-              {req.needsExpiry && !doc && !expiresAt && (
-                <div className="small mt-1" style={{ color: '#f59e0b' }}>
-                  <i className="fa-solid fa-triangle-exclamation me-1" />
-                  Obligatoria para subir este documento
-                </div>
-              )}
-              {lockedByApproval && (
-                <div className="small bugie-muted mt-1">
-                  <i className="fa-solid fa-lock me-1" />
-                  Bloqueado tras aprobación
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="d-flex flex-column gap-2 flex-shrink-0">
-          <input
-            type="file" ref={fileRef} hidden
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            onChange={onFile}
-          />
-
-          {/* Botón Subir/Reemplazar — deshabilitado si está aprobado y no vencido */}
-          <button
-            type="button"
-            className="btn btn-sm btn-bugie text-white"
-            onClick={pick}
-            disabled={uploading || lockedByApproval}
-            title={lockedByApproval ? 'Este documento ya fue aprobado' : ''}
-          >
-            {uploading ? (
-              <><span className="spinner-border spinner-border-sm me-2" />Subiendo</>
+        {req.needsExpiry && (
+          <div className={`bx-field mt-2 ${needDate && !expiresAt ? 'has-error' : ''}`} style={{ maxWidth: '16rem' }}>
+            <label className="bx-field-label" htmlFor={dateId}>
+              Fecha de caducidad <span className="bx-field-req" aria-hidden="true">*</span>
+            </label>
+            <input
+              id={dateId}
+              type="date"
+              className="form-control form-control-sm"
+              value={expiresAt}
+              onChange={e => { setExpiresAt(e.target.value); setNeedDate(false); }}
+              disabled={lockedByApproval}
+              min={new Date().toISOString().slice(0, 10)}
+              aria-invalid={needDate && !expiresAt ? true : undefined}
+            />
+            {needDate && !expiresAt ? (
+              <p className="bx-field-error" role="alert"><i className="fa-solid fa-circle-exclamation" aria-hidden="true" />Primero escoge la fecha de caducidad.</p>
+            ) : !doc && !expiresAt ? (
+              <p className="bx-field-help bx-text-warn">Obligatoria para subir este documento.</p>
             ) : lockedByApproval ? (
-              <><i className="fa-solid fa-lock me-1" />Aprobado</>
-            ) : doc ? (
-              <><i className="fa-solid fa-rotate me-1" />Reemplazar</>
-            ) : (
-              <><i className="fa-solid fa-upload me-1" />Subir</>
-            )}
-          </button>
+              <p className="bx-field-help"><i className="fa-solid fa-lock me-1" aria-hidden="true" />Bloqueado tras aprobación</p>
+            ) : null}
+          </div>
+        )}
+      </div>
 
-          {doc && (
-            <a
-              href={doc.fileUrl}
-              target="_blank" rel="noreferrer"
-              className="btn btn-sm btn-bugie-outline"
-            >
-              <i className="fa-solid fa-eye me-1" />Ver
-            </a>
+      <div className="bx-list-end flex-wrap">
+        <input
+          type="file" ref={fileRef} hidden
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          onChange={onFile}
+        />
+        {doc && (
+          <a href={driversFileUrl(doc.fileUrl)} target="_blank" rel="noreferrer" className="btn btn-sm btn-bugie-outline">
+            <i className="fa-solid fa-eye" aria-hidden="true" />Ver
+          </a>
+        )}
+        <button
+          type="button"
+          className={`btn btn-sm ${doc ? 'btn-bugie-outline' : 'btn-bugie'}`}
+          onClick={pick}
+          disabled={uploading || lockedByApproval}
+          title={lockedByApproval ? 'Este documento ya fue aprobado' : undefined}
+        >
+          {uploading ? (
+            <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Subiendo</>
+          ) : lockedByApproval ? (
+            <><i className="fa-solid fa-lock" aria-hidden="true" />Aprobado</>
+          ) : doc ? (
+            <><i className="fa-solid fa-rotate" aria-hidden="true" />Reemplazar</>
+          ) : (
+            <><i className="fa-solid fa-upload" aria-hidden="true" />Subir</>
           )}
-        </div>
+        </button>
       </div>
     </div>
   );

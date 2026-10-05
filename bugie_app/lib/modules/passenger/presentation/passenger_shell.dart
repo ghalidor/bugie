@@ -79,8 +79,8 @@ class _PassengerShellState extends State<PassengerShell> {
               label: 'Viajes',
             ),
             NavigationDestination(
-              icon: Icon(Icons.local_shipping_outlined),
-              selectedIcon: Icon(Icons.local_shipping),
+              icon: Icon(Icons.inventory_2_outlined),
+              selectedIcon: Icon(Icons.inventory_2),
               label: 'Envíos',
             ),
             NavigationDestination(

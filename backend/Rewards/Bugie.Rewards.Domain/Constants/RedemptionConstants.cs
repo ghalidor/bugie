@@ -60,3 +60,15 @@ public static class RedemptionSourceEvents
     public const string CatalogRedemption = "catalog_redemption";
     public const string RedemptionRefund  = "redemption_refund";
 }
+
+/// <summary>Beneficios de nivel que el pasajero reclama cada mes.</summary>
+public static class LevelBenefitTypes
+{
+    /// <summary>Cupon con el % de descuento del nivel (rewardtype discount_period).</summary>
+    public const string Discount = "discount";
+
+    /// <summary>Viaje gratis hasta el tope del nivel (rewardtype free_trip).</summary>
+    public const string FreeTrip = "free_trip";
+
+    public static bool IsValid(string? v) => v is Discount or FreeTrip;
+}

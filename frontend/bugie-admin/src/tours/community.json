@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='community-stats']",
+      "title": "Tus publicaciones en números",
+      "text": "Cuántas hay, cuántas se ven en la web y cuántas están ocultas. Toca una tarjeta para filtrar."
+    },
+    {
+      "selector": "[data-tour='community-lang']",
+      "title": "Un idioma a la vez",
+      "text": "Las publicaciones en español e inglés se gestionan por separado. Cambia aquí de idioma."
+    },
+    {
+      "selector": "[data-tour='community-filters']",
+      "title": "Busca y filtra",
+      "text": "Escribe para buscar por título o resumen, y usa los chips para ver solo publicadas, ocultas o un tema."
+    },
+    {
+      "selector": "[data-tour='community-list']",
+      "title": "Edita con un toque",
+      "text": "Toca una fila para editarla. Con el menú «⋯» puedes publicarla u ocultarla de la web."
+    }
+  ]
+}

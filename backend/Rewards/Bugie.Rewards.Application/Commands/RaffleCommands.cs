@@ -120,7 +120,10 @@ public record DrawRaffleNowCommand(Guid Id) : IRequest<RaffleDto>;
 public class DrawRaffleNowHandler : IRequestHandler<DrawRaffleNowCommand, RaffleDto>
 {
     private readonly IRaffleRepository _raffles;
-    public DrawRaffleNowHandler(IRaffleRepository raffles) => _raffles = raffles;
+    private readonly IMediator         _mediator;
+
+    public DrawRaffleNowHandler(IRaffleRepository raffles, IMediator mediator)
+        => (_raffles, _mediator) = (raffles, mediator);
 
     public async Task<RaffleDto> Handle(DrawRaffleNowCommand cmd, CancellationToken ct)
     {
@@ -157,7 +160,15 @@ public class DrawRaffleNowHandler : IRequestHandler<DrawRaffleNowCommand, Raffle
         }).ToList();
 
         await _raffles.SaveDrawAsync(raffle, winners, ct);
-        return GetRafflesHandler.ToDto(raffle, tickets.Count, winners);
+
+        // Aviso a los ganadores (push + bandeja + correo). Nunca rompe el
+        // sorteo, que ya quedó guardado.
+        try { await _mediator.Send(new NotifyRaffleWinnersCommand(raffle.Id), ct); }
+        catch { /* el push y el correo registran sus fallos en el log */ }
+
+        // Se releen para devolver el código PZ que generó la base.
+        var guardados = await _raffles.GetWinnersAsync(raffle.Id, ct);
+        return GetRafflesHandler.ToDto(raffle, tickets.Count, guardados.Count > 0 ? guardados : winners);
     }
 }
 

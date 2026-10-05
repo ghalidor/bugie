@@ -1,13 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ApiError } from '../../../state/api';
-import { rewardsAdminApi, ReferralStats, fmtPoints, fmtDate } from '../../../state/rewards';
+import { useCallback, useEffect, useState } from 'react';
+import { rewardsAdminApi, ReferralStats, TopReferrer, fmtPoints, fmtDate } from '../../../state/rewards';
+import { Column, DataTable, EmptyState, SectionCard, Skeleton, StatCard, StatGrid } from '../../../components/ui';
+import { errMsg, LoadError } from './common';
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Referidos, vista del admin.
-
-   La pregunta que responde esta pantalla es si el programa vale lo que cuesta:
-   cuántos usuarios trajo, cuántos de ellos se quedaron, y cuántos puntos se
-   regalaron para conseguirlo.
+   Referidos: ¿el programa vale lo que cuesta? Cuántos usuarios trajo,
+   cuántos se quedaron y cuántos puntos se regalaron para conseguirlo.
    ────────────────────────────────────────────────────────────────────────── */
 
 export default function ReferralsTab() {
@@ -15,170 +13,94 @@ export default function ReferralsTab() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
     rewardsAdminApi.referralStats()
       .then(setData)
-      .catch(e => setError(e instanceof ApiError
-        ? e.message
-        : 'No se pudieron cargar los referidos.'))
+      .catch(e => setError(errMsg(e, 'No se pudieron cargar los referidos.')))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>;
-  }
-  if (error || !data) {
-    return <div className="alert alert-danger small">{error ?? 'No se pudo cargar.'}</div>;
+  useEffect(load, [load]);
+
+  if (!loading && (error || !data)) {
+    return <SectionCard><LoadError text={error ?? 'No se pudo cargar.'} onRetry={load} /></SectionCard>;
   }
 
-  // Dos tasas que dicen más que los totales sueltos.
-  const tasaAceptacion = data.invitationsSent > 0
-    ? Math.round(data.invitationsAccepted / data.invitationsSent * 100)
-    : null;
+  const tasaAceptacion = data && data.invitationsSent > 0
+    ? Math.round(data.invitationsAccepted / data.invitationsSent * 100) : null;
+  const tasaActivacion = data && data.totalReferrals > 0
+    ? Math.round(data.qualified / data.totalReferrals * 100) : null;
 
-  const tasaActivacion = data.totalReferrals > 0
-    ? Math.round(data.qualified / data.totalReferrals * 100)
-    : null;
+  const columns: Column<TopReferrer & { rank: number }>[] = [
+    { key: 'name', header: 'Usuario', priority: 1, render: r => (
+      <div style={{ minWidth: 0 }}>
+        <div className="rw-cell-main text-truncate">{r.rank}. {r.fullName ?? 'Usuario sin nombre'}</div>
+        <div className="rw-cell-sub text-truncate">{r.email ?? r.userId}</div>
+      </div>
+    ) },
+    { key: 'invited', header: 'Invitados', align: 'right', priority: 1, render: r => fmtPoints(r.invited) },
+    { key: 'qualified', header: 'Activos', align: 'right', priority: 1, render: r => fmtPoints(r.qualified) },
+    { key: 'pointsEarned', header: 'Puntos ganados', align: 'right', priority: 2, render: r => <span className="rw-plus">+{fmtPoints(r.pointsEarned)}</span> },
+    { key: 'lastAt', header: 'Último referido', priority: 3, render: r => fmtDate(r.lastAt) },
+  ];
 
   return (
-    <>
-      <div className="row g-3 mb-3">
-        {[
-          ['Usuarios traídos', fmtPoints(data.totalReferrals), 'Se registraron con un código'],
-          ['Ya activos',       fmtPoints(data.qualified),      'Completaron los viajes de la meta'],
-          ['Puntos regalados', fmtPoints(data.pointsGiven),    'Lo que costó el programa'],
-          ['Códigos creados',  fmtPoints(data.codesIssued),    'Usuarios que abrieron Invita y gana'],
-        ].map(([label, value, help]) => (
-          <div className="col-6 col-xl-3" key={label}>
-            <div className="bugie-kpi h-100">
-              <div className="label">{label}</div>
-              <div className="value">{value}</div>
-              <div className="small bugie-muted mt-1" style={{ fontSize: '.72rem' }}>{help}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="rw-stack">
+      <StatGrid min={170}>
+        <StatCard label="Usuarios traídos" value={fmtPoints(data?.totalReferrals)} icon="fa-user-plus" tone="primary" hint="Se registraron con un código" loading={loading} />
+        <StatCard label="Ya activos" value={fmtPoints(data?.qualified)} icon="fa-user-check" tone="ok" hint="Completaron los viajes de la meta" loading={loading} />
+        <StatCard label="Puntos regalados" value={fmtPoints(data?.pointsGiven)} icon="fa-coins" tone="warn" hint="Lo que costó el programa" loading={loading} />
+        <StatCard label="Códigos creados" value={fmtPoints(data?.codesIssued)} icon="fa-qrcode" tone="info" hint="Abrieron «Invita y gana»" loading={loading} />
+      </StatGrid>
 
-      <div className="row g-3 mb-3">
-        <div className="col-12 col-lg-6">
-          <div className="bugie-card h-100">
-            <div className="bugie-card-header">
-              <i className="fa-solid fa-envelope me-2" />Invitaciones por correo
-            </div>
-            <div className="bugie-card-body">
-              <div className="d-flex align-items-baseline gap-3 mb-2">
-                <span className="fw-bold" style={{ fontSize: '1.6rem' }}>
-                  {fmtPoints(data.invitationsSent)}
-                </span>
-                <span className="bugie-muted small">enviadas</span>
-                <span className="fw-bold ms-auto" style={{ fontSize: '1.6rem', color: 'var(--bugie-ok)' }}>
-                  {fmtPoints(data.invitationsAccepted)}
-                </span>
+      <div className="bx-split">
+        <SectionCard title="Invitaciones por correo" icon="fa-envelope">
+          {loading || !data ? <Skeleton count={2} height={16} /> : tasaAceptacion !== null ? (
+            <>
+              <div className="rw-bar-head mb-2">
+                <span className="fw-bold fs-4">{fmtPoints(data.invitationsSent)}</span>
+                <span className="bugie-muted small grow">enviadas</span>
+                <span className="fw-bold fs-4 rw-plus">{fmtPoints(data.invitationsAccepted)}</span>
                 <span className="bugie-muted small">terminaron en registro</span>
               </div>
-
-              {tasaAceptacion !== null ? (
-                <>
-                  <div className="progress" style={{ height: 8 }}>
-                    <div className="progress-bar" style={{ width: `${tasaAceptacion}%`, background: 'var(--bugie-ok)' }} />
-                  </div>
-                  <div className="small bugie-muted mt-2">
-                    {tasaAceptacion}% de las invitaciones por correo terminaron en una cuenta nueva.
-                  </div>
-                </>
-              ) : (
-                <div className="small bugie-muted">
-                  Todavía no se envió ninguna invitación por correo. El código también se
-                  comparte por fuera, y esos casos no se cuentan acá.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-12 col-lg-6">
-          <div className="bugie-card h-100">
-            <div className="bugie-card-header">
-              <i className="fa-solid fa-chart-simple me-2" />Qué tan bien funciona
-            </div>
-            <div className="bugie-card-body">
-              {tasaActivacion !== null ? (
-                <>
-                  <div className="d-flex align-items-baseline gap-2 mb-2">
-                    <span className="fw-bold" style={{ fontSize: '1.6rem' }}>{tasaActivacion}%</span>
-                    <span className="bugie-muted small">
-                      de los traídos completó los viajes de la meta
-                    </span>
-                  </div>
-                  <div className="progress mb-3" style={{ height: 8 }}>
-                    <div className="progress-bar" style={{ width: `${tasaActivacion}%` }} />
-                  </div>
-                  <div className="small bugie-muted">
-                    {data.pending} {data.pending === 1 ? 'sigue' : 'siguen'} sin llegar a la meta.
-                    Si ese número no baja, conviene revisar cuántos viajes estás pidiendo.
-                  </div>
-                </>
-              ) : (
-                <div className="small bugie-muted">
-                  Todavía nadie se registró con un código.
-                </div>
-              )}
-
-              {data.totalReferrals > 0 && (
-                <div className="small bugie-muted mt-3 pt-3"
-                     style={{ borderTop: '1px solid var(--bugie-border)' }}>
-                  Costo por usuario traído:{' '}
-                  <strong>
-                    {fmtPoints(Math.round(data.pointsGiven / data.totalReferrals))} puntos
-                  </strong>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bugie-card">
-        <div className="bugie-card-header">
-          <i className="fa-solid fa-trophy me-2" />Quiénes más invitan
-        </div>
-        <div className="bugie-card-body">
-          {data.topReferrers.length === 0 ? (
-            <div className="text-center py-4 bugie-muted small">
-              Todavía nadie trajo usuarios con su código.
-            </div>
+              <div className="rw-bar-track"><div className="rw-bar-fill ok" style={{ width: `${tasaAceptacion}%` }} /></div>
+              <p className="rw-note">{tasaAceptacion}% de las invitaciones terminó en una cuenta nueva.</p>
+            </>
           ) : (
-            <div className="d-flex flex-column gap-2">
-              {data.topReferrers.map((r, i) => (
-                <div key={r.userId} className="d-flex align-items-center gap-3 py-2"
-                     style={{ borderBottom: '1px solid var(--bugie-border)' }}>
-                  <span className="fw-bold bugie-muted" style={{ width: 24 }}>{i + 1}</span>
-                  <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                    <div className="small fw-semibold text-truncate">
-                      {r.fullName ?? 'Usuario sin nombre'}
-                    </div>
-                    <div className="small bugie-muted text-truncate">
-                      {r.email ?? r.userId} · último el {fmtDate(r.lastAt)}
-                    </div>
-                  </div>
-                  <div className="text-end small" style={{ minWidth: 110 }}>
-                    <div><strong>{r.invited}</strong> invitados</div>
-                    <div className="bugie-muted">{r.qualified} activos</div>
-                  </div>
-                  <div className="text-end fw-bold" style={{ minWidth: 80, color: 'var(--bugie-ok)' }}>
-                    +{fmtPoints(r.pointsEarned)}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <EmptyState compact title="Aún no hay invitaciones por correo" text="El código también se comparte por fuera; esos casos no se cuentan aquí." />
           )}
+        </SectionCard>
 
-          <div className="small bugie-muted mt-3">
-            Si un usuario aparece con muchos invitados y casi ninguno activo, puede estar
-            creando cuentas para ganar puntos. Vale la pena mirarlo.
-          </div>
-        </div>
+        <SectionCard title="Qué tan bien funciona" icon="fa-chart-simple">
+          {loading || !data ? <Skeleton count={2} height={16} /> : tasaActivacion !== null ? (
+            <>
+              <div className="rw-bar-head mb-2">
+                <span className="fw-bold fs-4">{tasaActivacion}%</span>
+                <span className="bugie-muted small grow">de los traídos completó los viajes de la meta</span>
+              </div>
+              <div className="rw-bar-track"><div className="rw-bar-fill" style={{ width: `${tasaActivacion}%` }} /></div>
+              <p className="rw-note">
+                {data.pending} {data.pending === 1 ? 'sigue' : 'siguen'} sin llegar a la meta.
+                Costo por usuario traído: <strong>{fmtPoints(Math.round(data.pointsGiven / data.totalReferrals))} puntos</strong>.
+              </p>
+            </>
+          ) : (
+            <EmptyState compact title="Todavía nadie se registró con un código" />
+          )}
+        </SectionCard>
       </div>
-    </>
+
+      <SectionCard title="Quiénes más invitan" icon="fa-trophy" description="Si alguien tiene muchos invitados y casi ninguno activo, revísalo." flush>
+        <DataTable
+          columns={columns}
+          rows={(data?.topReferrers ?? []).map((r, i) => ({ ...r, rank: i + 1 }))}
+          rowKey={r => r.userId}
+          loading={loading}
+          maxHeight="none"
+          empty={{ title: 'Todavía nadie trajo usuarios', text: 'Cuando alguien invite con su código aparecerá aquí.' }}
+        />
+      </SectionCard>
+    </div>
   );
 }

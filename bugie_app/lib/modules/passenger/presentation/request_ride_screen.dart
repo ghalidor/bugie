@@ -17,6 +17,7 @@ import '../../trips/domain/trip_model.dart';
 import '../../favorites/data/favorites_repository.dart';
 import '../../favorites/domain/favorite_address_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/schedule_picker.dart';
 
 /// Pantalla "Solicitar viaje" — réplica de la del web (RequestRide.tsx).
 /// Soporta: autocomplete con Nominatim, paradas, mapa con tiles claros,
@@ -37,9 +38,8 @@ class _ActiveDest     extends _Active { const _ActiveDest(); }
 class _ActiveWaypoint extends _Active { final int index; const _ActiveWaypoint(this.index); }
 
 class _Waypoint {
-  String address;
+  String address = '';
   LatLng? coord;
-  _Waypoint({this.address = '', this.coord});
 }
 
 class _RequestRideScreenState extends State<RequestRideScreen> {
@@ -84,6 +84,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
   // Submit
   bool _submitting = false;
+  // Programado: hora de Perú (null = ahora).
+  DateTime? _scheduledAt;
   String? _error;
 
   // Tarifa propuesta por el pasajero. Se prellena con la sugerida del sistema,
@@ -297,7 +299,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
       return;
     }
     _debounce('origin', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _originSugg = res);
     });
   }
@@ -312,7 +315,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
       return;
     }
     _debounce('dest', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _destSugg = res);
     });
   }
@@ -327,7 +331,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
       return;
     }
     _debounce('wp$i', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _wpSugg[i] = res);
     });
   }
@@ -515,13 +520,21 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
           _error = 'La tarifa mínima permitida es S/ ${_minFare!.toStringAsFixed(2)}.');
       return;
     }
+    final scheduledAt = _scheduledAt;
+    if (scheduledAt != null) {
+      final err = Schedule.validate(scheduledAt);
+      if (err != null) {
+        setState(() => _error = err);
+        return;
+      }
+    }
     setState(() {
       _submitting = true;
       _error = null;
     });
     try {
       final repo = context.read<TripsRepository>();
-      await repo.create(
+      final trip = await repo.create(
         originAddress: _originText,
         originLat: _originCoord!.latitude,
         originLng: _originCoord!.longitude,
@@ -538,9 +551,13 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                   lng: w.coord!.longitude,
                 ))
             .toList(),
+        scheduledAt: scheduledAt,
       );
       if (!mounted) return;
-      context.go('/passenger/tracking');
+      // Un programado todavía no es el viaje activo: se sigue por su id.
+      context.go(scheduledAt != null
+          ? '/passenger/tracking?trip=${trip.id}'
+          : '/passenger/tracking');
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (_) {
@@ -644,7 +661,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
               top: 12,
               right: 12,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: context.bugie.surface,
                   borderRadius: BorderRadius.circular(20),
@@ -656,10 +673,14 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.touch_app, size: 14, color: BugieColors.textMuted),
-                    const SizedBox(width: 4),
-                    Text('Click → ${_activeLabel()}',
-                        style: const TextStyle(fontSize: 11)),
+                    const Icon(Icons.touch_app_outlined,
+                        size: 16, color: BugieColors.primary),
+                    const SizedBox(width: 6),
+                    Text('Toca el mapa: ${_activeLabel()}',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: context.bugie.text)),
                   ],
                 ),
               ),
@@ -680,13 +701,13 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 ),
                 child: ListView(
                   controller: scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
                   children: [
                     // Manija
                     Center(
                       child: Container(
-                        width: 40, height: 4,
-                        margin: const EdgeInsets.only(bottom: 12),
+                        width: 44, height: 5,
+                        margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
                           color: context.bugie.border,
                           borderRadius: BorderRadius.circular(2),
@@ -768,14 +789,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                       );
                     }),
 
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Agregar parada'),
-                      onPressed: _addWaypoint,
-                    ),
-
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
 
 // Destino
                     _AddressField(
@@ -792,14 +806,38 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                           ? () => _openFavoritesSheet(forOrigin: false)
                           : null,
                     ),
-                    const SizedBox(height: 14),
+                    // Parada opcional: acción liviana, no compite con el
+                    // botón principal.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                        ),
+                        icon: const Icon(Icons.add_circle_outline, size: 20),
+                        label: const Text('Agregar parada',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        onPressed: _addWaypoint,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Cuándo: ahora o programado
+                    ScheduleSelector(
+                      onChanged: (v) => setState(() => _scheduledAt = v),
+                    ),
+                    const SizedBox(height: 18),
 
                     // Método de pago
                     const Text('Método de pago',
                         style: TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
+                            fontSize: 14, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
                     SegmentedButton<String>(
+                      // Sin el check: el relleno ya marca la opción elegida
+                      // y así "Efectivo" no se parte en dos líneas.
+                      showSelectedIcon: false,
                       segments: const [
                         ButtonSegment(value: 'cash', label: Text('Efectivo')),
                         ButtonSegment(value: 'yape', label: Text('Yape')),
@@ -809,14 +847,14 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                       onSelectionChanged: (s) =>
                           setState(() => _payment = s.first),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
 
                     // Tarifa estimada + input "Tu propuesta"
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: context.bugie.surface,
-                        borderRadius: BorderRadius.circular(10),
+                        color: context.bugie.bg,
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: context.bugie.border),
                       ),
                       child: _fare == null
@@ -881,21 +919,16 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                 const SizedBox(height: 12),
 
                                 // Línea 2: input editable "Tu propuesta"
-                                Row(
-                                  children: const [
-                                    Text('Tu propuesta',
-                                        style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600)),
-                                    Text(' *',
-                                        style: TextStyle(
-                                            color: BugieColors.danger,
-                                            fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
+                                const Text('¿Cuánto ofreces?',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 8),
                                 TextField(
                                   controller: _proposedFareCtrl,
+                                  style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800),
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                           decimal: true),
@@ -914,10 +947,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                   },
                                   decoration: InputDecoration(
                                     prefixText: 'S/ ',
-                                    isDense: true,
                                     hintText: _fare!.toStringAsFixed(2),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                     errorText: (!_isProposedFareValid &&
                                             _proposedFareCtrl.text.isNotEmpty)
@@ -928,44 +960,52 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                   ),
                                 ),
                                 if (_minFare != null) ...[
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 6),
                                   Row(
                                     children: [
                                       const Icon(Icons.info_outline,
-                                          size: 12,
+                                          size: 14,
                                           color: BugieColors.textMuted),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Mínimo permitido: S/ ${_minFare!.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            color: BugieColors.textMuted),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Mínimo permitido: S/ ${_minFare!.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                              fontSize: 12.5,
+                                              color: BugieColors.textMuted),
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ],
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 8),
                                 const Text(
-                                  'Los conductores podrán aceptar tu propuesta o enviarte una contrapropuesta.',
+                                  'Los conductores pueden aceptar tu oferta o proponerte otro monto.',
                                   style: TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 12.5,
+                                      height: 1.3,
                                       color: BugieColors.textMuted),
                                 ),
                               ],
                             ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
 
                     // Botón confirmar
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(0, 56),
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                       onPressed: (_submitting ||
                               _originCoord == null ||
                               _destCoord == null ||
                               _fare == null ||
-                              !_isProposedFareValid)
+                              !_isProposedFareValid ||
+                              (_scheduledAt != null &&
+                                  Schedule.validate(_scheduledAt) != null))
                           ? null
                           : _submit,
                       icon: _submitting
@@ -973,9 +1013,13 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                               width: 18, height: 18,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.directions_car),
+                          : Icon(_scheduledAt != null
+                              ? Icons.event_available
+                              : Icons.directions_car),
                       label: Text(
-                          _submitting ? 'Buscando conductor…' : 'Solicitar viaje',
+                          _submitting
+                              ? (_scheduledAt != null ? 'Programando…' : 'Buscando conductor…')
+                              : (_scheduledAt != null ? 'Programar viaje' : 'Solicitar viaje'),
                           style: const TextStyle(fontSize: 16)),
                     ),
                     const SizedBox(height: 12),

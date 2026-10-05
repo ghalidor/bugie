@@ -16,16 +16,22 @@ TRUNCATE
   trips.trips, trips.tripproposals, trips.tripratings, trips.triproutepoints,
   trips.tripwaypoints, trips.tripphotos, trips.sosalerts, trips.incidents,
   trips.outboxevents, trips.favoriteaddresses, trips.favoritedrivers,
-  trips.passengeracceptancecancellations,
+  trips.passengeracceptancecancellations, trips.tripplannedroutes, trips.routedeviations,
+  trips.usernotifications, trips.adminnotifications, trips.adminnotificationreads,
   payments.payments, payments.driverwallet, payments.wallettransactions, payments.withdrawals,
   drivers.drivers, drivers.documents, drivers.documentnotifications, drivers.vehicles,
-  drivers.reviews, drivers.locationhistory, drivers.driverpresencecheckins,
+  drivers.reviews, drivers.locationhistory, drivers.driverpresencecheckins, drivers.approvalaudit, drivers.vehiclephotos,
+  drivers.driverreviewrequests,
   rewards.pointsprofiles, rewards.pointstransactions, rewards.pointsadjustments,
   rewards.milestoneawards, rewards.promotionapplications, rewards.promotions,
   rewards.raffles, rewards.raffletickets, rewards.rafflewinners, rewards.redemptions,
   rewards.referralcodes, rewards.referralinvitations, rewards.referrals,
-  landing.contactmessages, landing.contactreplies,
-  auth.passengerdocuments, auth.refreshtokens, auth.userfcmtokens;
+  landing.contactmessages, landing.contactreplies, landing.complaints, landing.complaintcounters,
+  auth.passengerdocuments, auth.refreshtokens, auth.userfcmtokens,
+  auth.emergencycontacts, auth.passwordresettokens, auth.useraccountaudit;
+
+-- Feriados extra (el seed agrega "Feriado de prueba (decreto)"); fijos y moviles se quedan
+DELETE FROM landing.holidays WHERE kind = 'extra';
 
 -- Usuarios: solo queda el admin principal
 DELETE FROM auth.users WHERE role <> 'admin';

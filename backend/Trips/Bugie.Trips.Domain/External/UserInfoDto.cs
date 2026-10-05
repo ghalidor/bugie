@@ -14,5 +14,8 @@ namespace Bugie.Trips.Domain.External {
         bool IsActive,
         bool IsVerified,
         DateTime CreatedAt,
-        string? ProfilePhotoUrl = null);
+        string? ProfilePhotoUrl = null,
+        // Nombres separados (null en cuentas antiguas sin completar)
+        string? FirstNames = null,
+        string? LastNamePaternal = null);
 }

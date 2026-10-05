@@ -25,6 +25,9 @@ public class JwtTokenService : ITokenService
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.Role,               user.Role),
             new Claim("fullName",                    user.FullName),
+            // Sello de seguridad: si cambia (contrasena, desactivar, cerrar sesiones...)
+            // el token deja de valer en las 6 APIs (ver Security/SessionState.cs).
+            new Claim("sst",                         user.SecurityStamp.ToString()),
         };
 
         var token = new JwtSecurityToken(

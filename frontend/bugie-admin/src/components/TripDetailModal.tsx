@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import BugieMapAdmin, { MapMarker } from './BugieMapAdmin';
 import { API, ApiError, apiFetch } from '../state/api';
+import { PlannedRoute, RouteLegend, TripPath, buildRouteLines, fetchPlannedRoute, fetchTripPath } from './tripRoutes';
+import { IconButton, Modal, Skeleton, StatusBadge } from './ui';
+import { DriverLink, PassengerLink } from './EntityLinks';
 
 /** Lo que el modal necesita del viaje (TripDto del backend). */
 export interface TripDetail {
@@ -10,6 +12,8 @@ export interface TripDetail {
   originLat?: number; originLng?: number; destLat?: number; destLng?: number;
   estimatedFare: number; finalFare: number | null;
   paymentMethod: string; status: number; createdAt: string;
+  /** UserId del pasajero y del conductor (enlazan a sus fichas). */
+  passengerId?: string | null;
   driverId: string | null;
   serviceType?: number;
   couponCode?: string | null; discountAmount?: number | null; fareBeforeDiscount?: number | null;
@@ -20,7 +24,7 @@ export interface TripDetail {
   // Envio
   packageDescription?: string | null; packageWeightKg?: number | null;
   packageIsFragile?: boolean; packageDetails?: string | null;
-  pickupObservation?: string | null;
+  pickupVerified?: boolean; pickupObservation?: string | null;
   recipientName?: string | null; recipientPhone?: string | null;
   deliveryReceivedBy?: string | null; deliveryConfirmedAt?: string | null;
 }
@@ -34,42 +38,76 @@ const PHOTO_KIND: Record<number, string> = {
   3: 'Entrega en destino',
 };
 
-// Las fotos vienen con ruta relativa (/uploads/...) del servidor de Trips
-const photoUrl = (u: string) => u.startsWith('http') ? u : `${API.trips.replace(/\/api\/?$/, '')}${u}`;
+// Las fotos vienen con ruta relativa (/uploads/trips/...) y las sirve la API
+// de Trips. VITE_API_TRIPS termina en /api: le quitamos ese sufijo para
+// quedarnos con el origen (ej: http://localhost:5002) y le pegamos la ruta.
+const photoUrl = (u: string) => u.startsWith('http')
+  ? u
+  : `${API.trips.replace(/\/api\/?$/, '')}${u.startsWith('/') ? '' : '/'}${u}`;
 
-interface PathPoint { lat: number; lng: number; speedKmh: number | null; heading: number | null; recordedAt: string; }
-interface TripPath  { tripId: string; points: number; distanceKm: number; firstAt: string | null; lastAt: string | null; path: PathPoint[]; }
 
-export const CANCELLED_BY: Record<string, string> = {
-  passenger: 'el pasajero',
-  driver:    'el conductor',
-  admin:     'un administrador',
+/// Icono del tipo de servicio (igual que en la web y la app):
+/// viaje = fa-car, envío = fa-box. Con withLabel muestra un badge con texto.
+export function ServiceIcon({ serviceType, withLabel }: { serviceType?: number; withLabel?: boolean }) {
+  const isDelivery = serviceType === 1;
+  const icon  = isDelivery ? 'fa-box' : 'fa-car';
+  const label = isDelivery ? 'Envío' : 'Viaje';
+  if (!withLabel) {
+    return (
+      <i className={`fa-solid ${icon}`} title={label} aria-label={label}
+         style={{ color: isDelivery ? 'var(--bugie-warn)' : 'var(--bugie-primary-soft)' }} />
+    );
+  }
+  return <StatusBadge tone={isDelivery ? 'warn' : 'primary'} icon={icon} size="sm">{label}</StatusBadge>;
+}
+
+/// Quién hizo algo (canceló, etc.) con su icono: pasajero, conductor o Bugie (admin).
+const FROM: Record<string, { label: string; icon: string }> = {
+  passenger: { label: 'Pasajero',  icon: 'fa-user' },
+  driver:    { label: 'Conductor', icon: 'fa-id-badge' },
+  admin:     { label: 'Bugie',     icon: 'fa-shield-halved' },
 };
+
+export function FromBadge({ from }: { from?: string | null }) {
+  const f = FROM[from ?? ''] ?? { label: 'Desconocido', icon: 'fa-circle-question' };
+  return <StatusBadge tone="neutral" icon={f.icon} size="sm">{f.label}</StatusBadge>;
+}
 
 const fmt = (iso?: string | null) => iso
   ? new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
   : null;
 
-/// Detalle de un viaje para el admin: datos, linea de tiempo y el recorrido
-/// REAL del conductor en el mapa (puntos GPS guardados durante el viaje).
+const PAY: Record<string, string> = { cash: 'Efectivo', yape: 'Yape', plin: 'Plin' };
+
+/// Detalle de un viaje para el admin: datos, linea de tiempo y, en el mapa,
+/// la RUTA DEL SISTEMA (azul punteado) y el RECORRIDO REAL del conductor
+/// (verde, puntos GPS guardados durante el viaje), con su leyenda.
 export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; onClose: () => void }) {
   const [path,    setPath]    = useState<TripPath | null>(null);
+  const [planned, setPlanned] = useState<PlannedRoute | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
   const [photos,  setPhotos]  = useState<TripPhoto[]>([]);
   const isDelivery = trip.serviceType === 1;
 
   useEffect(() => {
-    apiFetch<TripPath>(`${API.drivers}/drivers/admin/trips/${trip.id}/path`)
-      .then(setPath)
-      .catch(err => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el recorrido.'))
-      .finally(() => setLoading(false));
+    // Ruta del sistema y recorrido real en paralelo; si la ruta falla
+    // (viaje sin ruta guardada) se muestra igual el recorrido.
+    Promise.all([
+      fetchTripPath(trip.id)
+        .then(setPath)
+        .catch(err => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el recorrido.')),
+      fetchPlannedRoute(trip.id).then(setPlanned).catch(() => setPlanned(null)),
+    ]).finally(() => setLoading(false));
     // Envio: fotos del paquete, del recojo y de la entrega (auditoria)
     if (isDelivery)
       apiFetch<TripPhoto[]>(`${API.trips}/trips/${trip.id}/photos`)
         .then(p => setPhotos(p ?? []))
         .catch(() => setPhotos([]));
   }, [trip.id, isDelivery]);
+
+  // Botón "Centrar en el viaje": vuelve a encuadrar pines y líneas.
+  const fitRef = useRef<(() => void) | null>(null);
 
   const markers = useMemo<MapMarker[]>(() => {
     const m: MapMarker[] = [];
@@ -81,143 +119,175 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
     return m;
   }, [trip, path]);
 
-  // BugieMapAdmin espera [lng, lat]
-  const route = useMemo(() => path?.path.map(p => [p.lng, p.lat]) ?? [], [path]);
+  const lines = useMemo(() => buildRouteLines(planned, path), [planned, path]);
 
   const timeline: { label: string; at: string | null | undefined; icon: string }[] = [
-    { label: 'Solicitado',               at: trip.createdAt,       icon: 'fa-hand' },
-    { label: 'Aceptado por el conductor', at: trip.acceptedAt,      icon: 'fa-car' },
-    { label: 'Conductor llegó',          at: trip.driverArrivedAt, icon: 'fa-location-dot' },
-    { label: 'Inicio del viaje',         at: trip.startedAt,       icon: 'fa-play' },
+    { label: 'Solicitado',                at: trip.createdAt,       icon: 'fa-hand' },
+    { label: 'Aceptado por el conductor', at: trip.acceptedAt,      icon: 'fa-id-badge' },
+    { label: 'Conductor llegó',           at: trip.driverArrivedAt, icon: 'fa-location-dot' },
+    { label: 'Inicio del viaje',          at: trip.startedAt,       icon: 'fa-play' },
     ...(isDelivery ? [{ label: 'Entrega confirmada', at: trip.deliveryConfirmedAt, icon: 'fa-box-open' }] : []),
-    { label: 'Fin del viaje',            at: trip.completedAt,     icon: 'fa-flag-checkered' },
+    { label: 'Fin del viaje',             at: trip.completedAt,     icon: 'fa-flag-checkered' },
     ...(trip.status === 5 ? [{ label: 'Cancelado', at: trip.cancelledAt, icon: 'fa-circle-xmark' }] : []),
   ];
 
   const fare = trip.finalFare ?? trip.estimatedFare;
+  const hasCancel = trip.status === 5;
 
-  return createPortal(
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} role="dialog" aria-label="Detalle del viaje" style={{
-        width: 'min(900px, 100%)', maxHeight: '90vh', background: 'var(--bugie-surface)',
-        borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
-        <div className="d-flex align-items-center justify-content-between p-3 border-bottom" style={{ borderColor: 'var(--bugie-border)' }}>
-          <div className="min-w-0">
-            <div className="fw-bold">Detalle del viaje</div>
-            <div className="small bugie-muted text-truncate" style={{ maxWidth: 640 }}>
-              {trip.originAddress} → {trip.destAddress}
-            </div>
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title={<span className="d-inline-flex align-items-center gap-2"><ServiceIcon serviceType={trip.serviceType} />{isDelivery ? 'Detalle del envío' : 'Detalle del viaje'}</span>}
+      description={`${trip.originAddress} → ${trip.destAddress}`}
+    >
+      <div className="bx-trip">
+        {/* Resumen rápido */}
+        <div className="bx-trip-summary">
+          <div className="bx-trip-kpi">
+            <span className="k">Tarifa</span>
+            <span className="v">S/ {fare.toFixed(2)}</span>
           </div>
-          <button onClick={onClose} className="btn btn-sm btn-bugie-outline rounded-pill" aria-label="Cerrar">
-            <i className="fa-solid fa-xmark" />
-          </button>
+          <div className="bx-trip-kpi">
+            <span className="k">Pago</span>
+            <span className="v sm">{PAY[trip.paymentMethod] ?? trip.paymentMethod}</span>
+          </div>
+          <div className="bx-trip-kpi">
+            <span className="k">Recorrido GPS</span>
+            <span className="v sm">{path && path.points > 0 ? `${path.distanceKm.toFixed(2)} km` : '—'}</span>
+          </div>
+          <div className="bx-trip-kpi">
+            <span className="k">Solicitado</span>
+            <span className="v sm">{fmt(trip.createdAt) ?? '—'}</span>
+          </div>
         </div>
 
-        <div style={{ overflowY: 'auto', padding: '1rem' }}>
-          <div className="row g-3">
-            <div className="col-lg-8">
-              {loading ? (
-                <div className="d-flex justify-content-center align-items-center" style={{ height: 380 }}>
-                  <span className="spinner-border" />
-                </div>
-              ) : (
-                <BugieMapAdmin height={380} markers={markers} routeCoordinates={route.length > 1 ? route : undefined} />
-              )}
-              <div className="small bugie-muted mt-2">
-                {error ? <span className="text-danger">{error}</span>
-                  : path && path.points > 0
-                    ? <>Recorrido real del conductor: <strong>{path.points}</strong> puntos GPS · <strong>{path.distanceKm.toFixed(2)} km</strong>
-                        {path.firstAt && path.lastAt && <> · de {fmt(path.firstAt)} a {fmt(path.lastAt)}</>}</>
-                    : 'Este viaje no tiene recorrido GPS registrado (el conductor no envió su ubicación).'}
-              </div>
+        {/* Mapa + personas y línea de tiempo */}
+        <div className="bx-trip-main">
+          <section className="bx-trip-card bx-trip-map" aria-label="Recorrido en el mapa">
+            <div className="bx-trip-map-box">
+              {loading
+                ? <Skeleton height="100%" radius={12} />
+                : <>
+                    <BugieMapAdmin height="100%" markers={markers} lines={lines} onFitBoundsRef={fitRef} />
+                    <div className="bx-trip-map-fab">
+                      <IconButton icon="fa-crosshairs" label="Centrar en el viaje" tooltipPlacement="left" onClick={() => fitRef.current?.()} />
+                    </div>
+                  </>}
             </div>
-
-            <div className="col-lg-4">
-              <div className="mb-3 small">
-                <div><i className="fa-solid fa-user me-2 bugie-muted" />{trip.passengerName ?? 'Pasajero'}</div>
-                <div><i className="fa-solid fa-car me-2 bugie-muted" />{trip.driverId ? (trip.driverName ?? 'Conductor asignado') : 'Sin conductor'}</div>
+            <RouteLegend planned={planned} path={path} loadingPlanned={loading} loadingPath={loading} />
+            {(error || (path && path.points > 0)) && (
+              <div className="small bugie-muted">
+                {error ? <span style={{ color: 'var(--bugie-bad)' }}>{error}</span>
+                  : <><strong>{path!.points}</strong> puntos GPS
+                      {path!.firstAt && path!.lastAt && <> · de {fmt(path!.firstAt)} a {fmt(path!.lastAt)}</>}</>}
               </div>
-              <div className="mb-3">
-                <div className="small bugie-muted">Tarifa</div>
-                <div className="fw-bold fs-5">S/ {fare.toFixed(2)}</div>
-                {trip.couponCode && (
-                  <div className="small">
-                    Cupón <strong>{trip.couponCode}</strong>: −S/ {(trip.discountAmount ?? 0).toFixed(2)}
-                    {trip.fareBeforeDiscount != null && <> (antes S/ {trip.fareBeforeDiscount.toFixed(2)})</>}
-                  </div>
-                )}
-                <div className="small bugie-muted text-capitalize">{trip.paymentMethod}</div>
+            )}
+          </section>
+
+          <div className="bx-trip-side">
+            <section className="bx-trip-card">
+              <h3 className="bx-trip-card-title"><i className="fa-solid fa-users" aria-hidden="true" />Personas</h3>
+              <div className="bx-trip-people">
+                <div><i className="fa-solid fa-user" aria-hidden="true" /><span className="k">Pasajero</span><span className="v"><PassengerLink userId={trip.passengerId} onNavigate={onClose}>{trip.passengerName ?? 'Pasajero'}</PassengerLink></span></div>
+                <div><i className="fa-solid fa-id-badge" aria-hidden="true" /><span className="k">Conductor</span><span className="v">{trip.driverId
+                  ? <DriverLink userId={trip.driverId} onNavigate={onClose}>{trip.driverName ?? 'Conductor asignado'}</DriverLink>
+                  : 'Sin conductor'}</span></div>
               </div>
+            </section>
 
-              {trip.status === 5 && (
-                <div className="alert alert-secondary small py-2">
-                  <i className="fa-solid fa-circle-xmark me-1" />
-                  Cancelado por <strong>{CANCELLED_BY[trip.cancelledBy ?? ''] ?? 'desconocido'}</strong>
-                  {trip.cancelReason && <div className="mt-1">Motivo: {trip.cancelReason}</div>}
-                </div>
-              )}
-
-              {isDelivery && (
-                <div className="mb-3 small p-2" style={{ border: '1px solid var(--bugie-border)', borderRadius: 10 }}>
-                  <div className="fw-semibold mb-1"><i className="fa-solid fa-box me-1" />Envío</div>
-                  {trip.packageDescription && <div>{trip.packageDescription}</div>}
-                  <div className="bugie-muted">
-                    {trip.packageWeightKg != null && <>{trip.packageWeightKg} kg</>}
-                    {trip.packageIsFragile && <> · <span className="text-warning">Frágil</span></>}
-                  </div>
-                  {trip.packageDetails && <div className="bugie-muted">{trip.packageDetails}</div>}
-                  <div className="mt-1">
-                    Destinatario: <strong>{trip.recipientName ?? '—'}</strong>
-                    {trip.recipientPhone && <> · {trip.recipientPhone}</>}
-                  </div>
-                  {trip.pickupObservation && <div className="bugie-muted">Recojo: {trip.pickupObservation}</div>}
-                  {trip.deliveryReceivedBy
-                    ? <div className="text-success"><i className="fa-solid fa-circle-check me-1" />Recibió: {trip.deliveryReceivedBy}</div>
-                    : <div className="bugie-muted">Entrega aún no confirmada</div>}
-                </div>
-              )}
-
-              <div className="small fw-semibold mb-2">Línea de tiempo</div>
-              <ul className="list-unstyled small mb-0">
+            <section className="bx-trip-card">
+              <h3 className="bx-trip-card-title"><i className="fa-solid fa-timeline" aria-hidden="true" />Línea de tiempo</h3>
+              <ol className="bx-trip-timeline">
                 {timeline.map(s => (
-                  <li key={s.label} className="d-flex align-items-center gap-2 mb-2"
-                      style={{ opacity: s.at ? 1 : 0.4 }}>
-                    <i className={`fa-solid ${s.icon}`} style={{ width: 16 }} />
+                  <li key={s.label} className={s.at ? 'done' : ''}>
+                    <span className="dot" aria-hidden="true"><i className={`fa-solid ${s.icon}`} /></span>
                     <span className="flex-grow-1">{s.label}</span>
-                    <span className="bugie-muted">{fmt(s.at) ?? '—'}</span>
+                    <span className="bugie-muted text-nowrap">{fmt(s.at) ?? '—'}</span>
                   </li>
                 ))}
-              </ul>
-            </div>
+              </ol>
+            </section>
           </div>
+        </div>
 
-          {/* Fotos del envio: paquete, recojo y entrega */}
+        {/* Tarifa, cancelación y envío */}
+        <div className="bx-trip-cards">
+          <section className="bx-trip-card">
+            <h3 className="bx-trip-card-title"><i className="fa-solid fa-receipt" aria-hidden="true" />Tarifa</h3>
+            <div className="fw-bold fs-5">S/ {fare.toFixed(2)}</div>
+            {trip.finalFare == null && <div className="small bugie-muted">Tarifa estimada</div>}
+            {trip.couponCode && (
+              <div className="small">
+                Cupón <strong>{trip.couponCode}</strong>: −S/ {(trip.discountAmount ?? 0).toFixed(2)}
+                {trip.fareBeforeDiscount != null && <> (antes S/ {trip.fareBeforeDiscount.toFixed(2)})</>}
+              </div>
+            )}
+            <div className="small bugie-muted">Pago: {PAY[trip.paymentMethod] ?? trip.paymentMethod}</div>
+          </section>
+
+          {hasCancel && (
+            <section className="bx-trip-card is-cancel">
+              <h3 className="bx-trip-card-title"><i className="fa-solid fa-circle-xmark" aria-hidden="true" />Cancelación</h3>
+              <div className="small d-flex align-items-center gap-2 flex-wrap">Cancelado por <FromBadge from={trip.cancelledBy} /></div>
+              {trip.cancelledAt && <div className="small bugie-muted">{fmt(trip.cancelledAt)}</div>}
+              <div className="small">Motivo: {trip.cancelReason || 'Sin motivo indicado'}</div>
+            </section>
+          )}
+
           {isDelivery && (
-            <div className="mt-3">
-              <div className="small fw-semibold mb-2">Fotos del envío ({photos.length})</div>
-              {photos.length === 0 ? (
-                <div className="small bugie-muted">No hay fotos registradas.</div>
-              ) : (
-                <div className="d-flex flex-wrap gap-2">
-                  {photos.map(p => (
-                    <a key={p.id} href={photoUrl(p.url)} target="_blank" rel="noreferrer"
-                       className="text-decoration-none" style={{ width: 140 }}>
-                      <img src={photoUrl(p.url)} alt={PHOTO_KIND[p.kind] ?? 'Foto'}
-                           style={{ width: 140, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--bugie-border)' }} />
-                      <div className="small bugie-muted text-truncate">{PHOTO_KIND[p.kind] ?? 'Foto'}</div>
-                    </a>
-                  ))}
+            <section className="bx-trip-card bx-trip-delivery">
+              <h3 className="bx-trip-card-title"><i className="fa-solid fa-box" aria-hidden="true" />Envío</h3>
+              <div className="small">
+                {trip.packageDescription && <div>{trip.packageDescription}</div>}
+                <div className="bugie-muted">
+                  {trip.packageWeightKg != null && <>{trip.packageWeightKg} kg</>}
+                  {trip.packageIsFragile && <> · <StatusBadge tone="warn" size="sm">Frágil</StatusBadge></>}
                 </div>
-              )}
-            </div>
+                {trip.packageDetails && <div className="bugie-muted">{trip.packageDetails}</div>}
+                <div className="mt-1">
+                  Destinatario: <strong>{trip.recipientName ?? '—'}</strong>
+                  {trip.recipientPhone && <> · {trip.recipientPhone}</>}
+                </div>
+                {/* Recojo: el conductor verifica el paquete al recogerlo */}
+                <div className="mt-1">
+                  {trip.pickupVerified
+                    ? <StatusBadge tone="ok" icon="fa-circle-check" size="sm">Paquete verificado</StatusBadge>
+                    : <StatusBadge tone="neutral" icon="fa-circle-question" size="sm">Sin verificar</StatusBadge>}
+                </div>
+                {trip.pickupObservation && <div className="bugie-muted">Observación del recojo: {trip.pickupObservation}</div>}
+                {/* Entrega: quién recibió y a qué hora */}
+                {trip.deliveryReceivedBy
+                  ? <div className="mt-1" style={{ color: 'var(--bugie-ok)' }}>
+                      <i className="fa-solid fa-box-open me-1" aria-hidden="true" />Recibió: <strong>{trip.deliveryReceivedBy}</strong>
+                      {trip.deliveryConfirmedAt && <> · {fmt(trip.deliveryConfirmedAt)}</>}
+                    </div>
+                  : <div className="bugie-muted mt-1">Entrega aún no confirmada</div>}
+              </div>
+            </section>
           )}
         </div>
+
+        {/* Fotos del envío: paquete, recojo y entrega */}
+        {isDelivery && (
+          <section className="bx-trip-card">
+            <h3 className="bx-trip-card-title"><i className="fa-solid fa-images" aria-hidden="true" />Fotos del envío ({photos.length})</h3>
+            {photos.length === 0 ? (
+              <div className="small bugie-muted">No hay fotos registradas.</div>
+            ) : (
+              <div className="bx-trip-photos">
+                {photos.map(p => (
+                  <a key={p.id} href={photoUrl(p.url)} target="_blank" rel="noreferrer" className="bx-trip-photo">
+                    <img src={photoUrl(p.url)} alt={PHOTO_KIND[p.kind] ?? 'Foto'} loading="lazy" />
+                    <span className="small bugie-muted text-truncate">{PHOTO_KIND[p.kind] ?? 'Foto'}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

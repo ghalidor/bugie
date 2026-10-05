@@ -8,6 +8,9 @@ public interface IVehicleRepository
     Task<Vehicle?>      GetActiveByDriverAsync(Guid driverId, CancellationToken ct = default);
     Task<Vehicle?>      GetByIdAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Placa del vehiculo activo de cada conductor (por DriverId). Sin vehiculo = no aparece.</summary>
+    Task<Dictionary<Guid, string>> GetActivePlatesAsync(IEnumerable<Guid> driverIds, CancellationToken ct = default);
+
     /// <summary>
     /// Inserta el vehículo y desactiva automáticamente los anteriores.
     /// Solo uno puede estar activo a la vez.

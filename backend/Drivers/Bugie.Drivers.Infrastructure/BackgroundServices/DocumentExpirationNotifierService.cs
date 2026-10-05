@@ -1,4 +1,6 @@
 ﻿using Bugie.Drivers.Application.Email;
+using Bugie.Drivers.Application.Services;
+using Bugie.Drivers.Domain.Common;
 using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
@@ -27,7 +29,9 @@ public class DocumentExpirationOptions
 
 /// <summary>
 /// Job que corre 1 vez al día a la hora configurada (hora Perú).
-/// Por cada documento que caduca en 6/3/0 días: manda correo a conductor + admin.
+/// Por cada documento que caduca en alguno de los umbrales configurados
+/// (landing.SystemSettings doc_expiry_alert_days, por defecto 6/3/0 días):
+/// manda correo a conductor + admin.
 /// Si caduca HOY: cambia el status del conductor a ExpiredDocs.
 /// Anti-spam vía drivers.DocumentNotifications.
 /// </summary>
@@ -87,8 +91,15 @@ public class DocumentExpirationNotifierService : BackgroundService
         var authClient = scope.ServiceProvider.GetRequiredService<IAuthClient>();
         var landing = scope.ServiceProvider.GetRequiredService<ILandingSettingsClient>();
         var email = scope.ServiceProvider.GetRequiredService<IEmailService>();
+        var push = scope.ServiceProvider.GetRequiredService<ITripsNotifyClient>();
+        var audit = scope.ServiceProvider.GetRequiredService<IApprovalAuditRepository>();
 
-        var expiringDocs = await docs.GetExpiringSoonAsync(ct);
+        // Umbrales configurables desde el panel (Sistema > Avisos). Si Landing
+        // no responde o la clave falta, se usan los de siempre: 6, 3 y 0 días.
+        var alertDays = DocExpiryAlertDays.Parse(
+            await landing.GetSettingAsync(DocExpiryAlertDays.SettingKey, ct));
+
+        var expiringDocs = await docs.GetExpiringSoonAsync(alertDays, ct);
         _log.LogInformation("Documentos por caducar: {Count}", expiringDocs.Count);
 
         if(expiringDocs.Count == 0) return;
@@ -102,6 +113,9 @@ public class DocumentExpirationNotifierService : BackgroundService
         var sentCount = 0;
         var skipCount = 0;
         var driverIdsToExpire = new HashSet<Guid>();
+        var expiringToday = expiringDocs.Where(d => d.DaysUntilExpiry == 0)
+            .GroupBy(d => d.DriverId)
+            .ToDictionary(g => g.Key, g => g.Select(d => d.DocType).Distinct().ToList());
 
         foreach(var doc in expiringDocs)
         {
@@ -133,6 +147,12 @@ public class DocumentExpirationNotifierService : BackgroundService
             {
                 _log.LogError(ex, "Error enviando correo a conductor {Email}", user.Email);
             }
+
+            // 1b. Push al conductor (mismos umbrales que el correo). No lanza excepción.
+            await push.SendPushAsync(doc.DriverUserId,
+                doc.DaysUntilExpiry == 0 ? "Tu documento venció hoy" : "Documento por vencer",
+                PushBodyFor(RequiredDocuments.Label(doc.DocType), doc.DaysUntilExpiry),
+                DriverPush.Data(DriverPush.DocumentExpiring, DriverPush.RouteDocuments), ct);
 
             // 2. Correo al admin
             if(!string.IsNullOrWhiteSpace(_opt.AdminEmail))
@@ -172,6 +192,11 @@ public class DocumentExpirationNotifierService : BackgroundService
             {
                 driver.MarkAsExpired();
                 await driversRepo.UpdateAsync(driver, ct);
+                await audit.AddAsync(ApprovalAudit.Create(
+                    driver.Id, ApprovalAudit.ActionExpired, null, null,
+                    "Documentos vencidos", expiringToday.GetValueOrDefault(driverId), null,
+                    (int)Bugie.Drivers.Domain.Enums.DriverStatus.Approved,
+                    (int)Bugie.Drivers.Domain.Enums.DriverStatus.ExpiredDocs), ct);
                 expiredDriversCount++;
             }
         }
@@ -181,14 +206,21 @@ public class DocumentExpirationNotifierService : BackgroundService
             sentCount, skipCount, expiredDriversCount);
     }
 
+    private static string PushBodyFor(string label, int days) => days switch
+    {
+        0 => $"Tu {label} venció hoy. Actualízalo para seguir recibiendo viajes.",
+        1 => $"Tu {label} vence mañana. Actualízalo a tiempo.",
+        _ => $"Tu {label} vence en {days} días. Actualízalo a tiempo.",
+    };
+
     private static string SubjectFor(int days, string audience)
     {
         var prefix = audience == "admin" ? "[Admin] " : "";
         return days switch
         {
             0 => $"{prefix}Documento de conductor caducó hoy",
-            3 => $"{prefix}Documento de conductor caduca en 3 días",
-            _ => $"{prefix}Documento de conductor caduca en 6 días",
+            1 => $"{prefix}Documento de conductor caduca mañana",
+            _ => $"{prefix}Documento de conductor caduca en {days} días",
         };
     }
 }

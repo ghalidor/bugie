@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rw-set-tabs']",
+      "title": "Ajustes por tema",
+      "text": "Las reglas están agrupadas en pestañas. El número en cada pestaña indica cuántos cambios tienes sin guardar."
+    },
+    {
+      "selector": "[data-tour='rw-set-fields']",
+      "title": "Cambia lo que necesites",
+      "text": "Los interruptores encienden o apagan funciones. El «?» junto a un campo explica el detalle."
+    },
+    {
+      "title": "Un solo Guardar",
+      "text": "Al cambiar algo aparece una barra abajo. «Guardar cambios» envía solo lo que modificaste y rige en el acto."
+    },
+    {
+      "title": "Mantenimiento",
+      "text": "La pestaña Mantenimiento tiene acciones que afectan a todos los usuarios, como vencer puntos ahora. Piden confirmación."
+    }
+  ]
+}

@@ -38,6 +38,22 @@ export function clearSession() {
   localStorage.removeItem(KEY_USER);
 }
 
+// ── Mensaje para mostrar en el login tras cerrar la sesión ──
+// (por ejemplo, "Esta cuenta fue eliminada..."). Se lee una sola vez.
+const KEY_LOGOUT_MSG = 'bugie_logout_msg';
+
+export function setLogoutMessage(message: string) {
+  try { sessionStorage.setItem(KEY_LOGOUT_MSG, message); } catch { /* sin almacenamiento */ }
+}
+
+export function takeLogoutMessage(): string | null {
+  try {
+    const msg = sessionStorage.getItem(KEY_LOGOUT_MSG);
+    sessionStorage.removeItem(KEY_LOGOUT_MSG);
+    return msg;
+  } catch { return null; }
+}
+
 // ── Helper: headers con JWT para fetch ────────────────────
 export function authHeaders(): HeadersInit {
   const token = getToken();

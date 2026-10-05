@@ -3,6 +3,8 @@ import { useMapConfig } from '../hooks/useMapConfig';
 
 export interface LatLng    { lat: number; lng: number; }
 export interface MapMarker extends LatLng { label?: string; type?: 'origin'|'destination'|'driver'|'default'; }
+/** Una línea extra con su color (ej. ruta del sistema vs recorrido real). */
+export interface MapLine { points: LatLng[]; color: string; dashed?: boolean; label?: string; }
 
 interface BugieMapProps {
   center?:      LatLng;
@@ -14,11 +16,18 @@ interface BugieMapProps {
   origin?:      LatLng;
   destination?: LatLng;
   waypoints?:   LatLng[];
+  /** Recorrido real (puntos GPS en orden). Si viene, se dibuja como línea. */
+  path?:        LatLng[];
+  /** Varias líneas con color propio. Si viene (con puntos), se dibujan estas
+   *  líneas + los markers, y se ignoran path/showRoute. */
+  lines?:       MapLine[];
+  /** Posición en vivo del conductor. Va en su propia capa: al cambiar solo se
+   *  mueve este marcador (interpolado ~800 ms), sin redibujar ruta ni pines. */
+  driver?:      LatLng | null;
+  driverLabel?: string;
   onMapClick?:  (pos: LatLng) => void;
   onRouteInfo?: (info: { km: number; mins: number; isFallback: boolean } | null) => void;
 }
-
-const DEFAULT_CENTER: LatLng = { lat: -8.109052, lng: -79.021534 };
 
 const COLORS = {
   origin:      '#7C6AF7',
@@ -61,7 +70,7 @@ export default function BugieMap({
   center, zoom,
   markers = [], height = 320, className = '',
   showRoute = false, origin, destination,
-  waypoints = [], onMapClick, onRouteInfo,
+  waypoints = [], path, lines, driver, driverLabel = 'Tu conductor', onMapClick, onRouteInfo,
 }: BugieMapProps) {
   // Si el padre no pasa center/zoom, usar la configuración del admin
   const cfg = useMapConfig();
@@ -76,6 +85,9 @@ export default function BugieMap({
   const onClickRef   = useRef(onMapClick);
   const onInfoRef    = useRef(onRouteInfo);
   const [loading, setLoading] = useState(false);
+  // Marcador del conductor (capa aparte, no se borra al redibujar)
+  const driverMarkerRef = useRef<any>(null);
+  const driverAnimRef   = useRef<number>(0);
 
   useEffect(() => { onClickRef.current  = onMapClick;  }, [onMapClick]);
   useEffect(() => { onInfoRef.current   = onRouteInfo; }, [onRouteInfo]);
@@ -145,7 +157,58 @@ export default function BugieMap({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalCenter.lat, finalCenter.lng, finalZoom]);
 
-  // Dibujar
+  // Conductor en vivo: crear el marcador una vez y luego solo moverlo.
+  useEffect(() => {
+    const L = (window as any).L;
+    const map = mapRef.current;
+    if (!L || !map) return;
+
+    if (!driver) {
+      cancelAnimationFrame(driverAnimRef.current);
+      if (driverMarkerRef.current) { try { map.removeLayer(driverMarkerRef.current); } catch {} }
+      driverMarkerRef.current = null;
+      return;
+    }
+
+    const target = L.latLng(driver.lat, driver.lng);
+    const marker = driverMarkerRef.current;
+
+    if (!marker) {
+      const size = 34;
+      const icon = L.icon({
+        iconUrl:     makeIcon(COLORS.driver, size),
+        iconSize:    [size, Math.round(size * 1.3)],
+        iconAnchor:  [size / 2, Math.round(size * 1.3)],
+        popupAnchor: [0, -Math.round(size * 1.3)],
+      });
+      driverMarkerRef.current = L.marker(target, { icon, zIndexOffset: 1000 }).addTo(map)
+        .bindPopup(`<b style="color:#fff;background:#1a1730;padding:4px 8px;border-radius:6px">${driverLabel}</b>`);
+      // Primera vez: si queda fuera de la vista, ajustar para verlo.
+      try { if (!map.getBounds().contains(target)) map.panTo(target); } catch {}
+      return;
+    }
+
+    // Mover suave desde donde está hasta la nueva posición.
+    cancelAnimationFrame(driverAnimRef.current);
+    const from = marker.getLatLng();
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced || from.equals(target)) { marker.setLatLng(target); return; }
+
+    const DURATION = 800;
+    const t0 = performance.now();
+    const step = (t: number) => {
+      const p = Math.min(1, (t - t0) / DURATION);
+      const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; // easeInOutQuad
+      marker.setLatLng([from.lat + (target.lat - from.lat) * e, from.lng + (target.lng - from.lng) * e]);
+      if (p < 1) driverAnimRef.current = requestAnimationFrame(step);
+    };
+    driverAnimRef.current = requestAnimationFrame(step);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driver?.lat, driver?.lng, driver == null]);
+
+  useEffect(() => () => cancelAnimationFrame(driverAnimRef.current), []);
+
+  // Dibujar (ruta, pines y líneas). El conductor en vivo NO depende de esto.
   useEffect(() => {
     const L = (window as any).L;
     if (!L || !mapRef.current) return;
@@ -164,6 +227,45 @@ export default function BugieMap({
       const m = L.marker([pos.lat, pos.lng], { icon }).addTo(map)
         .bindPopup(`<b style="color:#fff;background:#1a1730;padding:4px 8px;border-radius:6px">${label}</b>`);
       layersRef.current.push(m);
+    }
+
+    // Varias líneas con color (ej. ruta planificada + recorrido real) y markers
+    const drawableLines = (lines ?? []).filter(l => l.points.length > 1);
+    if (drawableLines.length > 0) {
+      drawableLines.forEach(l => {
+        const line = L.polyline(l.points.map(p => [p.lat, p.lng]), {
+          color: l.color,
+          weight: l.dashed ? 4 : 5,
+          opacity: l.dashed ? 0.8 : 0.95,
+          dashArray: l.dashed ? '8 6' : undefined,
+          lineCap: 'round', lineJoin: 'round',
+        }).addTo(map);
+        if (l.label) line.bindPopup(`<div style="color:#fff;background:#1a1730;padding:6px 10px;border-radius:8px">${l.label}</div>`);
+        layersRef.current.push(line);
+      });
+      markers.forEach(m => addPin(m, COLORS[m.type ?? 'default'] ?? COLORS.default, m.label ?? ''));
+      try {
+        const g = L.featureGroup(layersRef.current);
+        map.fitBounds(g.getBounds(), { padding: [40, 40], maxZoom: 17 });
+      } catch {}
+      return;
+    }
+
+    // Recorrido real: línea por los puntos GPS, con pin al inicio y al final
+    if (path && path.length > 0) {
+      addPin(path[0], COLORS.origin, 'Inicio');
+      if (path.length > 1) {
+        addPin(path[path.length - 1], COLORS.destination, 'Fin');
+        const line = L.polyline(path.map(p => [p.lat, p.lng]), {
+          color: COLORS.origin, weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round',
+        }).addTo(map);
+        layersRef.current.push(line);
+      }
+      try {
+        const g = L.featureGroup(layersRef.current);
+        map.fitBounds(g.getBounds(), { padding: [40, 40], maxZoom: 17 });
+      } catch {}
+      return;
     }
 
     // Sin ruta — solo markers
@@ -263,7 +365,7 @@ export default function BugieMap({
       .finally(() => setLoading(false));
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showRoute, origin?.lat, origin?.lng, destination?.lat, destination?.lng, JSON.stringify(waypoints), JSON.stringify(markers)]);
+  }, [showRoute, origin?.lat, origin?.lng, destination?.lat, destination?.lng, JSON.stringify(waypoints), JSON.stringify(markers), JSON.stringify(path), JSON.stringify(lines)]);
 
   return (
     <div style={{ position: 'relative', height, width: '100%' }}>

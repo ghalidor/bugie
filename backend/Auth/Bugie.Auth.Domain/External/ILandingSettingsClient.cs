@@ -7,8 +7,8 @@
 public interface ILandingSettingsClient
 {
     /// <summary>
-    /// Devuelve la ciudad principal de operación (ej. "Trujillo").
-    /// Si Landing está caído o no responde, devuelve "Trujillo" como fallback.
+    /// Devuelve la ciudad principal de operación (setting default_city).
+    /// Si Landing está caído, devuelve la última ciudad conocida o "tu ciudad".
     /// </summary>
     Task<string> GetDefaultCityAsync(CancellationToken ct = default);
 }

@@ -2,9 +2,11 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Security;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Application.Queries;
+using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Api.Controllers;
 
@@ -15,8 +17,9 @@ public class IncidentsController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<IncidentsController> _log;
-    public IncidentsController(IMediator mediator, ILogger<IncidentsController> log)
-        => (_mediator, _log) = (mediator, log);
+    private readonly ITripRepository _trips;
+    public IncidentsController(IMediator mediator, ILogger<IncidentsController> log, ITripRepository trips)
+        => (_mediator, _log, _trips) = (mediator, log, trips);
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     private string CurrentUserRole => User.FindFirstValue(ClaimTypes.Role) ?? "passenger";
@@ -42,15 +45,14 @@ public class IncidentsController : ControllerBase
         catch(Exception ex)
         {
             // Cualquier otra cosa (SQL error, tabla inexistente, claim faltante,
-            // null reference, etc.) era un 500 mudo antes. Ahora se loguea con
-            // el detalle y se devuelve un mensaje útil al cliente.
+            // null reference, etc.): el detalle va solo al log; al cliente un
+            // mensaje generico (no se exponen detalles internos).
             _log.LogError(ex,
                 "Error inesperado al crear incidencia. Trip={TripId}, User={UserId}, Role={Role}",
                 tripId, CurrentUserId, CurrentUserRole);
             return StatusCode(500, new
             {
                 error = "Error interno al crear la incidencia.",
-                detail = ex.Message,
             });
         }
     }
@@ -58,15 +60,25 @@ public class IncidentsController : ControllerBase
     /// <summary>
     /// GET /api/trips/incidents/{tripId}
     /// Devuelve las incidencias del viaje. Si es admin, ve todas.
-    /// Si es pasajero/conductor, solo ve las de viajes en los que participó.
+    /// Si es pasajero/conductor del viaje, solo ve las que él reportó.
+    /// Cualquier otro usuario: 403.
     /// </summary>
     [HttpGet("{tripId:guid}")]
+    [RequirePermission(Perm.ViewTrips, Perm.ViewLiveMap, Perm.ViewComplaints, Perm.ViewSosCenter, Perm.ViewPassengers, Perm.ViewDrivers, Perm.ViewPayments, Perm.ViewCommissions, SkipForNonAdmins = true)]
     public async Task<IActionResult> GetByTrip(Guid tripId, CancellationToken ct)
     {
-        // La autorización fina (participante del viaje) se valida con el handler
-        // si fuera necesario. Por ahora confiamos en que el frontend solo lo pide
-        // para viajes propios.
+        var isAdmin = User.IsInRole("admin");
+        if(!isAdmin)
+        {
+            var trip = await _trips.GetByIdAsync(tripId, ct);
+            if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+            if(trip.PassengerId != CurrentUserId && trip.DriverId != CurrentUserId)
+                return Forbid();
+        }
+
         var list = await _mediator.Send(new GetIncidentsByTripQuery(tripId), ct);
+        if(!isAdmin)
+            list = list.Where(i => i.ReportedByUserId == CurrentUserId).ToList();
         return Ok(list);
     }
 
@@ -105,6 +117,7 @@ public class IncidentsController : ControllerBase
     /// </summary>
     [HttpPost("counts")]
     [Authorize(Roles = "admin")]
+    [RequirePermission(Perm.ViewTrips)]
     public async Task<IActionResult> Counts(
         [FromBody] List<Guid> tripIds, CancellationToken ct)
     {

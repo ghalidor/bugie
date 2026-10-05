@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Evita que el "resource shrinker" del build release borre el sonido del
+     canal "bugie_requests" (solo se referencia por nombre desde Dart). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/bugie_request" />

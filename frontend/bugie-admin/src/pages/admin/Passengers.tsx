@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
 import { API, apiFetch, ApiError } from '../../state/api';
+import {
+  Column, DataTable, FilterBar, Page, Pagination, SectionCard, StatusBadge, useDebouncedValue, useTabParam, useToast,
+} from '../../components/ui';
+import { csvDateTag, csvDateTime, csvResultMessage, downloadCsv, fetchAllPages } from '../../state/csv';
+import { PersonCell, fmtDate } from './people/PeopleShared';
+import { DeletedBadge, IncompleteBadge, fmtDocument } from './people/AccountShared';
 
 interface User {
   id:         string;
@@ -12,6 +17,11 @@ interface User {
   isActive:   boolean;
   isVerified: boolean;
   createdAt:  string;
+  docType?:   string | null;
+  docNumber?: string | null;
+  needsProfileCompletion?: boolean;
+  deletedAt?: string | null;
+  deletedReason?: string | null;
 }
 
 interface UsersPagedResponse {
@@ -30,225 +40,186 @@ interface UsersStatsResponse {
   noVerificados: number;
 }
 
-const PAGE_SIZE = 25;
+const EMPTY_STATS: UsersStatsResponse = { total: 0, activos: 0, pasajeros: 0, conductores: 0, verificados: 0, noVerificados: 0 };
+
+// Filtro → valor del parámetro `verified` del backend. "Eliminadas" usa deleted=true
+// (por defecto el backend no devuelve cuentas eliminadas).
+const FILTERS = ['pending', 'verified', 'all', 'deleted'] as const;
+const VERIFIED_PARAM: Record<string, string | null> = { pending: 'false', verified: 'true', all: null, deleted: null };
 
 export default function Passengers() {
   const navigate = useNavigate();
-  // Tab: 'pending' (no verificados) o 'all' (todos los pasajeros).
-  const [tab,    setTab]     = useState<'pending' | 'all'>('pending');
-  const [users,  setUsers]   = useState<User[]>([]);
-  const [total,  setTotal]   = useState(0);
-  const [page,   setPage]    = useState(1);
-  const [search, setSearch]  = useState('');
-  // Search con debounce 300ms — no manda request por cada tecla.
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [stats, setStats] = useState<UsersStatsResponse>({
-    total: 0, activos: 0, pasajeros: 0, conductores: 0,
-    verificados: 0, noVerificados: 0,
-  });
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
+  // El filtro vive en la URL (?filtro=) para que "Volver" desde el detalle lo conserve.
+  const [filter, setFilter] = useTabParam([...FILTERS], 'filtro');
+  const [users,  setUsers]  = useState<User[]>([]);
+  const [total,  setTotal]  = useState(0);
+  const [page,   setPage]   = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [search, setSearch] = useState('');
+  const searchDebounced = useDebouncedValue(search, 300);
+  const [stats, setStats]   = useState<UsersStatsResponse>(EMPTY_STATS);
+  const [deletedCount, setDeletedCount] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const [error,  setError]   = useState<string | null>(null);
+  const [error,  setError]  = useState<string | null>(null);
 
-  // Debounce
-  const debounceRef = useRef<number | null>(null);
+  // Al cambiar filtro, búsqueda o tamaño de página → volver a la página 1 (sin
+  // pedir dos veces); reqId descarta respuestas viejas (peticiones que se pisan).
+  const filterKey = `${filter}|${searchDebounced.trim()}|${pageSize}`;
+  const lastKey = useRef(filterKey);
+  const reqId = useRef(0);
   useEffect(() => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      setSearchDebounced(search);
-      setPage(1);
-    }, 300);
-    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current); };
-  }, [search]);
+    if (lastKey.current !== filterKey) {
+      lastKey.current = filterKey;
+      if (page !== 1) { setPage(1); return; }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, page]);
 
-  // Al cambiar de tab, volver a página 1
-  useEffect(() => { setPage(1); }, [tab]);
+  /** Filtro y búsqueda del listado (sin página): los usa también el CSV. */
+  function listParams() {
+    const params = new URLSearchParams();
+    const verifiedParam = VERIFIED_PARAM[filter];
+    if (verifiedParam !== null) params.append('verified', verifiedParam);
+    if (filter === 'deleted') params.append('deleted', 'true');
+    if (searchDebounced.trim()) params.append('search', searchDebounced.trim());
+    return params;
+  }
 
-  // Cargar al cambiar página/tab/búsqueda
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, tab, searchDebounced]);
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const base = listParams();
+      const all = await fetchAllPages(async (p, size) => {
+        const params = new URLSearchParams(base);
+        params.append('page', String(p));
+        params.append('pageSize', String(size));
+        return apiFetch<UsersPagedResponse>(`${API.auth}/auth/admin/passengers/paged?${params.toString()}`);
+      });
+      downloadCsv(
+        ['Nombre', 'Correo', 'Teléfono', 'Tipo de documento', 'N° de documento', 'Verificado', 'Cuenta', 'Registro', 'Cuenta eliminada', 'Id del usuario'],
+        all.items.map(u => [
+          u.fullName, u.email, u.phone, u.docType ?? '', u.docNumber ?? '',
+          u.isVerified ? 'Sí' : 'No', u.deletedAt ? 'Eliminada' : u.isActive ? 'Activa' : 'Inactiva',
+          csvDateTime(u.createdAt), csvDateTime(u.deletedAt), u.id,
+        ]),
+        `pasajeros-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'pasajero', 'pasajeros'));
+      else toast.success(csvResultMessage(all, 'pasajero', 'pasajeros'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar los pasajeros.');
+    } finally { setExporting(false); }
+  }
 
   async function load() {
+    const id = ++reqId.current;
     setLoading(true); setError(null);
     try {
-      // Tab 'pending' = no verificados. Tab 'all' = sin filtro de verificación.
-      const verifiedParam = tab === 'pending' ? 'false' : null;
-
-      const pagedParams = new URLSearchParams({
-        page: String(page),
-        pageSize: String(PAGE_SIZE),
-      });
+      const verifiedParam = VERIFIED_PARAM[filter];
+      const pagedParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      // Los contadores NO llevan el filtro de verificación: así cada chip muestra
+      // su total real (antes, en "Pendientes", el contador de verificados salía en 0).
       const statsParams = new URLSearchParams();
-      if (verifiedParam !== null) {
-        pagedParams.append('verified', verifiedParam);
-        statsParams.append('verified', verifiedParam);
-      }
+      if (verifiedParam !== null) pagedParams.append('verified', verifiedParam);
+      if (filter === 'deleted') pagedParams.append('deleted', 'true');
+      const deletedParams = new URLSearchParams(statsParams);
       if (searchDebounced.trim()) {
         pagedParams.append('search', searchDebounced.trim());
         statsParams.append('search', searchDebounced.trim());
+        deletedParams.append('search', searchDebounced.trim());
       }
+      deletedParams.append('deleted', 'true');
 
-      const [pagedRes, statsRes] = await Promise.all([
-        apiFetch<UsersPagedResponse>(
-          `${API.auth}/auth/admin/passengers/paged?${pagedParams.toString()}`),
-        apiFetch<UsersStatsResponse>(
-          `${API.auth}/auth/admin/passengers/stats?${statsParams.toString()}`),
+      const [pagedRes, statsRes, deletedRes] = await Promise.all([
+        apiFetch<UsersPagedResponse>(`${API.auth}/auth/admin/passengers/paged?${pagedParams.toString()}`),
+        apiFetch<UsersStatsResponse>(`${API.auth}/auth/admin/passengers/stats?${statsParams.toString()}`),
+        apiFetch<UsersStatsResponse>(`${API.auth}/auth/admin/passengers/stats?${deletedParams.toString()}`).catch(() => null),
       ]);
 
+      if (id !== reqId.current) return;
       setUsers(pagedRes.items ?? []);
       setTotal(pagedRes.total ?? 0);
-      setStats(statsRes ?? {
-        total: 0, activos: 0, pasajeros: 0, conductores: 0,
-        verificados: 0, noVerificados: 0,
-      });
+      setStats(statsRes ?? EMPTY_STATS);
+      setDeletedCount(deletedRes?.total);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo cargar los pasajeros.');
-    } finally { setLoading(false); }
+      if (id === reqId.current) setError(err instanceof ApiError ? err.message : 'No se pudo cargar los pasajeros.');
+    } finally { if (id === reqId.current) setLoading(false); }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const fromIdx = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const toIdx   = Math.min(page * PAGE_SIZE, total);
+  const columns: Column<User>[] = [
+    { key: 'name', header: 'Pasajero', priority: 1, width: '34%',
+      render: u => <PersonCell name={u.fullName} sub={u.email} tone={u.isVerified ? 'ok' : 'warn'} muted={!!u.deletedAt} /> },
+    { key: 'status', header: 'Verificación', priority: 1, mobileLabel: 'Estado',
+      render: u => u.deletedAt
+        ? <DeletedBadge deletedAt={u.deletedAt} deletedReason={u.deletedReason} />
+        : (
+          <span className="d-inline-flex flex-wrap gap-1">
+            {u.isVerified
+              ? <StatusBadge tone="ok" icon="fa-circle-check">Verificado</StatusBadge>
+              : <StatusBadge tone="warn" icon="fa-clock">Por verificar</StatusBadge>}
+            {u.needsProfileCompletion && <IncompleteBadge />}
+          </span>
+        ) },
+    { key: 'doc', header: 'Documento', priority: 3, render: u => fmtDocument(u) ?? '—' },
+    { key: 'phone', header: 'Teléfono', priority: 2, render: u => u.phone || '—' },
+    { key: 'active', header: 'Cuenta', priority: 3,
+      render: u => <StatusBadge tone={u.isActive ? 'ok' : 'neutral'} dot>{u.isActive ? 'Activa' : 'Inactiva'}</StatusBadge> },
+    { key: 'createdAt', header: 'Registro', priority: 1, mobileLabel: 'Registro', render: u => fmtDate(u.createdAt) },
+  ];
 
   return (
-    <>
-      <PageHeader
-        title="Pasajeros"
-        subtitle="Gestión de pasajeros registrados en la plataforma."
-        icon="fa-solid fa-users"
-      />
-
-      {/* KPIs calculados en BD (siempre rápidos). Total = total filtrado por tab. */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Total',       value: stats.total,         color: '#818cf8', icon: 'fa-users'        },
-          { label: 'Verificados', value: stats.verificados,   color: '#34d399', icon: 'fa-circle-check'  },
-          { label: 'Pendientes',  value: stats.noVerificados, color: '#f59e0b', icon: 'fa-clock'         },
-        ].map(k => (
-          <div className="col-md-4" key={k.label}>
-            <div className="bugie-card p-3">
-              <div className="d-flex align-items-center gap-3">
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: k.color + '22',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <i className={`fa-solid ${k.icon}`} style={{ color: k.color }} />
-                </div>
-                <div>
-                  <div className="small bugie-muted">{k.label}</div>
-                  <div className="fw-bold fs-4" style={{ color: k.color, lineHeight: 1 }}>
-                    {loading ? '…' : k.value.toLocaleString('es-PE')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filtros */}
-      <div className="d-flex gap-2 mb-3 flex-wrap align-items-center">
-        <div className="position-relative" style={{ width: 260 }}>
-          <i className="fa-solid fa-magnifying-glass position-absolute"
-             style={{ left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--bugie-muted)', fontSize: '0.8rem' }} />
-          <input className="form-control ps-4" placeholder="Buscar pasajero…"
-            value={search} onChange={e => setSearch(e.target.value)} />
+    <Page
+      title="Pasajeros"
+      subtitle="Revisa el DNI de los nuevos pasajeros y consulta su información."
+      icon="fa-users"
+      helpKey="passengers"
+      actions={[
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: exportCsv, loading: exporting, disabled: !total },
+        { label: 'Actualizar', icon: 'fa-rotate-right', onClick: load, loading },
+      ]}
+    >
+      <SectionCard flush tourId="passengers-list">
+        <div className="p-3" data-tour="passengers-filters">
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Nombre, correo, teléfono o documento"
+            chips={[
+              { value: 'pending',  label: 'Por verificar', count: stats.noVerificados },
+              { value: 'verified', label: 'Verificados',   count: stats.verificados },
+              { value: 'all',      label: 'Todos',         count: stats.total },
+              { value: 'deleted',  label: 'Eliminadas',    count: deletedCount },
+            ]}
+            chip={filter}
+            onChipChange={setFilter}
+          />
         </div>
-        <div className="d-flex gap-2">
-          {[
-            { key: 'pending', label: 'Pendientes' },
-            { key: 'all',     label: 'Todos'      },
-          ].map(f => (
-            <button key={f.key}
-              className={`btn btn-sm rounded-pill ${tab === f.key ? 'btn-bugie text-white' : 'btn-bugie-outline'}`}
-              onClick={() => setTab(f.key as any)}>
-              {f.label}
-            </button>
-          ))}
+
+        {error && <div className="alert alert-danger small mx-3">{error}</div>}
+
+        <DataTable
+          columns={columns}
+          rows={users}
+          rowKey={u => u.id}
+          loading={loading}
+          onRowClick={u => navigate(`/admin/pasajeros/${u.id}`)}
+          mobileSubtitle={u => u.email}
+          actions={u => [
+            { label: u.isVerified || u.deletedAt ? 'Ver detalle' : 'Revisar documentos', icon: u.isVerified || u.deletedAt ? 'fa-eye' : 'fa-id-card', to: `/admin/pasajeros/${u.id}` },
+          ]}
+          empty={filter === 'pending' && !searchDebounced
+            ? { variant: 'done', title: 'Todo al día', text: 'No hay pasajeros esperando verificación.' }
+            : filter === 'deleted' && !searchDebounced
+            ? { title: 'Sin cuentas eliminadas', text: 'Ningún pasajero ha eliminado su cuenta.', icon: 'fa-user-xmark' }
+            : { title: 'Sin pasajeros', text: searchDebounced ? `No hay resultados para «${searchDebounced}».` : 'No hay pasajeros en esta categoría.', icon: 'fa-users' }}
+        />
+
+        <div className="px-3">
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
-        <button className="btn btn-sm btn-bugie-outline rounded-pill ms-auto" onClick={load}>
-          <i className="fa-solid fa-rotate-right me-1" />Actualizar
-        </button>
-      </div>
-
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {loading ? (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      ) : users.length === 0 ? (
-        <div className="bugie-card p-5 text-center">
-          <i className="fa-solid fa-users fa-2x mb-3 d-block bugie-muted" />
-          <div className="fw-semibold mb-1">Sin pasajeros</div>
-          <div className="small bugie-muted">No hay pasajeros en esta categoría.</div>
-        </div>
-      ) : (
-        <>
-          <div className="d-flex flex-column gap-2">
-            {users.map(u => (
-              <div key={u.id} className="bugie-card px-3 py-3" style={{ overflow: 'hidden', position: 'relative' }}>
-                <div style={{
-                  position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-                  background: u.isVerified ? '#34d399' : '#f59e0b', borderRadius: '12px 0 0 12px',
-                }} />
-                <div className="d-flex align-items-center gap-3 ps-1 flex-wrap">
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                                background: 'rgba(129,140,248,0.2)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className="fa-solid fa-user" style={{ color: '#818cf8' }} />
-                  </div>
-                  <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                    <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
-                      <span className="fw-semibold">{u.fullName}</span>
-                      <span className="badge rounded-pill"
-                            style={{ background: u.isVerified ? 'rgba(52,211,153,0.2)' : 'rgba(245,158,11,0.2)',
-                                     color: u.isVerified ? '#34d399' : '#f59e0b', fontSize: '0.72rem' }}>
-                        <i className={`fa-solid ${u.isVerified ? 'fa-circle-check' : 'fa-clock'} me-1`}
-                           style={{ fontSize: '0.65rem' }} />
-                        {u.isVerified ? 'Verificado' : 'Pendiente'}
-                      </span>
-                    </div>
-                    <div className="small bugie-muted">{u.email} · {u.phone}</div>
-                  </div>
-                  <div className="text-end flex-shrink-0">
-                    <div className="small bugie-muted mb-2">
-                      {new Date(u.createdAt).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </div>
-                    <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                            style={{ fontSize: '0.75rem' }}
-                            onClick={() => navigate(`/admin/pasajeros/${u.id}`)}>
-                      <i className="fa-solid fa-eye me-1" />Ver detalle
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Paginación */}
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
-            <div className="small bugie-muted">
-              Mostrando <strong>{fromIdx}–{toIdx}</strong> de <strong>{total.toLocaleString('es-PE')}</strong>
-            </div>
-            <div className="d-flex align-items-center gap-2">
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(1)} disabled={page === 1}>
-                <i className="fa-solid fa-angles-left" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <i className="fa-solid fa-chevron-left" />
-              </button>
-              <span className="small fw-semibold mx-2">
-                Página {page} de {totalPages}
-              </span>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                <i className="fa-solid fa-chevron-right" />
-              </button>
-              <button className="btn btn-sm btn-bugie-outline rounded-pill"
-                onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                <i className="fa-solid fa-angles-right" />
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </>
+      </SectionCard>
+    </Page>
   );
 }

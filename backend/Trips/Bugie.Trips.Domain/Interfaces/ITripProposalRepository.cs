@@ -83,4 +83,11 @@ public interface ITripProposalRepository
     /// para avisarles.
     /// </summary>
     Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Rechaza todas las propuestas (incluida la aceptada) de un conductor en un
+    /// viaje. Se usa al republicar un programado cuyo conductor no llegó
+    /// (RejectedBy = 'driver_no_show'), para que ya no lo vea como suyo.
+    /// </summary>
+    Task<int> RejectDriverOnTripAsync(Guid tripId, Guid driverId, string rejectedBy, CancellationToken ct = default);
 }

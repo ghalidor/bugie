@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_card.dart';
 import '../../auth/data/auth_repository.dart';
@@ -9,13 +11,15 @@ import '../../auth/domain/passenger_document_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 
 /// Pantalla de verificación de cuenta del pasajero.
-/// El pasajero debe subir DNI frontal + reverso. Cuando un admin aprueba ambos,
-/// `isVerified` pasa a true y puede solicitar viajes.
+/// El pasajero debe subir DNI frontal + reverso y tener foto de perfil.
+/// Cuando un admin aprueba, `isVerified` pasa a true y puede solicitar viajes.
 ///
-/// Endpoints usados:
-///   GET  /api/auth/users/me/status
-///   GET  /api/auth/passengers/documents/me
-///   POST /api/auth/passengers/documents (multipart)
+/// La lista de requisitos y su estado la da el backend:
+///   GET  /api/auth/passengers/documents/me/requirements
+///   GET  /api/auth/passengers/documents/me (nombre del archivo subido)
+///   POST /api/auth/passengers/documents (multipart, DNI)
+///   POST /api/auth/me/profile-photo (multipart, foto de perfil: mismo flujo
+///        que en "Mis datos")
 class PassengerVerificationScreen extends StatefulWidget {
   const PassengerVerificationScreen({super.key});
 
@@ -24,21 +28,19 @@ class PassengerVerificationScreen extends StatefulWidget {
       _PassengerVerificationScreenState();
 }
 
-class _DocReq {
-  final String key;
-  final String label;
-  final String description;
-  const _DocReq(this.key, this.label, this.description);
+/// Descripción de cada requisito (el nombre lo manda el backend).
+String _reqDescription(String key) {
+  switch (key) {
+    case 'dni_front':     return 'Foto clara del frente de tu DNI.';
+    case 'dni_back':      return 'Foto clara del reverso de tu DNI.';
+    case 'profile_photo': return 'Una foto tuya de frente, con buena luz.';
+    default:              return '';
+  }
 }
-
-const _required = [
-  _DocReq('dni_front', 'DNI - Frontal', 'Foto clara del frente de tu DNI.'),
-  _DocReq('dni_back', 'DNI - Reverso', 'Foto clara del reverso de tu DNI.'),
-];
 
 class _PassengerVerificationScreenState
     extends State<PassengerVerificationScreen> {
-  UserVerificationStatus? _status;
+  PassengerRequirements? _reqs;
   List<PassengerDocument> _docs = [];
   bool _loading = true;
   String? _uploading;
@@ -58,14 +60,15 @@ class _PassengerVerificationScreenState
     final auth = context.read<AuthRepository>();
     try {
       final results = await Future.wait([
-        auth.getMyStatus(),
+        auth.getMyPassengerRequirements(),
         auth.getMyPassengerDocuments(),
       ]);
       if (!mounted) return;
       setState(() {
-        _status = results[0] as UserVerificationStatus;
+        _reqs = results[0] as PassengerRequirements;
         _docs = results[1] as List<PassengerDocument>;
         _loading = false;
+        _error = null;
       });
     } catch (_) {
       if (mounted) {
@@ -77,7 +80,7 @@ class _PassengerVerificationScreenState
     }
   }
 
-  Future<void> _upload(_DocReq req) async {
+  Future<void> _upload(PassengerRequirement req) async {
     setState(() { _error = null; _message = null; });
 
     final source = await _pickSource();
@@ -88,18 +91,38 @@ class _PassengerVerificationScreenState
       maxWidth: 2000,
       imageQuality: 85,
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
 
     setState(() => _uploading = req.key);
     try {
-      final saved = await context.read<AuthRepository>().uploadPassengerDocument(
-            docType: req.key,
-            filePath: picked.path,
-          );
+      final repo = context.read<AuthRepository>();
+      if (req.key == 'profile_photo') {
+        // Mismo endpoint que el de "Mis datos": actualiza también el avatar.
+        final newUrl = await repo.uploadProfilePhoto(picked.path);
+        if (!mounted) return;
+        if (newUrl.isNotEmpty) {
+          final resolved =
+              ApiConfig.resolveMediaUrl(newUrl, service: ApiService.auth);
+          context.read<Session>().setProfilePhotoUrl(resolved == null
+              ? null
+              : '$resolved?v=${DateTime.now().millisecondsSinceEpoch}');
+        }
+      } else {
+        final saved = await repo.uploadPassengerDocument(
+          docType: req.key,
+          filePath: picked.path,
+        );
+        if (!mounted) return;
+        _docs = [..._docs.where((d) => d.docType != req.key), saved];
+      }
+      // Recargar requisitos: el estado lo calcula el backend.
+      final reqs = await repo.getMyPassengerRequirements();
       if (!mounted) return;
       setState(() {
-        _docs = [..._docs.where((d) => d.docType != req.key), saved];
-        _message = 'Documento subido correctamente.';
+        _reqs = reqs;
+        _message = req.key == 'profile_photo'
+            ? 'Foto de perfil subida correctamente.'
+            : 'Documento subido correctamente.';
         _uploading = null;
       });
     } on ApiException catch (e) {
@@ -144,9 +167,9 @@ class _PassengerVerificationScreenState
     }
 
     final c = context.bugie;
-    final isVerified = _status?.isVerified ?? false;
-    final allUploaded = _required.every((r) =>
-        _docs.any((d) => d.docType == r.key && d.status != 'rejected'));
+    final isVerified = _reqs?.isVerified ?? false;
+    final allUploaded = _reqs?.readyForReview ?? false;
+    final reqs = _reqs?.requirements ?? const <PassengerRequirement>[];
 
     return Scaffold(
       appBar: const BugieInternalHeader(title: 'Verificación de cuenta'),
@@ -243,16 +266,31 @@ class _PassengerVerificationScreenState
                 padding: EdgeInsets.zero,
                 child: Column(
                   children: [
-                    for (var i = 0; i < _required.length; i++) ...[
-                      _DocRow(
-                        req: _required[i],
-                        doc: _docs
-                            .where((d) => d.docType == _required[i].key)
-                            .firstOrNull,
-                        uploading: _uploading == _required[i].key,
-                        onUpload: () => _upload(_required[i]),
+                    if (reqs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text('No se pudieron cargar los requisitos.',
+                                  style: TextStyle(color: c.textMuted)),
+                            ),
+                            TextButton(
+                                onPressed: _load,
+                                child: const Text('Reintentar')),
+                          ],
+                        ),
                       ),
-                      if (i < _required.length - 1)
+                    for (var i = 0; i < reqs.length; i++) ...[
+                      _DocRow(
+                        req: reqs[i],
+                        doc: _docs
+                            .where((d) => d.docType == reqs[i].key)
+                            .firstOrNull,
+                        uploading: _uploading == reqs[i].key,
+                        onUpload: () => _upload(reqs[i]),
+                      ),
+                      if (i < reqs.length - 1)
                         const Divider(height: 1, indent: 70),
                     ],
                   ],
@@ -294,7 +332,7 @@ extension _FirstOrNull<T> on Iterable<T> {
 }
 
 class _DocRow extends StatelessWidget {
-  final _DocReq req;
+  final PassengerRequirement req;
   final PassengerDocument? doc;
   final bool uploading;
   final VoidCallback onUpload;
@@ -306,28 +344,33 @@ class _DocRow extends StatelessWidget {
     required this.onUpload,
   });
 
-  Color _statusColor(String? s) {
+  Color _statusColor(String s) {
     switch (s) {
       case 'pending':  return Colors.orange;
-      case 'approved': return BugieColors.success;
+      case 'approved':
+      case 'uploaded': return BugieColors.success;
       case 'rejected': return BugieColors.danger;
-      default:         return BugieColors.textMuted;
+      default:         return BugieColors.danger; // missing
     }
   }
 
-  String _statusLabel(String? s) {
+  String _statusLabel(String s) {
     switch (s) {
       case 'pending':  return 'En revisión';
       case 'approved': return 'Aprobado';
+      case 'uploaded': return 'Subida';
       case 'rejected': return 'Rechazado';
-      default:         return '';
+      default:         return 'Falta';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final status = doc?.status;
+    final status = req.status;
     final color = _statusColor(status);
+    final isPhoto = req.key == 'profile_photo';
+    final missing = status == 'missing';
+    final reason = req.rejectionReason ?? doc?.rejectionReason;
 
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -336,7 +379,8 @@ class _DocRow extends StatelessWidget {
         children: [
           CircleAvatar(
             backgroundColor: BugieColors.primary.withOpacity(0.1),
-            child: const Icon(Icons.badge, color: BugieColors.primary),
+            child: Icon(isPhoto ? Icons.account_circle : Icons.badge,
+                color: BugieColors.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -349,7 +393,7 @@ class _DocRow extends StatelessWidget {
                       child: Text(req.label,
                           style: const TextStyle(fontWeight: FontWeight.w600)),
                     ),
-                    if (status != null) ...[
+                    ...[
                       const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -364,10 +408,10 @@ class _DocRow extends StatelessWidget {
                     ],
                   ],
                 ),
-                Text(req.description,
+                Text(_reqDescription(req.key),
                     style: const TextStyle(
                         fontSize: 12, color: BugieColors.textMuted)),
-                if (doc?.status == 'rejected' && doc?.rejectionReason != null) ...[
+                if (status == 'rejected' && reason != null) ...[
                   const SizedBox(height: 2),
                   Row(
                     children: [
@@ -376,7 +420,7 @@ class _DocRow extends StatelessWidget {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          'Motivo: ${doc!.rejectionReason}',
+                          'Motivo: $reason',
                           style: const TextStyle(
                               fontSize: 11, color: BugieColors.danger),
                         ),
@@ -384,7 +428,7 @@ class _DocRow extends StatelessWidget {
                     ],
                   ),
                 ],
-                if (doc?.originalFileName != null) ...[
+                if (!isPhoto && doc?.originalFileName != null) ...[
                   const SizedBox(height: 2),
                   Row(
                     children: [
@@ -419,13 +463,13 @@ class _DocRow extends StatelessWidget {
                     child: CircularProgressIndicator(
                         color: Colors.white, strokeWidth: 2),
                   )
-                : Icon(doc == null ? Icons.upload : Icons.refresh, size: 14),
+                : Icon(missing ? Icons.upload : Icons.refresh, size: 14),
             label: Text(
               uploading
                   ? 'Subiendo'
-                  : doc == null
+                  : missing
                       ? 'Subir'
-                      : 'Reemplazar',
+                      : (isPhoto ? 'Cambiar' : 'Reemplazar'),
               style: const TextStyle(fontSize: 12),
             ),
           ),

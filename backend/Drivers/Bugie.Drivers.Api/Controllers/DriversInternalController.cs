@@ -1,6 +1,8 @@
 ﻿using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Drivers.Application.Commands;
+using Bugie.Drivers.Application.Services;
+using Bugie.Drivers.Domain.Interfaces;
 
 namespace Bugie.Drivers.Api.Controllers;
 
@@ -47,7 +49,7 @@ public class DriversInternalController : ControllerBase
             _log.LogError("InternalToken no configurado en appsettings.");
             return StatusCode(500, new { error = "Configuración incompleta." });
         }
-        if(string.IsNullOrWhiteSpace(token) || token != expected)
+        if(!Bugie.Drivers.Api.Security.InternalTokenCheck.Matches(token, expected))
         {
             _log.LogWarning("Intento de acceso a /internal/register con token inválido.");
             return Unauthorized(new { error = "Token interno inválido." });
@@ -75,6 +77,50 @@ public class DriversInternalController : ControllerBase
         }
     }
 
+    public record AccountDeletedRequest(Guid UserId);
+
+    /// <summary>
+    /// POST /api/drivers/internal/account-deleted
+    /// Llamado desde Auth.Api cuando el conductor elimina su cuenta: lo pone
+    /// offline, cierra su check-in y quita su pin del mapa del admin.
+    /// Idempotente (si no tiene perfil de conductor devuelve 200 igual).
+    /// </summary>
+    [HttpPost("account-deleted")]
+    public async Task<IActionResult> AccountDeleted(
+        [FromBody] AccountDeletedRequest req,
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        [FromServices] IDriverRepository drivers,
+        [FromServices] DriverAccountService account,
+        CancellationToken ct)
+    {
+        var expected = _config["InternalToken"] ?? string.Empty;
+        if(string.IsNullOrWhiteSpace(expected))
+        {
+            _log.LogError("InternalToken no configurado en appsettings.");
+            return StatusCode(500, new { error = "Configuración incompleta." });
+        }
+        if(!Bugie.Drivers.Api.Security.InternalTokenCheck.Matches(token, expected))
+        {
+            _log.LogWarning("Intento de acceso a /internal/account-deleted con token inválido.");
+            return Unauthorized(new { error = "Token interno inválido." });
+        }
+        if(req.UserId == Guid.Empty)
+            return BadRequest(new { error = "UserId requerido." });
+
+        var d = await drivers.GetByUserIdAsync(req.UserId, ct);
+        if(d is null) return Ok(new { offline = true });
+
+        var wasOnline = d.IsOnline;
+        if(wasOnline)
+        {
+            d.GoOffline();
+            await drivers.UpdateAsync(d, ct);
+        }
+        await account.TakeOfflineAsync(d, wasOnline, ct);
+        _log.LogInformation("Conductor {UserId} offline por cuenta eliminada", req.UserId);
+        return Ok(new { offline = true });
+    }
+
     public record AddRatingRequest(Guid DriverUserId, byte Stars);
 
     /// <summary>
@@ -95,7 +141,7 @@ public class DriversInternalController : ControllerBase
             _log.LogError("InternalToken no configurado en appsettings.");
             return StatusCode(500, new { error = "Configuración incompleta." });
         }
-        if(string.IsNullOrWhiteSpace(token) || token != expected)
+        if(!Bugie.Drivers.Api.Security.InternalTokenCheck.Matches(token, expected))
         {
             _log.LogWarning("Intento de acceso a /internal/add-rating con token inválido.");
             return Unauthorized(new { error = "Token interno inválido." });

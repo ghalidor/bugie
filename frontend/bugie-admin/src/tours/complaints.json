@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='complaints-stats']",
+      "title": "Plazos a la vista",
+      "text": "Pendientes, por vencer y vencidas según el plazo legal en días hábiles. Toca una tarjeta para filtrar."
+    },
+    {
+      "selector": "[data-tour='complaints-filters']",
+      "title": "Busca y filtra",
+      "text": "Por N° de hoja, nombre, correo, documento o viaje; por tipo (reclamo o queja) y por rango de fechas. «Limpiar filtros» quita todo."
+    },
+    {
+      "selector": "[data-tour='complaints-list']",
+      "title": "Responde cada hoja",
+      "text": "Abre una hoja para leerla, ver el viaje enlazado o la ficha del pasajero, y responder: la respuesta llega por correo y la hoja se cierra. Anular y descartar piden motivo."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Exportar para Indecopi",
+      "text": "«Exportar CSV» descarga las hojas del filtro (usa el rango de fechas) con número, fecha, consumidor, documento, tipo, detalle, pedido, estado y respuesta."
+    },
+    {
+      "selector": "[data-tour='page-help']",
+      "title": "¿Necesitas repasar?",
+      "text": "Vuelve a ver esta guía cuando quieras con el botón «?»."
+    }
+  ]
+}

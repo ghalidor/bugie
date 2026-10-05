@@ -4,12 +4,15 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/theme/bugie_theme.dart';
+import '../../../core/utils/auto_refresh.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/incident_model.dart';
 import '../../trips/domain/rating_model.dart';
 import '../../trips/domain/trip_model.dart';
 import '../../favorites/data/favorites_repository.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/service_badge.dart';
+import '../../../core/widgets/schedule_picker.dart';
 
 /// Historial de viajes del pasajero con opción de reportar/ver incidencias.
 /// Misma lógica que el conductor — el backend distingue rol automáticamente
@@ -23,7 +26,8 @@ class PassengerTripsScreen extends StatefulWidget {
   State<PassengerTripsScreen> createState() => _PassengerTripsScreenState();
 }
 
-class _PassengerTripsScreenState extends State<PassengerTripsScreen> {
+class _PassengerTripsScreenState extends State<PassengerTripsScreen>
+    with AutoRefreshOnReturn {
   /// Tamaño de página: cuántos viajes se muestran por carga.
   static const int _pageSize = 10;
 
@@ -47,7 +51,12 @@ class _PassengerTripsScreenState extends State<PassengerTripsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  /// Recarga sola al volver a la pantalla o al reanudar la app. Conserva
+  /// cuántos viajes estaban visibles ("Ver más").
+  @override
+  Future<void> onAutoRefresh() => _load(keepVisible: true);
+
+  Future<void> _load({bool keepVisible = false}) async {
     try {
       final repo = context.read<TripsRepository>();
       final all = await repo.getHistory();
@@ -105,7 +114,7 @@ class _PassengerTripsScreenState extends State<PassengerTripsScreen> {
         _trips = list;
         _myIncidents = inc;
         _myRatings = ratings;
-        _visibleCount = _pageSize;   // reset al refrescar
+        if (!keepVisible) _visibleCount = _pageSize;   // reset al refrescar
         _loading = false;
       });
     } catch (_) {
@@ -174,9 +183,7 @@ class _PassengerTripsScreenState extends State<PassengerTripsScreen> {
       appBar: BugieInternalHeader(
           title: widget.serviceType == 1 ? 'Mis envíos' : 'Mis viajes',
           showBack: false,
-          leadingIcon: widget.serviceType == 1
-              ? Icons.local_shipping
-              : Icons.directions_car),
+          leadingIcon: serviceIcon(widget.serviceType == 1)),
       body: SafeArea(
         child: Column(
           children: [
@@ -276,7 +283,7 @@ class _TripCard extends StatelessWidget {
     if (s == TripStatus.completed) return Icons.check_circle;
     if (s == TripStatus.cancelled) return Icons.cancel;
     if (s == TripStatus.pending) return Icons.search;
-    return isDelivery ? Icons.local_shipping : Icons.directions_car;
+    return serviceIcon(isDelivery);
   }
 
   @override
@@ -301,8 +308,13 @@ class _TripCard extends StatelessWidget {
               children: [
                 Icon(_statusIcon(trip.status, trip.isDelivery), color: color),
                 const SizedBox(width: 8),
-                Text(TripStatus.labelForPassenger(trip.status),
-                    style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                Flexible(
+                  child: Text(TripStatus.labelForPassenger(trip.status),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 6),
+                ServiceBadge(isDelivery: trip.isDelivery, compact: true),
                 const Spacer(),
                 Text(
                   'S/ ${(trip.finalFare ?? trip.estimatedFare).toStringAsFixed(2)}',
@@ -311,6 +323,29 @@ class _TripCard extends StatelessWidget {
                 ),
               ],
             ),
+            // Programado: para cuándo era.
+            if (trip.scheduledAt != null) ...[
+              const SizedBox(height: 6),
+              ScheduledBadge(
+                  at: trip.scheduledAt!, compact: true, forLabel: true),
+            ],
+            // Envío: qué paquete se mandó.
+            if (trip.isDelivery &&
+                (trip.packageDescription ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.inventory_2,
+                      size: 14, color: BugieColors.accent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                      child: Text(trip.packageDescription!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600))),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [

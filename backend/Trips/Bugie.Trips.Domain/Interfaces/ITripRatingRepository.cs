@@ -31,4 +31,15 @@ public interface ITripRatingRepository
     /// </summary>
     Task<Dictionary<Guid, TripRating>> GetByTripIdsAsync(
         IEnumerable<Guid> tripIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Promedio (2 decimales) y cantidad de calificaciones RECIBIDAS por cada
+    /// conductor (UserId), calculado desde trips.TripRatings.
+    /// Los conductores sin calificaciones NO aparecen en el resultado.
+    /// </summary>
+    Task<Dictionary<Guid, RatingStats>> GetDriverStatsAsync(
+        IEnumerable<Guid> driverUserIds, CancellationToken ct = default);
 }
+
+/// <summary>Promedio de estrellas (1..5, 2 decimales) y cantidad de calificaciones.</summary>
+public record RatingStats(Guid UserId, decimal Average, int Count);

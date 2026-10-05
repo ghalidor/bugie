@@ -1,16 +1,16 @@
 namespace Bugie.Rewards.Application.DTOs;
 
 /// <summary>Mi código de invitación y cómo me está yendo.</summary>
+/// <param name="PointsPerPassenger">Lo que gano por referir a cada tipo de usuario.</param>
+/// <param name="QualifyTrips">Viajes que debe completar el referido para el bono extra.</param>
 public record MyReferralDto(
     string Code,
     bool   Enabled,
     int    TotalInvited,
     int    Qualified,
     int    PointsEarned,
-    /// <summary>Lo que gano por referir a cada tipo de usuario.</summary>
     int    PointsPerPassenger,
     int    PointsPerDriver,
-    /// <summary>Viajes que debe completar el referido para el bono extra.</summary>
     int    QualifyTrips,
     int    QualifyPoints,
     List<ReferredPersonDto> People);
@@ -26,15 +26,15 @@ public record ReferredPersonDto(
 public record ReferralResultDto(bool Applied, int PointsAwarded, string? Reason);
 
 /// <summary>Resumen del programa de referidos, para el admin.</summary>
+/// <param name="CodesIssued">Cuántos usuarios ya tienen código generado.</param>
+/// <param name="InvitationsAccepted">Invitaciones que terminaron en un registro.</param>
 public record ReferralStatsDto(
     int TotalReferrals,
     int Qualified,
     int Pending,
     int PointsGiven,
-    /// <summary>Cuántos usuarios ya tienen código generado.</summary>
     int CodesIssued,
     int InvitationsSent,
-    /// <summary>Invitaciones que terminaron en un registro.</summary>
     int InvitationsAccepted,
     List<TopReferrerDto> TopReferrers);
 
@@ -48,6 +48,8 @@ public record TopReferrerDto(
     DateTime LastAt);
 
 /// <summary>Una posición del ranking entre amigos.</summary>
+/// <param name="IsMe">true si es el propio usuario, para resaltarlo.</param>
+/// <param name="Relation">Cómo entró al ranking: «te invitó» o «lo invitaste».</param>
 public record RankingEntryDto(
     int      Position,
     Guid     UserId,
@@ -55,9 +57,7 @@ public record RankingEntryDto(
     string   Level,
     int      PointsThisMonth,
     int      Trips,
-    /// <summary>true si es el propio usuario, para resaltarlo.</summary>
     bool     IsMe,
-    /// <summary>Cómo entró al ranking: «te invitó» o «lo invitaste».</summary>
     string   Relation);
 
 public record FriendsRankingDto(

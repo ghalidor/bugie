@@ -72,15 +72,6 @@ public class FavoritesController : ControllerBase {
         return Ok(new { removed = true });
     }
 
-    /// <summary>
-    /// GET /api/favorites/drivers/count/{driverUserId}
-    /// Cuántos pasajeros tienen a este conductor como favorito.
-    /// Pensado para que el conductor pueda ver su "popularidad", o para admin.
-    /// </summary>
-    [HttpGet("drivers/count/{driverUserId:guid}")]
-    public async Task<IActionResult> CountForDriver(Guid driverUserId, CancellationToken ct) =>
-        Ok(new { count = await _drivers.CountForDriverAsync(driverUserId, ct) });
-
     // ═══════════════════════════════════════════════════════════════════
     // DIRECCIONES FAVORITAS
     // ═══════════════════════════════════════════════════════════════════

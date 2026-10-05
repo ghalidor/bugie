@@ -1,3 +1,4 @@
+using Bugie.Api.Theming;
 using Bugie.Auth.Infrastructure.Time;
 using System.Data;
 using System.Text;
@@ -37,9 +38,14 @@ builder.Services.AddScoped<IPasswordResetRepository, PasswordResetRepository>();
 builder.Services.AddScoped<IPassengerDocumentRepository, PassengerDocumentRepository>();
 builder.Services.AddScoped<IAdminRoleRepository, AdminRoleRepository>();
 builder.Services.AddScoped<IUserFcmTokenRepository, UserFcmTokenRepository>();
+builder.Services.AddScoped<IEmergencyContactRepository, EmergencyContactRepository>();
+builder.Services.AddScoped<IUserAccountAuditRepository, UserAccountAuditRepository>();
+builder.Services.AddScoped<IAccountActivityReader, AccountActivityReader>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+// Filtro [RequirePermission]: en Auth los permisos se leen directo de la BD.
+builder.Services.AddScoped<Bugie.Security.IAdminPermissionSource, Bugie.Auth.Api.Security.LocalAdminPermissionSource>();
 
 // ── Almacenamiento ────────────────────────────────────────────────────────
 builder.Services.Configure<LocalStorageOptions>(
@@ -86,6 +92,13 @@ builder.Services.AddHttpClient<ILandingSettingsClient, LandingSettingsClient>(c 
     c.Timeout = TimeSpan.FromSeconds(5);
 });
 
+// Avisos al Centro de avisos del panel admin (vía Trips, fire-and-forget).
+builder.Services.AddHttpClient<IAdminEventsPublisher, AdminEventsPublisher>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002");
+    c.Timeout = TimeSpan.FromSeconds(3);
+});
+
 // ── Subida de archivos: límite 10 MB ──────────────────────────────────────
 builder.Services.Configure<FormOptions>(opts =>
 {
@@ -114,13 +127,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
+        // Sesión: claim "sst" vs sello vigente, cuenta eliminada o desactivada
+        // (una consulta ligera a la BD por request autenticado). Las otras 5
+        // APIs hacen lo mismo con el endpoint interno. Ver Security/SessionState.cs.
+        Bugie.Security.SessionValidation.Configure(options);
     });
+// Estado de sesión leído directo de la BD (sin caché).
+builder.Services.AddScoped<Bugie.Security.ISessionStateSource, Bugie.Auth.Api.Security.LocalSessionStateSource>();
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
+// URLs firmadas de /uploads: el filtro firma las URLs sensibles de toda respuesta JSON.
+Bugie.Api.Security.SignedUploads.Configure(builder.Configuration);
+builder.Services.AddControllers(o => o.Filters.Add<Bugie.Api.Security.SignUploadUrlsFilter>())
+    .AddJsonOptions(o => { o.JsonSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()); o.AllowInputFormatterExceptionMessages = false; }); // JSON mal formado: error generico, sin nombres internos de clases
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddBugieSwagger("Auth",
+    "Registro e inicio de sesión (JWT), perfil del usuario, documentos de pasajeros y contacto de emergencia. Panel admin: pasajeros, roles y permisos. Endpoints internos: tokens FCM, notificaciones y contacto de emergencia.");
 
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
     p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [])
@@ -138,10 +160,13 @@ var absoluteStoragePath = Path.IsPathRooted(storagePath)
     : Path.Combine(AppContext.BaseDirectory, storagePath);
 Directory.CreateDirectory(absoluteStoragePath);
 
+// Archivos sensibles (documentos, selfies, fotos de envios) solo con firma valida.
+Bugie.Api.Security.SignedUploads.UseSignedUploads(app);
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(absoluteStoragePath),
     RequestPath = publicUrl,
+    OnPrepareResponse = Bugie.Api.Security.SignedUploads.PrepareResponse,
 });
 
 app.UseMiddleware<ExceptionMiddleware>();
@@ -149,13 +174,7 @@ app.UseCors();
 
 if(app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-{
-    c.DocumentTitle = "Bugie API - Auth";
-    c.HeadContent = Bugie.Api.Theming.BugieSwaggerTheme.HeadContent;
-    c.DefaultModelsExpandDepth(-1); // oculta la seccion Schemas/Models
-});
+    app.UseBugieSwagger("Auth");
 }
 
 app.UseAuthentication();

@@ -1,20 +1,21 @@
-import { useEffect, useState } from 'react';
-import { ApiError } from '../../../state/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   rewardsAdminApi, Promotion, PromotionInput,
   DIAS, PROMO_TYPES, TARGETS, USER_TYPE_LABEL,
-  describePromotion, promotionGroup, fmtPoints,
+  describePromotion, promotionGroup, fmtPoints, fmtDate,
 } from '../../../state/rewards';
+import {
+  ActionItem, Column, DataTable, Drawer, Field, FilterBar, Modal, Page, SectionCard, Select, StatusBadge, Switch, Tone,
+  useConfirm, useToast,
+} from '../../../components/ui';
+import { errMsg, FormSection, LoadError, optNum } from './common';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Promociones.
 
-   El admin nunca escribe JSON: elige los días con casillas, las horas con
-   selectores y marca lo demás. El backend arma las condiciones.
-
-   La parte importante de la pantalla es explicar CÓMO SE COMBINAN, porque esa
-   es la regla que no se adivina: día y franja compiten entre sí, primer viaje
-   y método de pago se suman encima.
+   El admin nunca escribe JSON: elige días, horas y métodos con botones. El
+   backend arma las condiciones. Lo que no se adivina es CÓMO SE COMBINAN:
+   día y franja compiten entre sí; primer viaje y método de pago se suman.
    ────────────────────────────────────────────────────────────────────────── */
 
 const emptyPromo = (): PromotionInput => ({
@@ -27,431 +28,418 @@ const emptyPromo = (): PromotionInput => ({
   firstTripOfDay: false, paymentMethods: null, minAmount: null,
 });
 
-const GROUP_INFO: Record<string, { label: string; color: string; help: string }> = {
-  franja:  { label: 'Franja horaria', color: 'var(--bugie-primary-soft)',
-             help: 'Gana sobre la promoción de día. Solo paga una de las dos.' },
-  dia:     { label: 'Día de semana',  color: 'var(--bugie-primary-soft)',
-             help: 'No se aplica si el viaje cae dentro de una franja horaria.' },
-  suma:    { label: 'Se suma',        color: 'var(--bugie-ok)',
-             help: 'Se agrega encima de la promoción de día o franja que aplique.' },
-  siempre: { label: 'Siempre',        color: 'var(--bugie-neutral)',
-             help: 'Sin condiciones de tiempo: compite con las de día y franja.' },
+const GROUP_INFO: Record<string, { label: string; tone: Tone; help: string }> = {
+  franja:  { label: 'Franja horaria', tone: 'primary', help: 'Gana sobre la promoción de día. Solo paga una de las dos.' },
+  dia:     { label: 'Día de semana',  tone: 'info',    help: 'No se aplica si el viaje cae dentro de una franja horaria.' },
+  suma:    { label: 'Se suma',        tone: 'ok',      help: 'Se agrega encima de la promoción de día o franja que aplique.' },
+  siempre: { label: 'Siempre',        tone: 'neutral', help: 'Sin condiciones de tiempo: compite con las de día y franja.' },
 };
 
+const PAY_METHODS = [
+  { value: 'yape', label: 'Yape' },
+  { value: 'plin', label: 'Plin' },
+  { value: 'cash', label: 'Efectivo' },
+];
+
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+function toInput(p: Promotion): PromotionInput {
+  const { id: _id, timesApplied: _t, pointsGiven: _g, warning: _w, ...rest } = p;
+  return rest;
+}
+
 export default function PromotionsTab() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [items,   setItems]   = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);   // id | 'new' | null
+  const [editing, setEditing] = useState<Promotion | 'new' | null>(null);
   const [busy,    setBusy]    = useState<string | null>(null);
+  const [filter,  setFilter]  = useState('all');
+  const [search,  setSearch]  = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
 
-  function load() {
+  const load = useCallback(() => {
     setLoading(true); setError(null);
     rewardsAdminApi.promotions()
       .then(setItems)
-      .catch(e => setError(e instanceof ApiError ? e.message : 'No se pudieron cargar las promociones.'))
+      .catch(e => setError(errMsg(e, 'No se pudieron cargar las promociones.')))
       .finally(() => setLoading(false));
-  }
+  }, []);
 
-  useEffect(load, []);
+  useEffect(load, [load]);
 
   async function toggle(p: Promotion) {
-    setBusy(p.id); setError(null);
+    const ok = await confirm(p.isActive
+      ? { title: `¿Apagar «${p.name}»?`, tone: 'warning', confirmText: 'Apagar promoción',
+          message: 'Deja de aplicarse desde ahora a los viajes nuevos. Los puntos ya ganados no cambian. Puedes volver a activarla.' }
+      : { title: `¿Activar «${p.name}»?`, confirmText: 'Activar promoción',
+          message: 'Se aplicará a los viajes nuevos que cumplan sus condiciones, dentro de sus fechas.' });
+    if (!ok) return;
+    setBusy(p.id);
     try {
       await rewardsAdminApi.setPromotionActive(p.id, !p.isActive);
       setItems(prev => prev.map(x => x.id === p.id ? { ...x, isActive: !x.isActive } : x));
+      toast.success(`«${p.name}» ${p.isActive ? 'quedó apagada' : 'quedó activa'}.`);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'No se pudo cambiar el estado.');
+      toast.error(errMsg(e, 'No se pudo cambiar el estado.'));
     } finally {
       setBusy(null);
     }
   }
 
   async function remove(p: Promotion) {
-    const aviso = p.timesApplied > 0
-      ? `«${p.name}» ya se aplicó ${p.timesApplied} veces. Al borrarla se pierde ese historial.\n\n` +
-        'Si solo quieres que deje de aplicarse, es mejor desactivarla.\n\n¿Borrar igual?'
-      : `¿Borrar «${p.name}»?`;
-    if (!confirm(aviso)) return;
-
-    setBusy(p.id); setError(null);
+    const ok = await confirm({
+      title: `¿Borrar «${p.name}»?`,
+      message: p.timesApplied > 0
+        ? `Ya se aplicó ${p.timesApplied} veces y al borrarla se pierde ese historial. Si solo quieres que deje de aplicarse, mejor apágala.`
+        : 'Se borrará de forma permanente.',
+      tone: 'danger',
+      confirmText: 'Borrar promoción',
+      typeToConfirm: 'BORRAR',
+    });
+    if (!ok) return;
+    setBusy(p.id);
     try {
       await rewardsAdminApi.deletePromotion(p.id);
       setItems(prev => prev.filter(x => x.id !== p.id));
+      toast.success('Promoción borrada.');
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'No se pudo borrar.');
+      toast.error(errMsg(e, 'No se pudo borrar.'));
     } finally {
       setBusy(null);
     }
   }
 
-  return (
-    <>
-      <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-        <button type="button" onClick={() => setEditing('new')} disabled={editing !== null}
-                className="btn btn-sm btn-bugie rounded-pill">
-          <i className="fa-solid fa-plus me-1" />Nueva promoción
-        </button>
-        <span className="small bugie-muted ms-auto">
-          {items.filter(p => p.isActive).length} activas de {items.length}
-        </span>
-      </div>
+  const activeCount = items.filter(p => p.isActive).length;
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items
+      .filter(p => filter === 'all' || (filter === 'on' ? p.isActive : !p.isActive))
+      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q));
+  }, [items, filter, search]);
 
-      <CombinationHelp />
-
-      {error && <div className="alert alert-danger small mb-3">{error}</div>}
-
-      {editing === 'new' && (
-        <PromotionForm initial={emptyPromo()} id={null}
-                       onCancel={() => setEditing(null)}
-                       onSaved={() => { setEditing(null); load(); }} />
-      )}
-
-      {loading ? (
-        <div className="d-flex justify-content-center py-5"><span className="spinner-border" /></div>
-      ) : error ? null : items.length === 0 ? (
-        <div className="bugie-card"><div className="bugie-card-body text-center py-4 bugie-muted">
-          No hay promociones. Crea la primera con el botón de arriba.
-        </div></div>
-      ) : (
-        <div className="d-flex flex-column gap-2">
-          {items.map(p => editing === p.id ? (
-            <PromotionForm key={p.id} id={p.id} initial={toInput(p)}
-                           onCancel={() => setEditing(null)}
-                           onSaved={() => { setEditing(null); load(); }} />
-          ) : (
-            <PromotionRow key={p.id} p={p} busy={busy === p.id} disabled={editing !== null}
-                          onEdit={() => setEditing(p.id)}
-                          onToggle={() => toggle(p)}
-                          onDelete={() => remove(p)} />
-          ))}
+  const columns: Column<Promotion>[] = [
+    { key: 'name', header: 'Promoción', priority: 1, width: '34%', render: p => {
+      const g = GROUP_INFO[promotionGroup(p)];
+      return (
+        <div style={{ minWidth: 0 }}>
+          <div className="rw-cell-main">{p.name}</div>
+          <div className="rw-cell-sub">{describePromotion(p)}</div>
+          <div className="rw-badges mt-1">
+            <StatusBadge tone={g.tone} size="sm" title={g.help}>{g.label}</StatusBadge>
+          </div>
+          {p.warning && <div className="rw-cell-sub mt-1" style={{ color: 'var(--bugie-warn)' }}><i className="fa-solid fa-triangle-exclamation me-1" aria-hidden="true" />{p.warning}</div>}
         </div>
-      )}
-    </>
-  );
-}
+      );
+    } },
+    { key: 'target', header: 'Para', priority: 2, render: p => USER_TYPE_LABEL[p.targetUserType] ?? 'Ambos' },
+    { key: 'applied', header: 'Aplicada', align: 'right', priority: 2, render: p => (
+      <div>
+        <div className="fw-semibold">{fmtPoints(p.timesApplied)} veces</div>
+        {p.pointsGiven > 0 && <div className="rw-cell-sub">{fmtPoints(p.pointsGiven)} pts</div>}
+      </div>
+    ) },
+    { key: 'end', header: 'Termina', priority: 3, render: p => p.endDate ? fmtDate(p.endDate) : 'Sin fin' },
+    { key: 'active', header: 'Activa', priority: 1, render: p => (
+      <span onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+        <Switch checked={p.isActive} onChange={() => toggle(p)} disabled={busy === p.id} ariaLabel={`Activar ${p.name}`} />
+      </span>
+    ) },
+  ];
 
-function toInput(p: Promotion): PromotionInput {
-  const { id, timesApplied, pointsGiven, warning, ...rest } = p;
-  return rest;
+  const actions = (p: Promotion): ActionItem[] => [
+    { label: 'Editar', icon: 'fa-pen', onClick: () => setEditing(p) },
+    { label: p.isActive ? 'Apagar' : 'Activar', icon: p.isActive ? 'fa-pause' : 'fa-play', onClick: () => toggle(p), disabled: busy === p.id },
+    { label: 'Borrar', icon: 'fa-trash', danger: true, separator: true, onClick: () => remove(p), disabled: busy === p.id },
+  ];
+
+  return (
+    <Page
+      title="Promociones"
+      subtitle="Multiplica o suma puntos según día, hora, método de pago o primer viaje."
+      icon="fa-bullhorn"
+      helpKey="rewards-promotions"
+      actions={[
+        { label: 'Nueva promoción', icon: 'fa-plus', variant: 'primary', onClick: () => setEditing('new') },
+        { label: '¿Cómo se combinan?', icon: 'fa-circle-question', onClick: () => setHelpOpen(true) },
+      ]}
+    >
+      <SectionCard flush tourId="rw-promo-list">
+        <div className="p-3 pb-0">
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Buscar promoción"
+            chips={[
+              { value: 'all', label: 'Todas', count: items.length },
+              { value: 'on',  label: 'Activas', count: activeCount },
+              { value: 'off', label: 'Apagadas', count: items.length - activeCount },
+            ]}
+            chip={filter}
+            onChipChange={setFilter}
+          />
+        </div>
+        {error ? <LoadError text={error} onRetry={load} /> : (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={p => p.id}
+            loading={loading}
+            onRowClick={p => setEditing(p)}
+            actions={actions}
+            maxHeight="none"
+            empty={items.length === 0
+              ? { title: 'No hay promociones', text: 'Crea la primera con «Nueva promoción».' }
+              : { title: 'Nada coincide con el filtro' }}
+          />
+        )}
+      </SectionCard>
+
+      <PromotionDrawer
+        editing={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => { setEditing(null); load(); }}
+      />
+
+      <Modal open={helpOpen} onClose={() => setHelpOpen(false)} title="Cómo se combinan dos promociones" size="md"
+             footer={<button type="button" className="btn btn-bugie" onClick={() => setHelpOpen(false)}>Entendido</button>}>
+        <CombinationHelp />
+      </Modal>
+    </Page>
+  );
 }
 
 /* ── Explicación de las reglas de combinación ──────────────────────────── */
 function CombinationHelp() {
-  const [open, setOpen] = useState(false);
   return (
-    <div className="bugie-card mb-3">
-      <button type="button" onClick={() => setOpen(v => !v)}
-              className="w-100 text-start p-3 d-flex align-items-center gap-2"
-              style={{ background: 'transparent', border: 0, color: 'inherit' }}>
-        <i className="fa-solid fa-circle-info" style={{ color: 'var(--bugie-primary-soft)' }} />
-        <span className="small fw-semibold">Cómo se combinan dos promociones en un mismo viaje</span>
-        <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'} ms-auto small`} />
-      </button>
-      {open && (
-        <div className="px-3 pb-3 small">
-          <p className="mb-2">
-            <strong>Día de la semana y franja horaria compiten:</strong> si el viaje cae dentro
-            de una franja, manda la franja y la del día no suma.
-          </p>
-          <p className="mb-2">
-            <strong>Primer viaje del día y método de pago se suman</strong> encima de la anterior.
-            Un multiplicador de 2x aporta +1 al total.
-          </p>
-          <div className="p-3" style={{ background: 'var(--bugie-bg-2, rgba(125,125,160,.08))', borderRadius: 10 }}>
-            <div className="fw-semibold mb-1">Ejemplo</div>
-            Lunes 5pm, viaje de S/ 10, con promos de lunes 2x, franja 4-7pm 4x,
-            primer viaje 2x y Yape +50 puntos:
-            <ul className="mb-0 mt-2">
-              <li>Base: 10 × 10 = 100 puntos</li>
-              <li>Gana la franja (4x). <strong>El lunes no suma.</strong></li>
-              <li>Primer viaje aporta +1 → total 5x</li>
-              <li>100 × 5 = 500, más 50 de Yape = <strong>550 puntos</strong></li>
-            </ul>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Fila de promoción ─────────────────────────────────────────────────── */
-function PromotionRow({ p, busy, disabled, onEdit, onToggle, onDelete }: {
-  p: Promotion; busy: boolean; disabled: boolean;
-  onEdit: () => void; onToggle: () => void; onDelete: () => void;
-}) {
-  const group = GROUP_INFO[promotionGroup(p)];
-
-  return (
-    <div className="bugie-card" style={{ overflow: 'hidden', opacity: p.isActive ? 1 : .6 }}>
-      <div style={{ height: 3, background: p.isActive ? group.color : 'var(--bugie-border)' }} />
-      <div className="p-3 d-flex flex-wrap align-items-center gap-3">
-        <div className="flex-grow-1" style={{ minWidth: 240 }}>
-          <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
-            <span className="fw-bold">{p.name}</span>
-            <span className="badge rounded-pill" title={group.help}
-                  style={{ background: group.color + '22', color: group.color, fontSize: '.68rem' }}>
-              {group.label}
-            </span>
-            <span className="badge rounded-pill"
-                  style={{ background: 'var(--bugie-primary-soft)22', color: 'var(--bugie-primary-soft)', fontSize: '.68rem' }}>
-              {USER_TYPE_LABEL[p.targetUserType] ?? 'Ambos'}
-            </span>
-            {!p.isActive && <span className="small bugie-muted">(apagada)</span>}
-          </div>
-          <div className="small bugie-muted">{describePromotion(p)}</div>
-          {p.warning && (
-            <div className="small mt-1" style={{ color: 'var(--bugie-warn)' }}>
-              <i className="fa-solid fa-triangle-exclamation me-1" />{p.warning}
-            </div>
-          )}
-        </div>
-
-        <div className="text-end small" style={{ minWidth: 120 }}>
-          <div className="bugie-muted">Aplicada</div>
-          <div className="fw-bold">{p.timesApplied} veces</div>
-          {p.pointsGiven > 0 && (
-            <div className="bugie-muted">{fmtPoints(p.pointsGiven)} pts regalados</div>
-          )}
-        </div>
-
-        <div className="d-flex gap-2">
-          <button type="button" onClick={onToggle} disabled={busy || disabled}
-                  className={`btn btn-sm rounded-pill ${p.isActive ? 'btn-bugie-outline' : 'btn-bugie'}`}>
-            {busy ? <span className="spinner-border spinner-border-sm" />
-                  : p.isActive ? 'Desactivar' : 'Activar'}
-          </button>
-          <button type="button" onClick={onEdit} disabled={disabled}
-                  className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-pen" />
-          </button>
-          <button type="button" onClick={onDelete} disabled={busy || disabled}
-                  className="btn btn-sm btn-bugie-outline rounded-pill">
-            <i className="fa-solid fa-trash" />
-          </button>
+    <div className="small rw-stack">
+      <p className="mb-0"><StatusBadge tone="primary" size="sm">Compiten</StatusBadge> Día de la semana y franja horaria: si el viaje cae en una franja, manda la franja y la del día no suma.</p>
+      <p className="mb-0"><StatusBadge tone="ok" size="sm">Se suman</StatusBadge> Primer viaje del día y método de pago van encima. Un multiplicador de 2x aporta +1 al total.</p>
+      <div className="rw-summary">
+        <i className="fa-solid fa-calculator" aria-hidden="true" />
+        <div>
+          <div className="fw-semibold mb-1">Ejemplo</div>
+          Lunes 5 pm, viaje de S/ 10, con promos de lunes 2x, franja 4-7 pm 4x, primer viaje 2x y Yape +50 puntos:
+          <ul className="mb-0 mt-2 ps-3">
+            <li>Base: 10 × 10 = 100 puntos</li>
+            <li>Gana la franja (4x). <strong>El lunes no suma.</strong></li>
+            <li>Primer viaje aporta +1 → total 5x</li>
+            <li>100 × 5 = 500, más 50 de Yape = <strong>550 puntos</strong></li>
+          </ul>
         </div>
       </div>
     </div>
   );
 }
 
-/* ── Formulario ────────────────────────────────────────────────────────── */
-function PromotionForm({ initial, id, onCancel, onSaved }: {
-  initial: PromotionInput; id: string | null;
-  onCancel: () => void; onSaved: () => void;
+/* ── Formulario en Drawer ──────────────────────────────────────────────── */
+function PromotionDrawer({ editing, onClose, onSaved }: {
+  editing: Promotion | 'new' | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [f, setF] = useState<PromotionInput>(initial);
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState<string | null>(null);
+  const toast = useToast();
+  const confirm = useConfirm();
+  const id = editing && editing !== 'new' ? editing.id : null;
+  const [initial, setInitial] = useState<PromotionInput>(emptyPromo);
+  const [f,       setF]       = useState<PromotionInput>(initial);
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
 
-  const set = <K extends keyof PromotionInput>(k: K, v: PromotionInput[K]) =>
-    setF(p => ({ ...p, [k]: v }));
+  useEffect(() => {
+    if (!editing) return;
+    const init = editing === 'new' ? emptyPromo() : toInput(editing);
+    setInitial(init); setF(init); setError(null); setSaving(false);
+  }, [editing]);
+
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial);
+  const set = <K extends keyof PromotionInput>(k: K, v: PromotionInput[K]) => setF(p => ({ ...p, [k]: v }));
 
   const dias = f.daysOfWeek ?? [];
-  const toggleDia = (n: number) =>
-    set('daysOfWeek', dias.includes(n) ? dias.filter(d => d !== n) : [...dias, n].sort());
-
+  const toggleDia = (n: number) => {
+    const next = dias.includes(n) ? dias.filter(d => d !== n) : [...dias, n].sort();
+    set('daysOfWeek', next.length ? next : null);
+  };
   const pagos = f.paymentMethods ?? [];
-  const togglePago = (m: string) =>
-    set('paymentMethods', pagos.includes(m) ? pagos.filter(x => x !== m) : [...pagos, m]);
+  const togglePago = (m: string) => {
+    const next = pagos.includes(m) ? pagos.filter(x => x !== m) : [...pagos, m];
+    set('paymentMethods', next.length ? next : null);
+  };
 
-  const usaFranja = f.startHour !== null && f.endHour !== null;
+  // Una franja con solo inicio o solo fin no aplica nunca: se avisa antes de guardar.
+  const franjaIncompleta = (f.startHour === null) !== (f.endHour === null);
+  const group = GROUP_INFO[promotionGroup({ ...f, id: '', timesApplied: 0, pointsGiven: 0, warning: null })];
+  const resumen = describePromotion({ ...f, id: '', timesApplied: 0, pointsGiven: 0, warning: null });
+
+  async function close() {
+    if (saving) return;
+    if (dirty) {
+      const ok = await confirm({ title: '¿Descartar los cambios?', message: 'Lo que configuraste en esta promoción se perderá.', tone: 'warning', confirmText: 'Descartar', cancelText: 'Seguir editando' });
+      if (!ok) return;
+    }
+    onClose();
+  }
 
   async function save() {
+    if (franjaIncompleta) { setError('Elige la hora de inicio y la de fin, o quita la franja.'); return; }
     setSaving(true); setError(null);
     try {
       if (id) await rewardsAdminApi.updatePromotion(id, f);
       else    await rewardsAdminApi.createPromotion(f);
+      toast.success(id ? 'Promoción actualizada.' : 'Promoción creada.');
       onSaved();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'No se pudo guardar.');
+      setError(errMsg(e, 'No se pudo guardar.'));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="bugie-card mb-2" style={{ border: '1px solid var(--bugie-primary)' }}>
-      <div className="bugie-card-header">{id ? `Editar ${initial.name}` : 'Nueva promoción'}</div>
-      <div className="bugie-card-body">
-        <div className="row g-3">
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Nombre</label>
-            <input className="form-control form-control-sm" value={f.name}
-                   placeholder="Hora Feliz" onChange={e => set('name', e.target.value)} />
-          </div>
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Descripción</label>
-            <input className="form-control form-control-sm" value={f.description ?? ''}
-                   onChange={e => set('description', e.target.value)} />
-          </div>
-
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Qué entrega</label>
-            <select className="form-select form-select-sm" value={f.promotionType}
-                    onChange={e => set('promotionType', e.target.value as PromotionInput['promotionType'])}>
-              {PROMO_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-
-          {f.promotionType === 'multiplier' ? (
-            <div className="col-md-4">
-              <label className="form-label small fw-semibold">Multiplicador</label>
-              <input type="number" min={1.1} max={10} step={0.5} className="form-control form-control-sm"
-                     value={f.multiplierValue ?? ''}
-                     onChange={e => set('multiplierValue', e.target.value === '' ? null : Number(e.target.value))} />
-              <div className="small bugie-muted mt-1">Con 2 se gana el doble de puntos.</div>
-            </div>
-          ) : (
-            <div className="col-md-4">
-              <label className="form-label small fw-semibold">Puntos extra</label>
-              <input type="number" min={1} className="form-control form-control-sm"
-                     value={f.bonusPoints ?? ''}
-                     onChange={e => set('bonusPoints', e.target.value === '' ? null : Number(e.target.value))} />
-              <div className="small bugie-muted mt-1">Se suman tal cual, sin multiplicarse.</div>
-            </div>
-          )}
-
-          <div className="col-md-4">
-            <label className="form-label small fw-semibold">Para quién</label>
-            <select className="form-select form-select-sm" value={f.targetUserType}
-                    onChange={e => set('targetUserType', e.target.value as PromotionInput['targetUserType'])}>
-              {TARGETS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-
-          {/* ── Condiciones ── */}
-          <div className="col-12">
-            <div className="small fw-bold mt-2 mb-2" style={{ letterSpacing: '.02em' }}>
-              ¿CUÁNDO APLICA?
-            </div>
-            <div className="small bugie-muted mb-3">
-              Si no marcas nada, aplica siempre. Recuerda que día y franja horaria
-              compiten entre sí; primer viaje y método de pago se suman.
+    <Drawer
+      open={!!editing}
+      onClose={close}
+      title={id ? `Editar ${initial.name}` : 'Nueva promoción'}
+      size="lg"
+      footer={
+        <>
+          <button type="button" className="btn btn-outline-secondary" onClick={close} disabled={saving}>Cancelar</button>
+          <button type="button" className="btn btn-bugie" onClick={save} disabled={saving || (!!id && !dirty)}>
+            {saving && <span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />}
+            {id ? 'Guardar cambios' : 'Crear promoción'}
+          </button>
+        </>
+      }
+    >
+      <div className="rw-form">
+        <div className="rw-summary" aria-live="polite">
+          <i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
+          <div style={{ minWidth: 0 }}>
+            <div><strong>{f.name || 'Sin nombre'}</strong> · {TARGETS.find(t => t.value === f.targetUserType)?.label}</div>
+            <div>{resumen}</div>
+            <div className="rw-badges mt-1">
+              <StatusBadge tone={group.tone} size="sm">{group.label}</StatusBadge>
+              <span className="small bugie-muted">{group.help}</span>
             </div>
           </div>
+        </div>
 
-          <div className="col-12">
-            <label className="form-label small fw-semibold">Días de la semana</label>
-            <div className="d-flex flex-wrap gap-2">
+        <FormSection step={1} title="Qué es">
+          <Field label="Nombre" required>
+            <input className="form-control" value={f.name} placeholder="Hora Feliz" onChange={e => set('name', e.target.value)} />
+          </Field>
+          <Field label="Para quién">
+            <Select
+              value={f.targetUserType as string}
+              onChange={v => set('targetUserType', v as PromotionInput['targetUserType'])}
+              options={TARGETS}
+            />
+          </Field>
+          <Field label="Descripción" optional help="La ve el usuario en la app." span="full">
+            <input className="form-control" value={f.description ?? ''} onChange={e => set('description', e.target.value)} />
+          </Field>
+        </FormSection>
+
+        <FormSection step={2} title="Cuándo aplica" help="Si no marcas nada, aplica siempre.">
+          <div className="bx-field bx-col-full">
+            <div className="bx-field-label">Días de la semana</div>
+            <div className="rw-chips" role="group" aria-label="Días de la semana">
               {DIAS.map(d => (
-                <button key={d.n} type="button" onClick={() => toggleDia(d.n)}
-                        title={d.largo}
-                        className={`btn btn-sm rounded-pill ${dias.includes(d.n) ? 'btn-bugie' : 'btn-bugie-outline'}`}
-                        style={{ minWidth: 54 }}>
+                <button key={d.n} type="button" className="bx-chip" aria-pressed={dias.includes(d.n)} title={d.largo} onClick={() => toggleDia(d.n)}>
                   {d.corto}
                 </button>
               ))}
               {dias.length > 0 && (
-                <button type="button" onClick={() => set('daysOfWeek', null)}
-                        className="btn btn-sm btn-bugie-outline rounded-pill">
-                  Todos los días
-                </button>
+                <button type="button" className="btn btn-sm btn-link text-decoration-none" onClick={() => set('daysOfWeek', null)}>Todos los días</button>
               )}
             </div>
           </div>
 
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Franja horaria</label>
-            <div className="d-flex align-items-center gap-2">
-              <select className="form-select form-select-sm" style={{ width: 90 }}
-                      value={f.startHour ?? ''}
-                      onChange={e => set('startHour', e.target.value === '' ? null : Number(e.target.value))}>
-                <option value="">—</option>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                ))}
-              </select>
+          <Field
+            label="Franja horaria"
+            help="Hora de Perú. La hora de fin no se incluye."
+            helpLong="De 12 a 14 cubre de 12:00 a 13:59. Día y franja compiten: si el viaje cae en una franja, la del día no suma."
+            error={franjaIncompleta ? 'Elige inicio y fin, o quita la franja.' : undefined}
+          >
+            <div className="rw-range">
+              <Select<string | number>
+                aria-label="Hora de inicio"
+                value={f.startHour ?? ''}
+                onChange={v => set('startHour', optNum(String(v)))}
+                options={[{ value: '', label: 'Inicio' }, ...HOURS.map(h => ({ value: h, label: `${String(h).padStart(2, '0')}:00` }))]}
+              />
               <span className="small bugie-muted">a</span>
-              <select className="form-select form-select-sm" style={{ width: 90 }}
-                      value={f.endHour ?? ''}
-                      onChange={e => set('endHour', e.target.value === '' ? null : Number(e.target.value))}>
-                <option value="">—</option>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                ))}
-              </select>
-              {usaFranja && (
-                <button type="button" className="btn btn-sm btn-bugie-outline rounded-pill"
-                        onClick={() => { set('startHour', null); set('endHour', null); }}>
-                  Quitar
+              <Select<string | number>
+                aria-label="Hora de fin"
+                value={f.endHour ?? ''}
+                onChange={v => set('endHour', optNum(String(v)))}
+                options={[{ value: '', label: 'Fin' }, ...HOURS.map(h => ({ value: h, label: `${String(h).padStart(2, '0')}:00` }))]}
+              />
+              {(f.startHour !== null || f.endHour !== null) && (
+                <button type="button" className="bx-icon-btn sm ghost" aria-label="Quitar franja" title="Quitar franja"
+                        onClick={() => setF(p => ({ ...p, startHour: null, endHour: null }))}>
+                  <i className="fa-solid fa-xmark" aria-hidden="true" />
                 </button>
               )}
             </div>
-            <div className="small bugie-muted mt-1">
-              La hora de fin no se incluye: de 12 a 14 cubre hasta las 13:59.
-              Hora de Perú.
-            </div>
-          </div>
+          </Field>
 
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Método de pago</label>
-            <div className="d-flex flex-wrap gap-2">
-              {['yape', 'plin', 'cash'].map(m => (
-                <button key={m} type="button" onClick={() => togglePago(m)}
-                        className={`btn btn-sm rounded-pill ${pagos.includes(m) ? 'btn-bugie' : 'btn-bugie-outline'}`}>
-                  {m === 'cash' ? 'Efectivo' : m === 'yape' ? 'Yape' : 'Plin'}
+          <Field label="Monto mínimo del viaje (S/)" optional help="Evita viajes muy cortos solo por la promoción.">
+            <input type="number" min={0} step={1} className="form-control" placeholder="Sin mínimo" value={f.minAmount ?? ''} onChange={e => set('minAmount', optNum(e.target.value))} />
+          </Field>
+
+          <div className="bx-field bx-col-full">
+            <div className="bx-field-label">Método de pago</div>
+            <div className="rw-chips" role="group" aria-label="Método de pago">
+              {PAY_METHODS.map(m => (
+                <button key={m.value} type="button" className="bx-chip" aria-pressed={pagos.includes(m.value)} onClick={() => togglePago(m.value)}>
+                  {m.label}
                 </button>
               ))}
             </div>
-            <div className="small bugie-muted mt-1">Si no marcas ninguno, aplica con cualquiera.</div>
+            <p className="bx-field-help">Sin marcar, aplica con cualquiera.</p>
           </div>
 
-          <div className="col-md-6">
-            <div className="form-check mt-2">
-              <input id="primer-viaje" type="checkbox" className="form-check-input"
-                     checked={f.firstTripOfDay}
-                     onChange={e => set('firstTripOfDay', e.target.checked)} />
-              <label htmlFor="primer-viaje" className="form-check-label small">
-                Solo el primer viaje del día
-              </label>
+          <div className="bx-col-full">
+            <Switch checked={f.firstTripOfDay} onChange={v => set('firstTripOfDay', v)} label="Solo el primer viaje del día" description="Se suma encima de la promoción de día o franja." />
+          </div>
+        </FormSection>
+
+        <FormSection step={3} title="Beneficio">
+          <Field label="Qué entrega">
+            <Select
+              value={f.promotionType as string}
+              onChange={v => set('promotionType', v as PromotionInput['promotionType'])}
+              options={PROMO_TYPES}
+            />
+
+          </Field>
+          {f.promotionType === 'multiplier' ? (
+            <Field label="Multiplicador" help="Con 2 se gana el doble de puntos." required>
+              <input type="number" min={1.1} max={10} step={0.5} className="form-control" value={f.multiplierValue ?? ''} onChange={e => set('multiplierValue', optNum(e.target.value))} />
+            </Field>
+          ) : (
+            <Field label="Puntos extra" help="Se suman tal cual, sin multiplicarse." required>
+              <input type="number" min={1} className="form-control" value={f.bonusPoints ?? ''} onChange={e => set('bonusPoints', optNum(e.target.value))} />
+            </Field>
+          )}
+        </FormSection>
+
+        <FormSection step={4} title="Vigencia">
+          <Field label="Termina el" optional help="Vacío = no tiene fin.">
+            <input type="date" className="form-control" value={f.endDate ? f.endDate.slice(0, 10) : ''}
+                   onChange={e => set('endDate', e.target.value ? new Date(e.target.value + 'T23:59:59').toISOString() : null)} />
+          </Field>
+          <div className="bx-field">
+            <span className="bx-field-label">Estado</span>
+            <div className="bx-control-box">
+              <Switch checked={f.isActive} onChange={v => set('isActive', v)} label="Activa desde ya" description="Puedes crearla apagada y activarla luego." />
             </div>
           </div>
+        </FormSection>
 
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Monto mínimo del viaje (S/)</label>
-            <input type="number" min={0} step={1} className="form-control form-control-sm"
-                   placeholder="Sin mínimo" value={f.minAmount ?? ''}
-                   onChange={e => set('minAmount', e.target.value === '' ? null : Number(e.target.value))} />
-            <div className="small bugie-muted mt-1">
-              Evita que se hagan viajes muy cortos solo para cazar la promoción.
-            </div>
-          </div>
-
-          <div className="col-md-6">
-            <label className="form-label small fw-semibold">Termina el</label>
-            <input type="date" className="form-control form-control-sm"
-                   value={f.endDate ? f.endDate.slice(0, 10) : ''}
-                   onChange={e => set('endDate', e.target.value
-                     ? new Date(e.target.value + 'T23:59:59').toISOString() : null)} />
-            <div className="small bugie-muted mt-1">Déjalo vacío para que no tenga fin.</div>
-          </div>
-
-          <div className="col-md-6 d-flex align-items-end">
-            <div className="form-check mb-2">
-              <input id="promo-activa" type="checkbox" className="form-check-input"
-                     checked={f.isActive} onChange={e => set('isActive', e.target.checked)} />
-              <label htmlFor="promo-activa" className="form-check-label small fw-semibold">
-                Activa desde ya
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {error && <div className="alert alert-danger small mt-3 mb-0">{error}</div>}
-
-        <div className="d-flex gap-2 mt-3">
-          <button type="button" onClick={save} disabled={saving}
-                  className="btn btn-bugie rounded-pill px-4">
-            {saving ? <><span className="spinner-border spinner-border-sm me-2" />Guardando…</>
-                    : id ? 'Guardar cambios' : 'Crear promoción'}
-          </button>
-          <button type="button" onClick={onCancel} disabled={saving}
-                  className="btn btn-bugie-outline rounded-pill">
-            Cancelar
-          </button>
-        </div>
+        {error && <div className="alert alert-danger small mb-0" role="alert">{error}</div>}
       </div>
-    </div>
+    </Drawer>
   );
 }

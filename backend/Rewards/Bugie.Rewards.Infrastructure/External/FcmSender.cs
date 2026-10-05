@@ -1,135 +1,74 @@
-using FirebaseAdmin;
-using FirebaseAdmin.Messaging;
-using Google.Apis.Auth.OAuth2;
-using Microsoft.Extensions.Configuration;
+using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Bugie.Rewards.Domain.External;
 
 namespace Bugie.Rewards.Infrastructure.External;
 
 /// <summary>
-/// Envia push por Firebase. Es el mismo patron que Trips.Infrastructure/FcmSender:
+/// Envia los push de Rewards (puntos por vencer/vencidos, pagos de Payments
+/// via NotifyPayoutCommand) a traves de Trips:
 ///
-///   - Lee el service-account desde Fcm:ServiceAccountPath.
-///   - Si el archivo no esta, NO falla: los envios quedan en nada y se loguean.
-///     Asi el vencimiento de puntos funciona igual en un entorno sin Firebase.
-///   - Pide los tokens a Auth por HTTP interno.
-///   - Si Firebase dice UNREGISTERED, borra el token muerto en Auth.
+///   POST {Services:TripsApi}api/internal/notify/push   (header X-Internal-Token)
+///   Body: { userId, title, body, route, data }
 ///
-/// Por que esta duplicado y no compartido con Trips: cada modulo es
-/// independiente y no comparte codigo con los demas. Es el costo de que puedas
-/// desplegar y actualizar Rewards sin tocar Trips.
+/// Por que no manda directo a Firebase: Trips guarda cada push en la bandeja
+/// de notificaciones del usuario (trips.usernotifications) y agrega
+/// "notification_id" al data. Asi los avisos de Rewards y Payments tambien
+/// aparecen en la bandeja. Es el mismo camino que usa Drivers (TripsNotifyClient).
+/// La prioridad y el canal se conservan: el FcmSender de Trips usa la misma
+/// configuracion que tenia este (prioridad alta, canal bugie_high_priority,
+/// sonido default en Android e iOS).
+///
+/// Nunca lanza excepciones hacia arriba: un push que no salio no puede
+/// romper el vencimiento de puntos ni el aviso de pago.
 /// </summary>
 public class FcmSender : IFcmSender
 {
-    // La inicializacion de Firebase es global al proceso, no por instancia.
-    // Se hace una sola vez aunque el servicio se registre como Scoped, y asi
-    // el warning de "falta el archivo" tampoco se repite en cada request.
-    private static readonly object _initLock = new();
-    private static bool _initialized;
-    private static bool _available;
-
+    private readonly HttpClient _http;
+    private readonly TripsClientOptions _opt;
     private readonly ILogger<FcmSender> _log;
-    private readonly IAuthTokensClient  _auth;
 
-    public FcmSender(ILogger<FcmSender> log, IAuthTokensClient auth, IConfiguration cfg)
+    public FcmSender(HttpClient http, IOptions<TripsClientOptions> opt, ILogger<FcmSender> log)
     {
+        _http = http;
+        _opt  = opt.Value;
         _log  = log;
-        _auth = auth;
-        EnsureInitialized(cfg, log);
     }
 
-    private static void EnsureInitialized(IConfiguration cfg, ILogger log)
+    public async Task SendToUserAsync(Guid userId, FcmPushMessage message, CancellationToken ct = default)
     {
-        if (_initialized) return;
+        if (userId == Guid.Empty || string.IsNullOrWhiteSpace(message.Title)) return;
 
-        lock (_initLock)
+        try
         {
-            if (_initialized) return;
-            _initialized = true;
-
-            try
+            using var req = new HttpRequestMessage(HttpMethod.Post, "api/internal/notify/push");
+            req.Headers.Add("X-Internal-Token", _opt.InternalToken);
+            req.Content = JsonContent.Create(new
             {
-                if (FirebaseApp.DefaultInstance is null)
-                {
-                    var path = cfg["Fcm:ServiceAccountPath"] ?? "firebase-service-account.json";
-                    if (!File.Exists(path))
-                    {
-                        log.LogWarning(
-                            "FCM deshabilitado: no se encontro {Path}. Los avisos de puntos NO se enviaran.",
-                            path);
-                        _available = false;
-                        return;
-                    }
+                userId,
+                title = message.Title,
+                body  = message.Body,
+                route = message.Route,
+                data  = message.ExtraData,
+            });
 
-                    FirebaseApp.Create(new AppOptions
-                    {
-                        Credential = GoogleCredential.FromFile(path),
-                    });
-                }
-
-                _available = true;
-                log.LogInformation("FCM inicializado en Rewards.");
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "FCM no pudo inicializarse. Los push quedan deshabilitados.");
-                _available = false;
-            }
+            using var res = await _http.SendAsync(req, ct);
+            if (!res.IsSuccessStatusCode)
+                _log.LogWarning("Trips rechazo el push a {UserId}: {Status}",
+                    userId, (int)res.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo enviar el push a {UserId} via Trips.", userId);
         }
     }
-
-    public Task SendToUserAsync(Guid userId, FcmPushMessage message, CancellationToken ct = default)
-        => SendToUsersAsync(new[] { userId }, message, ct);
 
     public async Task SendToUsersAsync(
         IEnumerable<Guid> userIds, FcmPushMessage message, CancellationToken ct = default)
     {
-        if (!_available) return;
-
-        var ids = userIds?.Distinct().ToList() ?? new List<Guid>();
-        if (ids.Count == 0) return;
-
-        try
-        {
-            var tokens = await _auth.GetTokensAsync(ids, ct);
-            if (tokens.Count == 0) return;
-
-            var data = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(message.Route)) data["route"] = message.Route!;
-            if (message.ExtraData is not null)
-                foreach (var kv in message.ExtraData) data[kv.Key] = kv.Value;
-
-            var messages = tokens.Select(t => new Message
-            {
-                Token        = t.Token,
-                Notification = new Notification { Title = message.Title, Body = message.Body },
-                Data         = data,
-            }).ToList();
-
-            var response = await FirebaseMessaging.DefaultInstance.SendEachAsync(messages, ct);
-
-            if (response.FailureCount == 0) return;
-
-            // Limpiar tokens muertos para no seguir intentando con ellos.
-            for (var i = 0; i < response.Responses.Count; i++)
-            {
-                var r = response.Responses[i];
-                if (r.IsSuccess) continue;
-
-                var code = r.Exception?.MessagingErrorCode;
-                if (code is MessagingErrorCode.Unregistered or MessagingErrorCode.InvalidArgument)
-                    await _auth.DeleteTokenAsync(tokens[i].Token, ct);
-            }
-
-            _log.LogInformation(
-                "Push enviados: {Ok} ok, {Fail} fallidos.",
-                response.SuccessCount, response.FailureCount);
-        }
-        catch (Exception ex)
-        {
-            // Un push que no salio nunca debe romper el proceso que lo llamo.
-            _log.LogWarning(ex, "Error enviando push desde Rewards.");
-        }
+        // Uno por uno: el endpoint interno de Trips es por usuario.
+        foreach (var id in userIds?.Distinct() ?? Enumerable.Empty<Guid>())
+            await SendToUserAsync(id, message, ct);
     }
 }

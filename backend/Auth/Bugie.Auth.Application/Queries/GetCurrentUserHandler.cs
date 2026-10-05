@@ -14,9 +14,6 @@ public class GetCurrentUserHandler : IRequestHandler<GetCurrentUserQuery, UserPr
         var user = await _users.GetByIdAsync(q.UserId, ct)
             ?? throw new KeyNotFoundException("Usuario no encontrado.");
 
-        return new UserProfileDto(
-            user.Id, user.FullName, user.Email,
-            user.Phone, user.Role, user.IsActive, user.IsVerified,
-            user.ProfilePhotoUrl, user.CreatedAt, user.AdminRoleId);
+        return UserProfileDto.From(user);
     }
 }

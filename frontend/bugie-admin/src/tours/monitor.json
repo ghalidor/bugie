@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='monitor-stats']",
+      "title": "La operación en números",
+      "text": "Conductores en línea, en viaje y disponibles, pasajeros activos y alertas. Toca «Alertas SOS» o «Pasajeros activos» para ir directo a esa lista."
+    },
+    {
+      "selector": "[data-tour='monitor-map']",
+      "title": "Mapa en vivo",
+      "text": "Los pines se mueven solos con el GPS de cada conductor y pasajero. Toca un conductor con viaje para ver la ruta y sus teléfonos. El botón de la mira encuadra todos los pines."
+    },
+    {
+      "selector": "[data-tour='monitor-layers']",
+      "title": "Capas del mapa",
+      "text": "Oculta o muestra conductores, pasajeros o SOS para despejar el mapa. Las emergencias siguen visibles mientras la capa «SOS» esté activa."
+    },
+    {
+      "selector": "[data-tour='monitor-lists']",
+      "title": "Conductores, viajes y alertas",
+      "text": "En «Alertas» atiendes los SOS (con motivo obligatorio al desactivarlos) y revisas los desvíos de ruta dejando una nota. En el celular, ábrelo con «Ver listas»."
+    }
+  ]
+}

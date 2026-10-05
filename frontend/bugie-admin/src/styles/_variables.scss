@@ -1,29 +1,29 @@
 // Bugie Admin — Design Tokens (mismos colores del logo)
+//
+// UNICA fuente de color del panel. El tema oscuro se define SOLO aqui,
+// redefiniendo los mismos tokens bajo body[data-theme='dark'].
+// No sobrescribas colores del tema con !important en otros archivos:
+// usa siempre var(--bugie-*).
+//
+// Fondos suaves de estado (badges, chips, iconos): --bugie-soft-*.
+// Nunca construyas colores concatenando texto ('var(--x)22', color + '22'):
+// eso es CSS invalido y el navegador lo ignora.
 :root {
-  /* ── Separacion de las tarjetas ──────────────────────────────────────
-     Antes una tarjeta blanca sobre el fondo daba 1.09 de contraste y su
-     borde 1.29: el ojo no distinguia donde empezaba una tarjeta.
-
-     El fondo pasa a #eceff6, un gris FRIO y no lavanda: la diferencia
-     entre su canal rojo y su azul baja de 16 a 10, y por eso se ve limpio
-     en vez de tenido de morado. La separacion la aporta sobre todo el
-     borde (1.57) y la sombra, no el color del fondo. */
+  /* ── Separacion de las tarjetas ──────────────────────────────────── */
   --bugie-card-border: #c6cfe0;
-  --bugie-card-shadow: 0 8px 24px rgba(30, 41, 90, .09);
+  --bugie-card-shadow: 0 6px 18px rgba(30, 41, 90, .07);
 
-  /* Encabezado de pagina. En claro NO es el degradado azul oscuro: eso
-     dejaba una franja oscura flotando en una pantalla clara. */
+  /* Encabezado tipo "hero" (PageHeader antiguo). */
   --bugie-hero-bg:    linear-gradient(135deg, #3730a3 0%, #5b4ae0 48%, #8b5cf6 100%);
   --bugie-hero-text:  #ffffff;
   --bugie-hero-muted: rgba(255, 255, 255, .82);
 
-  /* ── Colores de estado ───────────────────────────────────────────────
-     Existen porque los colores vivos que se leen bien sobre fondo oscuro
-     se lavan sobre blanco, y al reves. Cada tema define los suyos.
-     Todos superan el contraste 4.5:1 sobre su propio fondo tenido. */
+  /* ── Colores de estado (como TEXTO / icono) ──────────────────────
+     Todos superan 4.5:1 sobre su propio fondo suave. */
   --bugie-ok:           #0d6e4a;
   --bugie-warn:         #8a6100;
   --bugie-bad:          #b91c1c;
+  --bugie-info-text:    #0369a1;
   --bugie-neutral:      #52607a;
 
   /* El morado primario como TEXTO sobre un fondo tenido. Distinto de
@@ -38,52 +38,122 @@
 
   --bugie-bg:       #eceff6;
   --bugie-bg-2:     #e3e8f2;
+  --bugie-bg-soft:  #f4f6fb;
   --bugie-surface:  #ffffff;
-  --bugie-surface-2:#fbfaff;
+  --bugie-surface-2:#f7f8fc;
   --bugie-text:     #1a1730;
-  --bugie-muted:    #6b6880;
+  --bugie-muted:    #5f5c74;
   --bugie-border:   #dddaf0;
   --bugie-link:     #5B5BD6;
   --bugie-info:     #0dcaf0;
   --bugie-danger:   #dc3545;
   --bugie-success:  #198754;
 
+  /* ── Fondos SUAVES de estado (badges, chips, iconos) ─────────────
+     Se calculan con color-mix a partir del color de texto, asi en
+     oscuro se ajustan solos. Combinar: fondo --bugie-soft-X + texto
+     del mismo estado (--bugie-ok, --bugie-warn, ...). */
+  --bugie-soft-ok:      color-mix(in srgb, var(--bugie-ok) 13%, transparent);
+  --bugie-soft-warn:    color-mix(in srgb, var(--bugie-warn) 15%, transparent);
+  --bugie-soft-bad:     color-mix(in srgb, var(--bugie-bad) 12%, transparent);
+  --bugie-soft-info:    color-mix(in srgb, var(--bugie-info-text) 13%, transparent);
+  --bugie-soft-primary: color-mix(in srgb, var(--bugie-primary) 13%, transparent);
+  --bugie-soft-neutral: color-mix(in srgb, var(--bugie-neutral) 12%, transparent);
+
   --bugie-radius:    14px;
-  --bugie-radius-sm: 12px;
+  --bugie-radius-sm: 10px;
+  --bugie-radius-lg: 18px;
   --bugie-shadow:    0 1px 2px rgba(60, 40, 120, 0.06);
   --bugie-shadow-2:  0 10px 36px rgba(60, 40, 120, 0.12);
   --bugie-shadow-3:  0 18px 60px rgba(60, 40, 120, 0.16);
+  --bugie-backdrop:  rgba(15, 12, 35, .5);
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  --bugie-nav-h:        60px;
+  --bugie-sidebar-w:    248px;
+  --bugie-sidebar-w-sm: 72px;
+
+  /* ── Capas (un solo orden para todo el panel) ──────────────────── */
+  --bugie-z-sticky:   10;    /* cabeceras de tabla, SaveBar */
+  --bugie-z-sidebar:  1025;  /* menu movil: DEBAJO de la barra superior */
+  --bugie-z-nav:      1030;
+  --bugie-z-dropdown: 1040;  /* menus "⋯" */
+  --bugie-z-overlay:  1060;  /* Modal, Drawer, ConfirmDialog */
+  --bugie-z-tour:     1080;
+  --bugie-z-toast:    1090;
+  --bugie-z-tooltip:  1100;
+
+  /* ── Movimiento ─────────────────────────────────────────────────── */
+  --bugie-ease:     cubic-bezier(.2, .8, .2, 1);
+  --bugie-dur:      .2s;
+  --bugie-dur-slow: .32s;
+
+  /* ── Puente con Bootstrap ──────────────────────────────────────────
+     Asi los componentes de Bootstrap (tablas, .text-muted, bordes,
+     dropdowns) usan los colores de Bugie en claro y en oscuro. */
+  --bs-body-bg:          var(--bugie-bg);
+  --bs-body-color:       var(--bugie-text);
+  --bs-emphasis-color:   var(--bugie-text);
+  --bs-secondary-color:  var(--bugie-muted);
+  --bs-border-color:     var(--bugie-border);
+  --bs-tertiary-bg:      var(--bugie-surface-2);
+  --bs-secondary-bg:     var(--bugie-bg-2);
+  --bs-link-color:       var(--bugie-link);
+  --bs-link-hover-color: var(--bugie-primary-2);
+  --bs-primary:          var(--bugie-primary);
+  --bs-font-sans-serif:  Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bs-body-font-family: var(--bs-font-sans-serif);
 }
 
 body[data-theme='dark'] {
-  /* En oscuro la sombra negra ya marca el relieve, pero el borde ayuda. */
-  --bugie-card-border: #3a3560;
-  --bugie-card-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  color-scheme: dark;
 
-  --bugie-hero-bg:    linear-gradient(135deg, rgba(8,26,54,.96), rgba(17,45,89,.86));
+  --bugie-card-border: #3a3560;
+  --bugie-card-shadow: 0 12px 30px rgba(0, 0, 0, .4);
+
+  --bugie-hero-bg:    linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #4c1d95 100%);
   --bugie-hero-text:  #ffffff;
   --bugie-hero-muted: rgba(255, 255, 255, .76);
 
   --bugie-ok:           #4ade80;
   --bugie-warn:         #fbbf24;
   --bugie-bad:          #fca5a5;
-  --bugie-neutral:      #94a3b8;
+  --bugie-info-text:    #7dd3fc;
+  --bugie-neutral:      #a3aec2;
 
-  /* El primario de la marca es demasiado oscuro sobre fondo oscuro: como
-     texto sobre un tinte queda en 2.94 de contraste, ilegible. Esta
-     variante aclarada se usa SOLO para texto; --bugie-primary sigue igual
-     para los botones solidos, que ahi funciona bien. */
+  /* El primario es demasiado oscuro como texto sobre fondo oscuro. */
   --bugie-primary-soft: #a5b4fc;
 
   --bugie-bg:       #100f1e;
   --bugie-bg-2:     #0c0b18;
+  --bugie-bg-soft:  #141327;
   --bugie-surface:  #171628;
-  --bugie-surface-2:#120f20;
+  --bugie-surface-2:#1d1b33;
   --bugie-text:     #e8e6f8;
-  --bugie-muted:    #9e9bb8;
+  --bugie-muted:    #a9a6c4;
   --bugie-border:   #2e2a4a;
-  --bugie-link:     #8a84f0;
+  --bugie-link:     #a5b4fc;
   --bugie-shadow:   0 1px 2px rgba(0, 0, 0, 0.4);
   --bugie-shadow-2: 0 18px 56px rgba(0, 0, 0, 0.5);
   --bugie-shadow-3: 0 26px 80px rgba(0, 0, 0, 0.6);
+  --bugie-backdrop: rgba(0, 0, 0, .62);
+
+  --bugie-soft-ok:      color-mix(in srgb, var(--bugie-ok) 16%, transparent);
+  --bugie-soft-warn:    color-mix(in srgb, var(--bugie-warn) 16%, transparent);
+  --bugie-soft-bad:     color-mix(in srgb, var(--bugie-bad) 16%, transparent);
+  --bugie-soft-info:    color-mix(in srgb, var(--bugie-info-text) 16%, transparent);
+  --bugie-soft-primary: color-mix(in srgb, var(--bugie-primary-soft) 18%, transparent);
+  --bugie-soft-neutral: color-mix(in srgb, var(--bugie-neutral) 16%, transparent);
+
+  /* Los var() de :root se resolvieron con los colores claros; hay que
+     volver a enlazarlos aqui para que tomen los oscuros. */
+  --bs-body-bg:          var(--bugie-bg);
+  --bs-body-color:       var(--bugie-text);
+  --bs-emphasis-color:   var(--bugie-text);
+  --bs-secondary-color:  var(--bugie-muted);
+  --bs-border-color:     var(--bugie-border);
+  --bs-tertiary-bg:      var(--bugie-surface-2);
+  --bs-secondary-bg:     var(--bugie-bg-2);
+  --bs-link-color:       var(--bugie-link);
+  --bs-link-hover-color: #c7d2fe;
 }

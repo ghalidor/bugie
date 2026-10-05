@@ -19,6 +19,7 @@ import '../../trips/domain/trip_model.dart';
 import '../../favorites/data/favorites_repository.dart';
 import '../../favorites/domain/favorite_address_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/widgets/schedule_picker.dart';
 
 /// Pantalla "Solicitar envío" — clon de Solicitar Viaje (por ahora igual) de la del web (RequestRide.tsx).
 /// Soporta: autocomplete con Nominatim, paradas, mapa con tiles claros,
@@ -39,9 +40,8 @@ class _ActiveDest     extends _Active { const _ActiveDest(); }
 class _ActiveWaypoint extends _Active { final int index; const _ActiveWaypoint(this.index); }
 
 class _Waypoint {
-  String address;
+  String address = '';
   LatLng? coord;
-  _Waypoint({this.address = '', this.coord});
 }
 
 class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
@@ -86,6 +86,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
 
   // Submit
   bool _submitting = false;
+  // Programado: hora de Perú (null = ahora).
+  DateTime? _scheduledAt;
 
   // ---- Datos del paquete (envío) ----
   final _pkgDescCtrl = TextEditingController();
@@ -97,9 +99,26 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
   bool _pkgFragile = false;
   final List<XFile> _pkgPhotos = [];
 
+  /// Máximo de fotos del paquete (el backend rechaza más de 5).
+  static const _maxPkgPhotos = 5;
+
   Future<void> _pickPackagePhotos() async {
+    if (_pkgPhotos.length >= _maxPkgPhotos) {
+      _showPhotoLimit();
+      return;
+    }
     final imgs = await ImagePicker().pickMultiImage(imageQuality: 70);
-    if (imgs.isNotEmpty) setState(() => _pkgPhotos.addAll(imgs));
+    if (imgs.isEmpty || !mounted) return;
+    // Solo agregamos hasta completar el máximo; el resto se descarta.
+    final free = _maxPkgPhotos - _pkgPhotos.length;
+    setState(() => _pkgPhotos.addAll(imgs.take(free)));
+    if (imgs.length > free) _showPhotoLimit();
+  }
+
+  void _showPhotoLimit() {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Puedes subir máximo $_maxPkgPhotos fotos del paquete.'),
+    ));
   }
 
   Widget _photoThumb(int i) {
@@ -139,13 +158,15 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
         children: [
           Text('Datos del paquete', style: BugieText.h3.copyWith(color: c.text)),
           const SizedBox(height: 4),
-          Text('Sube fotos y describe lo que enviaras.',
+          Text('Sube fotos (mínimo 1, máximo $_maxPkgPhotos) y describe lo que enviarás.',
               style: TextStyle(color: c.textMuted, fontSize: 13)),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8, runSpacing: 8,
             children: [
               for (int i = 0; i < _pkgPhotos.length; i++) _photoThumb(i),
+              // Botón de agregar: se oculta al llegar al máximo.
+              if (_pkgPhotos.length < _maxPkgPhotos)
               InkWell(
                 onTap: _pickPackagePhotos,
                 borderRadius: BorderRadius.circular(10),
@@ -164,7 +185,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _pkgDescCtrl,
-            decoration: const InputDecoration(labelText: 'Descripcion del paquete'),
+            decoration: const InputDecoration(labelText: 'Descripción del paquete'),
           ),
           const SizedBox(height: 10),
           Row(
@@ -181,7 +202,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
               Expanded(
                 child: SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text('Fragil', style: TextStyle(color: c.text)),
+                  title: Text('Frágil', style: TextStyle(color: c.text)),
                   value: _pkgFragile,
                   onChanged: (v) => setState(() => _pkgFragile = v),
                 ),
@@ -354,7 +375,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       return;
     }
     _debounce('origin', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _originSugg = res);
     });
   }
@@ -369,7 +391,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       return;
     }
     _debounce('dest', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _destSugg = res);
     });
   }
@@ -384,7 +407,8 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       return;
     }
     _debounce('wp$i', () async {
-      final res = await _geocoding.search(v);
+      final res = await _geocoding.search(v,
+          nearLat: _mapCenter?.latitude, nearLng: _mapCenter?.longitude);
       if (mounted) setState(() => _wpSugg[i] = res);
     });
   }
@@ -585,13 +609,22 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
       setState(() => _error = 'Indica el nombre y el teléfono de quien recibe.');
       return;
     }
+    final scheduledAt = _scheduledAt;
+    if (scheduledAt != null) {
+      final err = Schedule.validate(scheduledAt);
+      if (err != null) {
+        setState(() => _error = err);
+        return;
+      }
+    }
     setState(() {
       _submitting = true;
       _error = null;
     });
     try {
       final repo = context.read<TripsRepository>();
-      final trip = await repo.create(
+      // Datos + fotos en una sola petición: sin fotos no se crea el envío.
+      final trip = await repo.createDelivery(
         originAddress: _originText,
         originLat: _originCoord!.latitude,
         originLng: _originCoord!.longitude,
@@ -608,7 +641,6 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                   lng: w.coord!.longitude,
                 ))
             .toList(),
-        isDelivery: true,
         packageDescription: _pkgDescCtrl.text.trim(),
         packageWeightKg:
             double.tryParse(_pkgWeightCtrl.text.trim().replaceAll(',', '.')),
@@ -618,16 +650,18 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
             : _pkgDetailsCtrl.text.trim(),
         recipientName: _rcpNameCtrl.text.trim(),
         recipientPhone: _rcpPhoneCtrl.text.trim(),
+        photoPaths: _pkgPhotos.map((x) => x.path).toList(),
+        scheduledAt: scheduledAt,
       );
-      // Subir las fotos del paquete al envío recién creado.
-      await repo.uploadPackagePhotos(
-          trip.id, _pkgPhotos.map((x) => x.path).toList());
       if (!mounted) return;
-      context.go('/passenger/tracking');
+      // Un programado todavía no es el viaje activo: se sigue por su id.
+      context.go(scheduledAt != null
+          ? '/passenger/tracking?trip=${trip.id}'
+          : '/passenger/tracking');
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (_) {
-      setState(() => _error = 'No se pudo crear el viaje.');
+      setState(() => _error = 'No se pudo crear el envío.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -725,7 +759,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
               top: 12,
               right: 12,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: context.bugie.surface,
                   borderRadius: BorderRadius.circular(20),
@@ -737,10 +771,14 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.touch_app, size: 14, color: BugieColors.textMuted),
-                    const SizedBox(width: 4),
-                    Text('Click → ${_activeLabel()}',
-                        style: const TextStyle(fontSize: 11)),
+                    const Icon(Icons.touch_app_outlined,
+                        size: 16, color: BugieColors.primary),
+                    const SizedBox(width: 6),
+                    Text('Toca el mapa: ${_activeLabel()}',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: context.bugie.text)),
                   ],
                 ),
               ),
@@ -761,13 +799,13 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                 ),
                 child: ListView(
                   controller: scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
                   children: [
                     // Manija
                     Center(
                       child: Container(
-                        width: 40, height: 4,
-                        margin: const EdgeInsets.only(bottom: 12),
+                        width: 44, height: 5,
+                        margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
                           color: context.bugie.border,
                           borderRadius: BorderRadius.circular(2),
@@ -845,14 +883,7 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                       );
                     }),
 
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Agregar parada'),
-                      onPressed: _addWaypoint,
-                    ),
-
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
 
                     // ── Atajos: direcciones favoritas ──────────────────
                     // Solo se muestran si el usuario ya tiene direcciones
@@ -911,14 +942,40 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                       onSelected: _selectDest,
                       onFocus: () => setState(() => _active = const _ActiveDest()),
                     ),
-                    const SizedBox(height: 14),
+                    
+                    // Parada opcional: acción liviana, no compite con el
+                    // botón principal.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                        ),
+                        icon: const Icon(Icons.add_circle_outline, size: 20),
+                        label: const Text('Agregar parada',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        onPressed: _addWaypoint,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Cuándo: ahora o programado
+                    ScheduleSelector(
+                      isDelivery: true,
+                      onChanged: (v) => setState(() => _scheduledAt = v),
+                    ),
+                    const SizedBox(height: 18),
 
                     // Método de pago
                     const Text('Método de pago',
                         style: TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
+                            fontSize: 14, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
                     SegmentedButton<String>(
+                      // Sin el check: el relleno ya marca la opción elegida
+                      // y así "Efectivo" no se parte en dos líneas.
+                      showSelectedIcon: false,
                       segments: const [
                         ButtonSegment(value: 'cash', label: Text('Efectivo')),
                         ButtonSegment(value: 'yape', label: Text('Yape')),
@@ -928,14 +985,14 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                       onSelectionChanged: (s) =>
                           setState(() => _payment = s.first),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
 
                     // Tarifa estimada + input "Tu propuesta"
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: context.bugie.surface,
-                        borderRadius: BorderRadius.circular(10),
+                        color: context.bugie.bg,
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: context.bugie.border),
                       ),
                       child: _fare == null
@@ -1000,21 +1057,16 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                                 const SizedBox(height: 12),
 
                                 // Línea 2: input editable "Tu propuesta"
-                                Row(
-                                  children: const [
-                                    Text('Tu propuesta',
-                                        style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600)),
-                                    Text(' *',
-                                        style: TextStyle(
-                                            color: BugieColors.danger,
-                                            fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
+                                const Text('¿Cuánto ofreces?',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 8),
                                 TextField(
                                   controller: _proposedFareCtrl,
+                                  style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800),
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                           decimal: true),
@@ -1033,10 +1085,9 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                                   },
                                   decoration: InputDecoration(
                                     prefixText: 'S/ ',
-                                    isDense: true,
                                     hintText: _fare!.toStringAsFixed(2),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                     errorText: (!_isProposedFareValid &&
                                             _proposedFareCtrl.text.isNotEmpty)
@@ -1047,27 +1098,30 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                                   ),
                                 ),
                                 if (_minFare != null) ...[
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 6),
                                   Row(
                                     children: [
                                       const Icon(Icons.info_outline,
-                                          size: 12,
+                                          size: 14,
                                           color: BugieColors.textMuted),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Mínimo permitido: S/ ${_minFare!.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            color: BugieColors.textMuted),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Mínimo permitido: S/ ${_minFare!.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                              fontSize: 12.5,
+                                              color: BugieColors.textMuted),
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ],
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 8),
                                 const Text(
-                                  'Los conductores podrán aceptar tu propuesta o enviarte una contrapropuesta.',
+                                  'Los conductores pueden aceptar tu oferta o proponerte otro monto.',
                                   style: TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 12.5,
+                                      height: 1.3,
                                       color: BugieColors.textMuted),
                                 ),
                               ],
@@ -1077,16 +1131,21 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
 
                     // Botón confirmar
                     _buildPackageSection(context),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(0, 56),
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                       onPressed: (_submitting ||
                               _originCoord == null ||
                               _destCoord == null ||
                               _fare == null ||
-                              !_isProposedFareValid)
+                              !_isProposedFareValid ||
+                              (_scheduledAt != null &&
+                                  Schedule.validate(_scheduledAt) != null))
                           ? null
                           : _submit,
                       icon: _submitting
@@ -1094,9 +1153,13 @@ class _RequestDeliveryScreenState extends State<RequestDeliveryScreen> {
                               width: 18, height: 18,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.directions_car),
+                          : Icon(_scheduledAt != null
+                              ? Icons.event_available
+                              : Icons.directions_car),
                       label: Text(
-                          _submitting ? 'Buscando conductor…' : 'Solicitar envío',
+                          _submitting
+                              ? (_scheduledAt != null ? 'Programando…' : 'Buscando conductor…')
+                              : (_scheduledAt != null ? 'Programar envío' : 'Solicitar envío'),
                           style: const TextStyle(fontSize: 16)),
                     ),
                     const SizedBox(height: 12),

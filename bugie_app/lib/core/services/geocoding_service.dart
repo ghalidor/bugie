@@ -17,14 +17,21 @@ class GeoResult {
 class GeocodingService {
   static const _baseUrl = 'https://nominatim.openstreetmap.org';
 
-  /// Busca direcciones con autocomplete. Sesgado a Trujillo, Perú.
-  Future<List<GeoResult>> search(String query) async {
+  /// Busca direcciones en Perú con autocomplete. Si se pasa [nearLat]/[nearLng]
+  /// (la ubicación del dispositivo o, sin GPS, la ciudad configurada), da
+  /// prioridad a las direcciones cercanas (~25 km) sin excluir las demás.
+  /// Igual que el web (RequestRide.tsx → `geocode`).
+  Future<List<GeoResult>> search(String query, {double? nearLat, double? nearLng}) async {
     if (query.trim().length < 3) return [];
 
-    final q = Uri.encodeComponent('$query, Trujillo, Peru');
-    // viewbox: -79.12,-8.05,-78.95,-8.18 (Trujillo) — igual al web
+    final q = Uri.encodeComponent(query);
+    var bias = '';
+    if (nearLat != null && nearLng != null) {
+      const d = 0.25; // grados (~25 km)
+      bias = '&viewbox=${nearLng - d},${nearLat + d},${nearLng + d},${nearLat - d}&bounded=0';
+    }
     final url = Uri.parse(
-      '$_baseUrl/search?q=$q&format=json&limit=5&viewbox=-79.12,-8.05,-78.95,-8.18&bounded=1',
+      '$_baseUrl/search?q=$q&format=json&limit=5&countrycodes=pe$bias',
     );
 
     try {

@@ -15,9 +15,10 @@ public interface IDocumentRepository
 
     /// <summary>
     /// Busca documentos APROBADOS de conductores Approved que caducan en exactamente
-    /// 6, 3 o 0 días (usado por el job de notificaciones).
+    /// alguno de los días indicados (ej. 6, 3 y 0: doc_expiry_alert_days). Lo usa el
+    /// job de notificaciones.
     /// </summary>
-    Task<List<ExpiringDocumentDto>> GetExpiringSoonAsync(CancellationToken ct = default);
+    Task<List<ExpiringDocumentDto>> GetExpiringSoonAsync(IReadOnlyList<int> days, CancellationToken ct = default);
 
     /// <summary>
     /// Busca documentos APROBADOS de conductores Approved que caducan en

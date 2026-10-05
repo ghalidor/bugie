@@ -13,7 +13,8 @@ public class Redemption
     public Guid      Id              { get; private set; }
     public Guid      ProfileId       { get; private set; }
     public Guid      UserId          { get; private set; }
-    public Guid      CatalogItemId   { get; private set; }
+    /// <summary>Null en los cupones que no salen del catalogo (beneficios de nivel).</summary>
+    public Guid?     CatalogItemId   { get; private set; }
     public string    Code            { get; private set; } = string.Empty;
     public string    ItemName        { get; private set; } = string.Empty;
     public int       PointsSpent     { get; private set; }
@@ -49,6 +50,36 @@ public class Redemption
             Status        = RedemptionStatus.Active,
             ExpiresAt     = now.AddDays(item.ValidityDays),
             CreatedAt     = now,
+        };
+    }
+
+    /// <summary>
+    /// Cupon de beneficio de nivel (pasajero): no sale del catalogo ni cuesta
+    /// puntos. Vence cuando termina el mes en que se reclamo.
+    /// </summary>
+    public static Redemption CreateLevelBenefit(
+        PointsProfile profile, string itemName, string rewardType,
+        decimal? amountSoles, decimal? percentage, DateTime expiresAtUtc)
+    {
+        if (rewardType is not (RewardTypes.DiscountPeriod or RewardTypes.FreeTrip))
+            throw new ArgumentException("Un beneficio de nivel solo puede ser descuento o viaje gratis.");
+
+        return new Redemption
+        {
+            Id            = Guid.NewGuid(),
+            ProfileId     = profile.Id,
+            UserId        = profile.UserId,
+            CatalogItemId = null,
+            Code          = GenerateCode(),
+            ItemName      = itemName,
+            PointsSpent   = 0,
+            RewardType    = rewardType,
+            AmountSoles   = amountSoles,
+            Quantity      = null,
+            Percentage    = percentage,
+            Status        = RedemptionStatus.Active,
+            ExpiresAt     = expiresAtUtc,
+            CreatedAt     = DateTime.UtcNow,
         };
     }
 

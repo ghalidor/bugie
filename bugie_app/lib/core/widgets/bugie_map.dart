@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../services/default_location_service.dart';
@@ -14,11 +17,66 @@ class BugieMarker {
   final MarkerKind kind;
   final int? waypointIndex; // para mostrar P1, P2, ...
 
+  /// Opcional: acción al tocar el marcador (ej. abrir una solicitud).
+  final VoidCallback? onTap;
+
+  /// Opcional: dibujo propio del marcador en lugar del pin estándar.
+  /// Se ancla igual que el pin (abajo al centro apunta a [position]).
+  final Widget? child;
+
+  /// Tamaño del marcador (solo importa si se usa [child]).
+  final double width;
+  final double height;
+
   const BugieMarker({
     required this.position,
     this.label,
     this.kind = MarkerKind.defaultPin,
     this.waypointIndex,
+    this.onTap,
+    this.child,
+    this.width = 44,
+    this.height = 56,
+  });
+}
+
+/// Círculo sobre el mapa (ej. zonas con más pedidos). El radio va en metros.
+/// Con [pulse] = true late suavemente (crece y se desvanece un poco); si el
+/// celular tiene "Quitar animaciones" activado, queda quieto.
+class BugieMapCircle {
+  final LatLng center;
+  final double radiusMeters;
+  final Color color;
+  final Color? borderColor;
+  final double borderWidth;
+  final bool pulse;
+
+  const BugieMapCircle({
+    required this.center,
+    required this.radiusMeters,
+    required this.color,
+    this.borderColor,
+    this.borderWidth = 0,
+    this.pulse = false,
+  });
+}
+
+/// Línea extra para dibujar sobre el mapa (ej. "ruta del sistema" punteada
+/// o "recorrido real" continuo en el detalle de un viaje).
+/// Se dibujan en el orden de la lista (la última queda encima) y cuentan
+/// para el encuadre automático.
+class BugieMapLine {
+  final List<LatLng> points;
+  final Color color;
+  final double width;
+  /// true = línea discontinua (guiones).
+  final bool dashed;
+
+  const BugieMapLine({
+    required this.points,
+    required this.color,
+    this.width = 4,
+    this.dashed = false,
   });
 }
 
@@ -50,6 +108,16 @@ class BugieMap extends StatefulWidget {
   /// Solo se dibuja si tiene exactamente 2 puntos.
   final List<LatLng> alertLine;
 
+  /// Líneas extra con color/estilo propio (ver [BugieMapLine]).
+  final List<BugieMapLine> lines;
+
+  /// Círculos extra (zonas). Se dibujan debajo de los marcadores.
+  final List<BugieMapCircle> circles;
+
+  /// Si true, encuadra marcadores + rutas + líneas apenas el mapa está listo
+  /// (sin esperar a que cambie algo). Útil en mapas de solo lectura.
+  final bool fitOnReady;
+
   final void Function(LatLng pos)? onMapTap;
   final double height;
 
@@ -61,6 +129,19 @@ class BugieMap extends StatefulWidget {
   /// y los botones quedan tapados. Default 10px (pegados al fondo).
   final double controlsBottomOffset;
 
+  /// Margen al encuadrar (botón "Centrar" y encuadre automático). Útil
+  /// cuando una hoja inferior tapa parte del mapa: se pasa un margen
+  /// inferior mayor para que la ruta quede en la zona visible.
+  final EdgeInsets fitPadding;
+
+  /// Mi posición (opcional) para el botón "Centrar mapa". Si no se pasa, se
+  /// usa el marcador "Tú" (conductor) o la última ubicación conocida del GPS.
+  final LatLng? myLocation;
+
+  /// Si false, "Centrar mapa" no suma mi posición al encuadre (ej. editor de
+  /// direcciones, donde solo importa el pin elegido).
+  final bool fitIncludesMyLocation;
+
   const BugieMap({
     super.key,
     this.center,
@@ -69,18 +150,99 @@ class BugieMap extends StatefulWidget {
     this.route = const [],
     this.alternativeRoutes = const [],
     this.alertLine = const [],
+    this.lines = const [],
+    this.circles = const [],
+    this.fitOnReady = false,
     this.onMapTap,
     this.height = 320,
     this.fitBoundsOnMarkers = true,
     this.controlsBottomOffset = 10,
+    this.fitPadding = const EdgeInsets.all(50),
+    this.myLocation,
+    this.fitIncludesMyLocation = true,
   });
 
   @override
   State<BugieMap> createState() => _BugieMapState();
 }
 
-class _BugieMapState extends State<BugieMap> {
+class _BugieMapState extends State<BugieMap>
+    with SingleTickerProviderStateMixin {
   final MapController _controller = MapController();
+
+  /// Último tamaño del mapa (null hasta el primer build).
+  Size? _mapSize;
+
+  /// Espera a que el tamaño se estabilice (giro, plegado, una franja que
+  /// aparece/desaparece) antes de recolocar la cámara.
+  Timer? _resizeTimer;
+
+  /// Latido de los círculos con pulse. Se crea solo si hace falta.
+  AnimationController? _pulse;
+
+  @override
+  void dispose() {
+    _resizeTimer?.cancel();
+    _pulse?.dispose();
+    super.dispose();
+  }
+
+  /// El mapa cambió de tamaño. Con flutter_map 7 las teselas (y los pines)
+  /// se quedaban dibujados con el tamaño anterior: recuadro gris en el resto
+  /// hasta que el usuario movía el mapa. Cuando el tamaño se estabiliza se
+  /// mueve la cámara (eso lo obliga a redibujar todo con el tamaño nuevo) y,
+  /// si hay un viaje en pantalla, se vuelve a encuadrar para la nueva forma.
+  void _onSizeChanged() {
+    _resizeTimer?.cancel();
+    _resizeTimer = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      try {
+        final cam = _controller.camera;
+        // Dos movimientos mínimos: el segundo deja la cámara como estaba.
+        _controller.move(cam.center, cam.zoom + 0.0001);
+        _controller.move(cam.center, cam.zoom);
+      } catch (_) {
+        return; // el mapa aún no está listo
+      }
+      if (widget.fitBoundsOnMarkers && _hasTripContext) _fitAll();
+    });
+  }
+
+  /// Devuelve el controlador del latido si algún círculo late y las
+  /// animaciones están permitidas; si no, lo detiene y devuelve null.
+  AnimationController? _pulseController(BuildContext context) {
+    final wantPulse = widget.circles.any((c) => c.pulse) &&
+        !(MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+    if (!wantPulse) {
+      _pulse?.stop();
+      return null;
+    }
+    final ctrl = _pulse ??= AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+    if (!ctrl.isAnimating) ctrl.repeat();
+    return ctrl;
+  }
+
+  CircleLayer _circleLayer(double t) {
+    // t va de 0 a 1: el círculo crece hasta +18% y baja su opacidad.
+    final wave = Curves.easeInOut.transform(t < 0.5 ? t * 2 : (1 - t) * 2);
+    return CircleLayer(
+      circles: widget.circles.map((c) {
+        final grow = c.pulse ? 1 + 0.18 * wave : 1.0;
+        final fade = c.pulse ? 1 - 0.35 * wave : 1.0;
+        return CircleMarker(
+          point: c.center,
+          radius: c.radiusMeters * grow,
+          useRadiusInMeter: true,
+          color: c.color.withValues(alpha: (c.color.a * fade).clamp(0.0, 1.0)),
+          borderColor: c.borderColor ?? Colors.transparent,
+          borderStrokeWidth: c.borderWidth,
+        );
+      }).toList(),
+    );
+  }
 
   /// Centro/zoom resueltos (del padre, del servicio, o fallback).
   LatLng? _resolvedCenter;
@@ -156,19 +318,88 @@ class _BugieMapState extends State<BugieMap> {
     }
     // Cambió la cantidad de puntos de la ruta (ruta nueva o recalculada)
     if (old.route.length != widget.route.length) return true;
+    // Cambiaron las líneas extra (llegó una ruta o un recorrido nuevo)
+    if (old.lines.length != widget.lines.length) return true;
+    for (int i = 0; i < widget.lines.length; i++) {
+      if (old.lines[i].points.length != widget.lines[i].points.length) {
+        return true;
+      }
+    }
     return false;
   }
 
-  void _fitAll() {
+  /// ¿La pantalla muestra un viaje? (ruta, líneas o pines de origen /
+  /// destino / paradas). Los pines de demanda o "Tú" no cuentan.
+  bool get _hasTripContext =>
+      widget.route.length >= 2 ||
+      widget.lines.any((l) => l.points.length >= 2) ||
+      widget.markers.any((m) =>
+          m.kind == MarkerKind.origin ||
+          m.kind == MarkerKind.destination ||
+          m.kind == MarkerKind.waypoint);
+
+  /// Mi posición: la que pasa el padre, el marcador "Tú" (conductor en sus
+  /// pantallas) o la última conocida del GPS (sin pedir permisos).
+  Future<LatLng?> _myPosition() async {
+    if (widget.myLocation != null) return widget.myLocation;
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return null;
+      }
+      final p = await Geolocator.getLastKnownPosition();
+      return p == null ? null : LatLng(p.latitude, p.longitude);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Botón "Centrar mapa" (mismo comportamiento en todas las pantallas):
+  ///  - Con viaje (ruta o pines de viaje): encuadra todo + mi posición.
+  ///  - Sin viaje (inicio): centra en mi ubicación.
+  Future<void> _onCenterPressed() async {
+    if (_hasTripContext) {
+      final me = widget.fitIncludesMyLocation ? await _myPosition() : null;
+      if (!mounted) return;
+      _fitAll(extra: me);
+      return;
+    }
+    LatLng? me = widget.myLocation;
+    if (me == null) {
+      for (final m in widget.markers) {
+        if (m.kind == MarkerKind.driver) {
+          me = m.position;
+          break;
+        }
+      }
+    }
+    me ??= await _myPosition();
+    if (!mounted) return;
+    if (me == null) {
+      _fitAll();
+      return;
+    }
+    try {
+      final zoom = _controller.camera.zoom < 15 ? 15.0 : _controller.camera.zoom;
+      _controller.move(me, zoom);
+    } catch (_) {}
+  }
+
+  void _fitAll({LatLng? extra}) {
     final pts = <LatLng>[
       ...widget.markers.map((m) => m.position),
       ...widget.route,
+      for (final l in widget.lines) ...l.points,
+      if (extra != null) extra,
     ];
     if (pts.isEmpty) return;
     // Un solo punto (ej. la ubicación actual en el inicio): centrar en él
     // manteniendo el zoom actual. Antes esto no hacía nada (requería 2+).
     if (pts.length == 1) {
-      _controller.move(pts.first, _controller.camera.zoom);
+      try {
+        _controller.move(pts.first, _controller.camera.zoom);
+      } catch (_) {}
       return;
     }
     try {
@@ -176,7 +407,7 @@ class _BugieMapState extends State<BugieMap> {
       _controller.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
-          padding: const EdgeInsets.all(50),
+          padding: widget.fitPadding,
         ),
       );
     } catch (_) {}
@@ -201,8 +432,6 @@ class _BugieMapState extends State<BugieMap> {
         child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    final initialCenter = _resolvedCenter!;
-    final initialZoom = _resolvedZoom ?? widget.zoom;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Teselas de OpenStreetMap, que NO piden clave. Antes se usaba
     // basemaps.cartocdn.com, que empezo a exigirla y devolvia imagenes con el
@@ -217,13 +446,28 @@ class _BugieMapState extends State<BugieMap> {
       height: widget.height,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: Stack(
+        child: LayoutBuilder(builder: (context, box) {
+          // Si cambió el tamaño (giro, plegado, pantalla dividida), se
+          // recoloca la cámara (ver _onSizeChanged).
+          if (box.hasBoundedWidth &&
+              box.hasBoundedHeight &&
+              box.maxWidth > 0 &&
+              box.maxHeight > 0) {
+            final size = Size(
+                box.maxWidth.roundToDouble(), box.maxHeight.roundToDouble());
+            if (_mapSize != null && _mapSize != size) _onSizeChanged();
+            _mapSize = size;
+          }
+          final initialCenter = _resolvedCenter!;
+          final initialZoom = _resolvedZoom ?? widget.zoom;
+          return Stack(
           children: [
             FlutterMap(
               mapController: _controller,
               options: MapOptions(
                 initialCenter: initialCenter,
                 initialZoom: initialZoom,
+                onMapReady: widget.fitOnReady ? _fitAll : null,
                 onTap: widget.onMapTap == null
                     ? null
                     : (_, pos) => widget.onMapTap!(pos),
@@ -292,6 +536,23 @@ class _BugieMapState extends State<BugieMap> {
                     ],
                   ),
 
+                // Líneas extra (ruta del sistema, recorrido real, etc.)
+                if (widget.lines.any((l) => l.points.length >= 2))
+                  PolylineLayer(
+                    polylines: widget.lines
+                        .where((l) => l.points.length >= 2)
+                        .map((l) => Polyline(
+                              points: l.points,
+                              strokeWidth: l.width,
+                              color: l.color,
+                              pattern: l.dashed
+                                  ? StrokePattern.dashed(
+                                      segments: const [10.0, 7.0])
+                                  : const StrokePattern.solid(),
+                            ))
+                        .toList(),
+                  ),
+
                 // Línea de alerta: conductor → punto más cercano de la ruta.
                 // Roja punteada para llamar la atención sobre el desvío.
                 if (widget.alertLine.length == 2)
@@ -307,21 +568,45 @@ class _BugieMapState extends State<BugieMap> {
                     ],
                   ),
 
+                // Círculos (zonas). Si alguno late, se repinta con la animación.
+                if (widget.circles.isNotEmpty)
+                  Builder(builder: (context) {
+                    final ctrl = _pulseController(context);
+                    if (ctrl == null) return _circleLayer(0);
+                    return AnimatedBuilder(
+                      animation: ctrl,
+                      builder: (_, __) => _circleLayer(ctrl.value),
+                    );
+                  }),
+
                 // Marcadores
                 MarkerLayer(
-                  markers: widget.markers
-                      .map((m) => Marker(
-                            point: m.position,
-                            width: 44,
-                            height: 56,
-                            alignment: Alignment.topCenter,
-                            child: _PinWidget(
-                              color: _colorFor(m.kind),
-                              kind: m.kind,
-                              waypointIndex: m.waypointIndex,
-                            ),
-                          ))
-                      .toList(),
+                  markers: widget.markers.map((m) {
+                    Widget pin = m.child ??
+                        _PinWidget(
+                          color: _colorFor(m.kind),
+                          kind: m.kind,
+                          waypointIndex: m.waypointIndex,
+                        );
+                    if (m.onTap != null) {
+                      pin = GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: m.onTap,
+                        child: Semantics(
+                          button: true,
+                          label: m.label,
+                          child: pin,
+                        ),
+                      );
+                    }
+                    return Marker(
+                      point: m.position,
+                      width: m.child != null ? m.width : 44,
+                      height: m.child != null ? m.height : 56,
+                      alignment: Alignment.topCenter,
+                      child: pin,
+                    );
+                  }).toList(),
                 ),
               ],
             ),
@@ -336,39 +621,43 @@ class _BugieMapState extends State<BugieMap> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Zoom in (+)
-                  _MapControlButton(
-                    icon: Icons.add,
-                    tooltip: 'Acercar',
-                    onTap: () {
-                      // Sube 1 nivel sin pasar de 20 (límite de los tiles CARTO).
-                      final next = (_controller.camera.zoom + 1).clamp(3.0, 20.0);
-                      _controller.move(_controller.camera.center, next);
-                    },
-                  ),
-                  const SizedBox(height: 6),
-                  // Zoom out (-)
-                  _MapControlButton(
-                    icon: Icons.remove,
-                    tooltip: 'Alejar',
-                    onTap: () {
-                      final next = (_controller.camera.zoom - 1).clamp(3.0, 20.0);
-                      _controller.move(_controller.camera.center, next);
-                    },
-                  ),
-                  const SizedBox(height: 6),
-                  // Foco: re-encuadra todo lo que esté en pantalla.
-                  // Si hay 2+ pines, _fitAll los acomoda; si hay solo 1 lo centra.
-                  _MapControlButton(
-                    icon: Icons.center_focus_strong,
-                    tooltip: 'Centrar',
-                    onTap: _fitAll,
-                  ),
+                  // Zoom in (+) y zoom out (-) juntos en una sola pastilla.
+                  _MapControlGroup(children: [
+                    _MapControlButton(
+                      icon: Icons.add,
+                      tooltip: 'Acercar',
+                      onTap: () {
+                        // Sube 1 nivel sin pasar de 20 (límite de los tiles).
+                        final next =
+                            (_controller.camera.zoom + 1).clamp(3.0, 20.0);
+                        _controller.move(_controller.camera.center, next);
+                      },
+                    ),
+                    _MapControlButton(
+                      icon: Icons.remove,
+                      tooltip: 'Alejar',
+                      onTap: () {
+                        final next =
+                            (_controller.camera.zoom - 1).clamp(3.0, 20.0);
+                        _controller.move(_controller.camera.center, next);
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  // Centrar mapa: con viaje encuadra todo; sin viaje, a mí.
+                  _MapControlGroup(children: [
+                    _MapControlButton(
+                      icon: Icons.my_location_rounded,
+                      tooltip: 'Centrar mapa',
+                      onTap: _onCenterPressed,
+                    ),
+                  ]),
                 ],
               ),
             ),
           ],
-        ),
+          );
+        }),
       ),
     );
   }
@@ -509,7 +798,37 @@ class _DriverCarPin extends StatelessWidget {
     );
   }
 }
-/// Botón cuadrado blanco con sombra para los controles del mapa (zoom +/- y foco).
+/// Pastilla que agrupa botones del mapa (fondo según el tema, borde sutil).
+class _MapControlGroup extends StatelessWidget {
+  final List<Widget> children;
+  const _MapControlGroup({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    return Material(
+      color: c.surface.withValues(alpha: 0.96),
+      elevation: 3,
+      shadowColor: Colors.black45,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: c.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) Container(width: 28, height: 1, color: c.border),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Botón de 44x44 para los controles del mapa (zoom +/- y centrar).
 class _MapControlButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
@@ -524,17 +843,12 @@ class _MapControlButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.white,
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Icon(icon, color: BugieColors.primary, size: 22),
-          ),
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(icon, color: context.bugie.text, size: 22),
         ),
       ),
     );
