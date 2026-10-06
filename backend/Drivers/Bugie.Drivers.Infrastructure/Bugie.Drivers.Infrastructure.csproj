@@ -12,6 +12,8 @@
     <PackageReference Include="Dapper" Version="2.1.28" />
     <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.9" />
     <PackageReference Include="Npgsql" Version="8.0.3" />
+    <!-- Historial frio del GPS crudo en archivos Parquet (job GpsArchive) -->
+    <PackageReference Include="Parquet.Net" Version="5.4.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.7" />

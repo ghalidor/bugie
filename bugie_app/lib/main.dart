@@ -89,6 +89,8 @@ class BugieApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apiClient = ApiClient(session);
+    // Singleton de tracking: lo comparten las pantallas y el logout.
+    final locationTracking = LocationTrackingService();
 
     return MultiProvider(
       providers: [
@@ -110,10 +112,16 @@ class BugieApp extends StatelessWidget {
 
         // Tracking de ubicación (singleton de la app). Cualquier pantalla
         // que necesite enviar ubicación lo arranca y lo para por sí misma.
-        Provider(create: (_) => LocationTrackingService()),
+        Provider.value(value: locationTracking),
 
         // Repositorios — uno por módulo
-        Provider(create: (_) => AuthRepository(apiClient, session)),
+        Provider(
+          create: (_) => AuthRepository(
+            apiClient,
+            session,
+            tracking: locationTracking,
+          ),
+        ),
         Provider(create: (_) => TripsRepository(apiClient)),
         Provider(create: (_) => DriverRepository(apiClient)),
         Provider(create: (_) => PaymentsRepository(apiClient)),

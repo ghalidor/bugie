@@ -55,6 +55,12 @@ builder.Services.AddScoped<IDriverDayStatsRepository, DriverDayStatsRepository>(
 // Desvío de ruta: rutas planificadas + alertas (ver RouteDeviationService).
 builder.Services.AddScoped<IRouteDeviationRepository, RouteDeviationRepository>();
 builder.Services.AddScoped<Bugie.Trips.Application.Services.RouteDeviationService>();
+// Reenvío del GPS que manda Drivers.Api (uno o en lote): SignalR en cada punto,
+// viaje activo cacheado y desvío de ruta cada N m / N s. Ajustes en "LocationRelay".
+builder.Services.Configure<Bugie.Trips.Api.Realtime.DriverLocationRelayOptions>(
+    builder.Configuration.GetSection(Bugie.Trips.Api.Realtime.DriverLocationRelayOptions.Section));
+builder.Services.AddSingleton<Bugie.Trips.Api.Realtime.DriverLocationRelayState>();
+builder.Services.AddScoped<Bugie.Trips.Api.Realtime.DriverLocationRelayService>();
 
 builder.Services.AddHttpClient<IRoutingService, GraphHopperRoutingService>(client =>
 {

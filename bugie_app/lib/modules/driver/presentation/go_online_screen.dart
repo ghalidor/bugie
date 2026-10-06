@@ -172,6 +172,8 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
       final presence = context.read<PresenceRepository>();
       final tracking = context.read<LocationTrackingService>();
 
+      // Antes de desconectarse: manda los puntos GPS que quedaron en cola.
+      await tracking.flush();
       final updated = await repo.goOffline();
       tracking.stop();
       try { await presence.checkOut(); } catch (_) {}

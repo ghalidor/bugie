@@ -186,7 +186,7 @@ class _DriverShellState extends State<DriverShell>
       // posición de "en línea sin viaje". La tarjeta del inicio explica todo.
       if (d.isBlocked) {
         if (!d.isOnline && tracking.mode == TrackingMode.driverIdle) {
-          tracking.stop();
+          await tracking.flushAndStop();
         }
         return;
       }

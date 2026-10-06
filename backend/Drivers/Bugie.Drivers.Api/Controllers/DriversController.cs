@@ -7,6 +7,8 @@ using System.Security.Claims;
 using Bugie.Drivers.Application.Commands;
 using Bugie.Drivers.Application.DTOs;
 using Bugie.Drivers.Application.Queries;
+using Bugie.Drivers.Application.Services.Location;
+using Microsoft.Extensions.Options;
 using Bugie.Drivers.Domain.Enums;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Api.Security;
@@ -22,13 +24,17 @@ public class DriversController : ControllerBase
     private readonly IAdminEventsPublisher _adminEvents;
     private readonly ITripsClient _trips;
     private readonly IConfiguration _cfg;
+    private readonly DriverLiveLocations _live;
+    private readonly LocationOptions _location;
     public DriversController(IMediator mediator, IAdminEventsPublisher adminEvents,
-        ITripsClient trips, IConfiguration cfg)
+        ITripsClient trips, IConfiguration cfg, DriverLiveLocations live, IOptions<LocationOptions> location)
     {
         _mediator = mediator;
         _adminEvents = adminEvents;
         _trips = trips;
         _cfg = cfg;
+        _live = live;
+        _location = location.Value;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -123,12 +129,39 @@ public class DriversController : ControllerBase
         }
     }
 
+    // Un punto GPS (app web, simulador, seed). Misma ruta interna que el lote:
+    // valida, filtra, deja la posicion en memoria y encola; la base se escribe
+    // en segundo plano (LocationWriterService). Responde 200 vacio como siempre.
     [HttpPut("location")]
     public async Task<IActionResult> UpdateLocation([FromBody] UpdateLocationRequest req, CancellationToken ct)
     {
         await _mediator.Send(new UpdateLocationCommand(
             CurrentUserId, req.Lat, req.Lng, req.TripId, req.SpeedKmh, req.Heading), ct);
         return Ok();
+    }
+
+    /// <summary>
+    /// PUT /api/drivers/location/batch
+    /// Varios puntos GPS del conductor autenticado en una sola peticion (la app
+    /// los junta y los manda cada pocos segundos).
+    /// Body: { driverId, tripId?, points: [ { lat, lng, speedKmh?, heading?, recordedAt } ] }
+    ///   - recordedAt: hora de Peru sin zona (como el resto de la API).
+    ///   - maximo Location:MaxBatchPoints puntos (default 50): 400 si se pasa.
+    ///   - se ordenan por recordedAt; los puntos con fecha futura (> 2 min), mas
+    ///     viejos que 1 h, con coordenadas invalidas o repetidos (menos de 15 m y
+    ///     3 s del anterior) se descartan y se cuentan, no cortan el lote.
+    /// Respuesta 202 { received, accepted, discarded }. 404 si el usuario no es conductor.
+    /// </summary>
+    [HttpPut("location/batch")]
+    public async Task<IActionResult> UpdateLocationBatch([FromBody] UpdateLocationBatchRequest req, CancellationToken ct)
+    {
+        if(req.Points is null || req.Points.Count == 0)
+            return BadRequest(new { error = "Debes enviar al menos un punto." });
+        if(req.Points.Count > _location.MaxBatchPoints)
+            return BadRequest(new { error = $"Maximo {_location.MaxBatchPoints} puntos por peticion." });
+
+        var result = await _mediator.Send(new UpdateLocationBatchCommand(CurrentUserId, req.TripId, req.Points), ct);
+        return Accepted(new { received = result.Received, accepted = result.Accepted, discarded = result.Discarded });
     }
 
     /// <summary>
@@ -189,16 +222,20 @@ public class DriversController : ControllerBase
         // ubicación sigue en BD.
         if(!driver.IsOnline) return NoContent();
 
-        if(driver.CurrentLat is null || driver.CurrentLng is null)
+        // Posicion en memoria primero (mas fresca que la base); si no hay dato
+        // vigente (p.ej. API recien reiniciada), la de la base.
+        var live = _live.Get(userId, TimeSpan.FromMinutes(_location.StaleMinutes));
+        var lat = live?.Lat ?? driver.CurrentLat;
+        var lng = live?.Lng ?? driver.CurrentLng;
+        if(lat is null || lng is null)
             return NoContent();
 
         return Ok(new
         {
-            lat = driver.CurrentLat.Value,
-            lng = driver.CurrentLng.Value,
-            // Pendiente: agregar Driver.CurrentLocationAt al schema para
-            // exponer cuándo fue el último ping. Por ahora null.
-            updatedAt = (DateTime?)null,
+            lat = lat.Value,
+            lng = lng.Value,
+            // Hora del ultimo punto si esta en memoria; null si salio de la base.
+            updatedAt = live?.RecordedAtUtc,
         });
     }
 

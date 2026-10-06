@@ -1,6 +1,6 @@
 # Bugie: estado del proyecto (traspaso para otra sesión de Claude)
 
-Actualizado: 5 de octubre de 2026 (noche). Léelo completo antes de tocar nada. Complementa a `CLAUDE.md`, `docs/Bugie_Acta_Inicio_Proyecto.md` y `docs/Player_Tracking_Bugie.md`.
+Actualizado: 6 de octubre de 2026. Léelo completo antes de tocar nada. Complementa a `CLAUDE.md`, `docs/Bugie_Acta_Inicio_Proyecto.md` y `docs/Player_Tracking_Bugie.md`.
 
 ---
 
@@ -103,7 +103,19 @@ Documento visual: `docs/Puntos_Promociones_Sorteos_Bugie.html`. Valores por defe
 
 **Datos de prueba (5-oct):** `backend/scripts/test-data/seed.mjs` reescrito: rutas reales por calles con GraphHopper local (http://localhost:8989) y GPS con horas coherentes, 12 escenarios de negociación (a–l) con asserts, correos reales ≤ 50 con alias `ghaluix+clave@gmail.com` por fase (misma bandeja), verificación de imágenes (117 URLs), demo final (programados, en curso, negociando, pendiente). `simular_viajes_en_curso.mjs` mueve unidades en vivo para la demo de Monitoreo (ver README de test-data). Corrida del 5-oct: 242 OK, 48 correos, 6,6 min.
 
-## 7. Scripts SQL (orden; aplicados en `bugie_test`, la base real los tiene pendientes)
+## 6b. Sesión del 6-oct-2026 (rendimiento, historial GPS, pruebas en celular, carga)
+
+**Posiciones GPS (Drivers + Trips, probado en vivo):** `PUT /api/drivers/location/batch` (hasta 50 puntos, `recordedAt` hora Perú) además del de 1 punto; filtro en servidor (descarta < 15 m y < 3 s, desordenados, futuros > 2 min, > 1 h); cola interna `System.Threading.Channels` (50 000, DropOldest) + `LocationWriterService` que escribe por lotes (1 UPDATE y 1 INSERT por lote, hasta 500 puntos o cada 1 s); posición en vivo en memoria (`DriverLiveLocations`) que usan `nearby`, `/online` (mapa admin) y `by-user/{id}/location`; aviso a Trips en segundo plano (`POST /api/internal/notify/driver-locations`); en Trips el viaje activo del conductor se cachea 30 s y el desvío se revisa cada ≥ 50 m / 15 s. Settings `Location:*` (Drivers) y `LocationRelay:*` (Trips) con defaults en código. Métricas en el log de Drivers cada 60 s ("GPS ultimo periodo: ..."). Índices: `2026-10-06_indices_rendimiento.sql`. La app manda lotes cada 12 s o 5 puntos, con cola local (500) y reintento sin red; `flush()` antes de completar/cancelar/desconectar/cerrar sesión.
+
+**Historial GPS (Drivers, probado en vivo):** `drivers.locationhistory` particionada por día UTC (`ensure_locationhistory_partitions`), `drivers.trippaths` con el recorrido consolidado por viaje (polilínea + tiempos/velocidades/rumbos comprimidos; se consolida 30 s después de completar, vía `POST /api/drivers/internal/trips/{id}/consolidate-path`, y el job nocturno repasa); `/path` lee primero trippaths y si no hay, el crudo; `/path/raw` lee del Parquet si ya se archivó. Job `GpsArchiveJobService` (08:00 UTC): particiones +3 días, consolidación, exporta particiones de hace ≥ `KeepDays` (2) a `C:/bugie-uploads/gps-archive/locationhistory_YYYY-MM-DD.parquet` (Parquet.Net 5.4.0, Zstd) y recién entonces borra la partición. Admin: `POST /api/drivers/admin/gps-archive/run`, `GET /api/drivers/admin/gps-archive`. Script `2026-10-06_historial_gps.sql`. **El job todavía no se ha corrido**: la base tiene ~26 días de crudo.
+
+**Pruebas en el celular (Samsung, adb, 53 min, 15 escenarios):** 13 OK con capturas, 1 falla (el detalle de la solicitud del conductor no reacciona cuando el pasajero cancela y la oferta está pendiente), 1 no probable (cupón de ticket: no había sorteo abierto). Textos de la negociación verificados idénticos a la web. Observaciones de UX en la lista de pendientes.
+
+**Prueba de carga (`scripts/test-data/prueba_carga.mjs`, 60 conductores en viaje + 150 conectados, 7 min):** 650 viajes, 0 fallidos, 26 230 peticiones, 0 errores, cola GPS siempre vacía. Hallazgo 1: con `Services:*Api = http://localhost:...` había esperas de 1,5-4 s (intento IPv6 previo de Windows); con `127.0.0.1` el p95 bajó a 7-73 ms (A/B hecho; `levantar_apis_test.sh` ya exporta `Services__*` con 127.0.0.1). Hallazgo 2: PostgreSQL `max_connections=100` se superó en un pico (Auth recibió 2 × "53300 demasiados clientes"); Auth en reposo responde en 1-3 ms. Las cuentas de carga (`cargac0000…`, `cargap0000…`) se crean directo en BD sin correos; `--no-register` las reutiliza. Resultado en `scripts/test-data/logs/carga-resultado.json`.
+
+**Respaldo para otra PC:** `backend/bugie_test_backup.sql` (volcado completo verificado restaurando en una BD aparte: mismos conteos) + `D:\trabajo\jose\bugie_test_respaldo\bugie-uploads.zip` (imágenes, fuera del repo). Pasos en `backend/scripts/test-data/README.md` › "Restaurar la base de prueba en otra PC".
+
+## 7. Scripts SQL (orden; todos aplicados en `bugie_test` y ya incluidos en `backend/bugie_test_backup.sql`)
 
 En `backend/scripts/`, en este orden (también listado en `backend/scripts/test-data/README.md`):
 
@@ -133,16 +145,32 @@ En `backend/scripts/`, en este orden (también listado en `backend/scripts/test-
 2026-10-04_aviso_sos_campana.sql
 2026-10-04_beneficios_nivel_sorteos.sql
 2026-10-05_negociacion_viajes.sql
+2026-10-06_indices_rendimiento.sql
+2026-10-06_historial_gps.sql
 ```
 
-Todos son idempotentes. Correrlos en la base real le corresponde al dueño.
+Todos son idempotentes (28). Hoy `bugie_test` es la base del proyecto (ya los tiene; el respaldo `backend/bugie_test_backup.sql` también). Al publicar en producción, la BD nueva se crea con `backscript.sql` + estos scripts en este orden.
 
-## 8. Pendientes
+## 8. Pendientes y propuestas (orden sugerido)
 
-1. **Probar la app en el celular** con la negociación nueva y el tiempo real: compila y pasa `flutter analyze`, pero no se instaló en el dispositivo.
-2. Opcional ofrecido: que `seed.mjs` genere recorridos GPS más realistas (hoy son una línea casi recta con la misma hora). Solo en el script de pruebas.
-3. Opcional ofrecido: lista de tickets por sorteo en el admin (hoy no existe; habría que exponerla en el backend).
-4. Del dueño: correr los scripts en la base real, rotar credenciales, poner un celular en `support_phone`, al desplegar poner direcciones reales en `appsettings`, el dominio en `robots.txt`/`sitemap.xml` y `VITE_PUBLIC_SITE_URL`.
+**A. Correcciones de la app (encontradas en el celular)**
+1. **Falla:** `incoming_request_detail_screen.dart` debe reaccionar a `TripChanged(cancelled)` / push `trip_cancelled` del viaje abierto cuando el conductor solo tiene oferta pendiente: salir con aviso y recargar Solicitudes.
+2. Textos: "Le enviaremos esta oferta a el pasajero" → "al pasajero"; cupón de nivel dice "5% de descuento por 0 días" → "hasta fin de mes"; chips cortados en tarjetas del pasajero ("Aceptó tu pre…", "Recha…") y en Mis viajes ("Conduc…", "Complet…").
+3. Comportamiento: la bandeja de notificaciones no se refresca sola al llegar un aviso (escuchar `FcmService.tripEvent`/hub); el inicio del pasajero no muestra su viaje activo si lo pidió desde la web; confirmación al cerrar sesión y antes de "Completar viaje"; indicador de "sin conexión"; en Seguimiento, poder contraer la hoja arrastrando el contenido.
+
+**B. Servidor**
+4. Falta el push `offer_not_chosen` al conductor cuyo `driver_accepted` perdió cuando el pasajero eligió a otro por `confirm-driver-acceptance` (sí llega en `confirm-acceptance`).
+5. `POST /api/trips` debería devolver `expiresAt`/`expiresReason` (hoy solo en `GET /trips/active` y `/tracking`).
+6. Zonas horarias: `trips.trips.createdat` se guarda en hora Perú y `acceptedat/startedat/completedat` y `locationhistory.recordedat` en UTC. Funciona en pantalla, pero conviene unificar a UTC antes de producción (con script de migración).
+7. Caché de 60 s de tokens FCM en Trips (hoy cada aviso consulta Auth). Limitar `Maximum Pool Size` (≈25) en cada connection string y subir `max_connections` de PostgreSQL a 200 (o PgBouncer). Usar IPs, no `localhost`, en `Services:*` de los `appsettings`.
+8. Opcional: bajar a Warning el log de `HubException` esperadas (JoinTrip rechazado) y exponer `driver_accepted` en `GET /trips/my-counter-proposals` para la lista Solicitudes.
+
+**C. Datos y operación**
+9. Correr una vez el archivado a Parquet (`POST /api/drivers/admin/gps-archive/run`) para dejar 2 días de crudo y verificar `/path` y `/path/raw`.
+10. Seed: los sorteos de ejemplo quedan `drawn` con `drawDate` futura (ajustar fechas o estado); crear un sorteo abierto para poder probar el cupón de ticket.
+11. Opcional: lista de tickets por sorteo en el admin; que `seed.mjs` marque "omitido" (ya hecho) y revise los avisos que dependen del nombre del `type`.
+
+**D. Del dueño (al publicar):** crear la BD de producción con `backscript.sql` + los 26 scripts (o restaurar el respaldo y limpiar datos de prueba), rotar credenciales versionadas (Firebase/Google/SMTP), celular en `support_phone`, direcciones reales en `appsettings` (`Services:*`, `AllowedOrigins`), dominio en `robots.txt`/`sitemap.xml` y `VITE_PUBLIC_SITE_URL`, carpeta `C:/bugie-uploads` y `gps-archive` con permisos, GraphHopper accesible desde Trips, instalar la app firmada.
 
 ## 9. Cómo trabajar con él
 

@@ -12,6 +12,13 @@ public record GoOnlineRequest(double Lat, double Lng);
 public record UpdateLocationRequest(Guid DriverId, double Lat, double Lng,
     Guid? TripId = null, double? SpeedKmh = null, double? Heading = null);
 
+/// <summary>
+/// PUT /api/drivers/location/batch. DriverId se ignora (el conductor sale del
+/// token, igual que en PUT /location). Points: max. Location:MaxBatchPoints.
+/// </summary>
+public record UpdateLocationBatchRequest(Guid DriverId, Guid? TripId,
+    List<Bugie.Drivers.Application.Services.Location.LocationPointInput>? Points);
+
 public record DriverDto(
     Guid Id,
     Guid UserId,

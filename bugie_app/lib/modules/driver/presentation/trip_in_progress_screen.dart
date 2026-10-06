@@ -116,9 +116,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     super.dispose();
   }
 
-  /// Configura el LocationTrackingService para que sus updates incluyan
+  /// Configura el LocationTrackingService para que sus envíos incluyan
   /// el tripId actual (cuando hay) y use el modo indicado.
-  /// Como el sender depende del tripId, lo re-inyectamos al cambiar.
+  /// En viaje los puntos se juntan y van en lote (cada 12s o 5 puntos).
+  /// Como el envío depende del tripId, lo re-inyectamos al cambiar.
   void _switchTrackingTo(TrackingMode mode, {required String? tripId}) {
     final tracking = context.read<LocationTrackingService>();
     final repo = context.read<DriverRepository>();
@@ -129,24 +130,18 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       // (ej: reload de la app con sesión guardada), iniciamos nosotros.
       tracking.start(
         mode: mode,
-        sender: (pos) => repo.updateLocation(
-          lat: pos.latitude,
-          lng: pos.longitude,
+        batchSender: (points) => repo.updateLocationBatch(
+          points: points,
           tripId: _trackingTripId,
-          speedKmh: pos.speed * 3.6,
-          heading: pos.heading,
         ),
       );
     } else {
-      // Reagenda el sender para que incluya el tripId actual.
+      // Reagenda el envío para que incluya el tripId actual.
       tracking.start(
         mode: mode,
-        sender: (pos) => repo.updateLocation(
-          lat: pos.latitude,
-          lng: pos.longitude,
+        batchSender: (points) => repo.updateLocationBatch(
+          points: points,
           tripId: _trackingTripId,
-          speedKmh: pos.speed * 3.6,
-          heading: pos.heading,
         ),
       );
       tracking.setMode(mode);
@@ -337,6 +332,9 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       _busy = true;
       _error = null;
     });
+    // Manda los puntos GPS que quedaron en cola con el tripId de este viaje.
+    await context.read<LocationTrackingService>().flush();
+    if (!mounted) return;
     try {
       final after = await context
           .read<TripsRepository>()
@@ -449,6 +447,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       _busy = true;
       _error = null;
     });
+    // Manda los puntos GPS que quedaron en cola con el tripId de este viaje,
+    // así el recorrido queda completo antes de cerrarlo.
+    await context.read<LocationTrackingService>().flush();
+    if (!mounted) return;
     try {
       await context.read<TripsRepository>().complete(_trip!.id);
       if (!mounted) return;

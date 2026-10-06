@@ -13,9 +13,10 @@ public class LocationHistory
 
     private LocationHistory() { }
 
+    /// <summary>recordedAtUtc: hora del punto (UTC). Si no viene, la hora actual del servidor.</summary>
     public static LocationHistory Create(Guid driverId, double lat, double lng,
                                           Guid? tripId = null, double? speed = null,
-                                          double? heading = null) => new()
+                                          double? heading = null, DateTime? recordedAtUtc = null) => new()
     {
         DriverId   = driverId,
         TripId     = tripId,
@@ -23,6 +24,6 @@ public class LocationHistory
         Lng        = lng,
         SpeedKmh   = speed,
         Heading    = heading,
-        RecordedAt = DateTime.UtcNow,
+        RecordedAt = recordedAtUtc ?? DateTime.UtcNow,
     };
 }

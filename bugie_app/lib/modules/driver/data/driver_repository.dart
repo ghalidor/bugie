@@ -1,6 +1,8 @@
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/location_tracking_service.dart'
+    show TrackedPoint;
 import '../../../core/services/notification_prefs.dart';
 import '../domain/driver_document_model.dart';
 import '../domain/driver_model.dart';
@@ -28,10 +30,15 @@ class DriverRepository {
     return _remember(Driver.fromJson(json as Map<String, dynamic>));
   }
 
+  /// Id del perfil de conductor logueado (se conoce tras leer el perfil).
+  /// Lo manda el lote de ubicaciones; el backend igual usa el JWT.
+  String? _driverId;
+
   /// Guarda si el conductor está conectado (lo usa "No molestar cuando
-  /// estoy desconectado" de NotificationPrefs).
+  /// estoy desconectado" de NotificationPrefs) y su id.
   Driver _remember(Driver d) {
     NotificationPrefs.driverOnline.value = d.isOnline;
+    if (d.id.isNotEmpty) _driverId = d.id;
     return d;
   }
 
@@ -86,6 +93,23 @@ class DriverRepository {
       if (tripId   != null) 'tripId':   tripId,
       if (speedKmh != null) 'speedKmh': speedKmh,
       if (heading  != null) 'heading':  heading,
+    });
+  }
+
+  /// PUT /api/drivers/location/batch
+  /// Varios puntos GPS de una vez (máximo 50), cada uno con su `recordedAt`
+  /// en hora de Perú para que el servidor los ordene aunque lleguen tarde.
+  /// Lo usa LocationTrackingService: en viaje junta puntos y los manda en
+  /// lote; sin viaje manda lotes de 1.
+  Future<void> updateLocationBatch({
+    required List<TrackedPoint> points,
+    String? tripId,
+  }) async {
+    if (points.isEmpty) return;
+    await _api.put('${ApiConfig.drivers}/drivers/location/batch', body: {
+      if (_driverId != null) 'driverId': _driverId,
+      if (tripId != null) 'tripId': tripId,
+      'points': [for (final p in points) p.toJson()],
     });
   }
 

@@ -1,0 +1,127 @@
+{
+  "fecha": "2026-10-06T12:24:08.669Z",
+  "tripsDone": 259,
+  "tripsFailed": 0,
+  "rows": [
+    {
+      "endpoint": "drivers/location/batch",
+      "n": 8316,
+      "p50": 2,
+      "p95": 6,
+      "max": 31,
+      "errores": {}
+    },
+    {
+      "endpoint": "auth/login",
+      "n": 271,
+      "p50": 117,
+      "p95": 123,
+      "max": 1811,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips (crear)",
+      "n": 259,
+      "p50": 5,
+      "p95": 21,
+      "max": 1389,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/arrived",
+      "n": 259,
+      "p50": 7,
+      "p95": 15,
+      "max": 29,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/start",
+      "n": 259,
+      "p50": 6,
+      "p95": 14,
+      "max": 32,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/passenger-location",
+      "n": 259,
+      "p50": 2,
+      "p95": 5,
+      "max": 14,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/complete",
+      "n": 259,
+      "p50": 11,
+      "p95": 23,
+      "max": 1622,
+      "errores": {}
+    },
+    {
+      "endpoint": "drivers/me",
+      "n": 210,
+      "p50": 3,
+      "p95": 5,
+      "max": 1276,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/ratings",
+      "n": 171,
+      "p50": 5,
+      "p95": 7,
+      "max": 32,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/driver-accept",
+      "n": 140,
+      "p50": 6,
+      "p95": 17,
+      "max": 117,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/proposals",
+      "n": 140,
+      "p50": 4,
+      "p95": 9,
+      "max": 149,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/confirm-driver-acceptance",
+      "n": 140,
+      "p50": 6,
+      "p95": 10,
+      "max": 26,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/propose",
+      "n": 119,
+      "p50": 7,
+      "p95": 73,
+      "max": 175,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/accept-proposal",
+      "n": 119,
+      "p50": 2,
+      "p95": 8,
+      "max": 26,
+      "errores": {}
+    },
+    {
+      "endpoint": "trips/confirm-acceptance",
+      "n": 119,
+      "p50": 6,
+      "p95": 16,
+      "max": 46,
+      "errores": {}
+    }
+  ]
+}

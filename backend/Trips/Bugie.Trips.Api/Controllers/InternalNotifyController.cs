@@ -1,4 +1,5 @@
-﻿using Bugie.Trips.Application.Services;
+﻿using Bugie.Trips.Api.Realtime;
+using Bugie.Trips.Application.Services;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -29,25 +30,19 @@ namespace Bugie.Trips.Api.Controllers;
 public class InternalNotifyController : ControllerBase
 {
     private readonly IAdminNotifier _notifier;
-    private readonly ITripRealtimeNotifier _realtime;
-    private readonly ITripRepository _trips;
-    private readonly RouteDeviationService _deviations;
+    private readonly DriverLocationRelayService _relay;
     private readonly IFcmSender _fcm;
     private readonly IConfiguration _cfg;
     private readonly ILogger<InternalNotifyController> _log;
 
     public InternalNotifyController(IAdminNotifier notifier,
-                                     ITripRealtimeNotifier realtime,
-                                     ITripRepository trips,
-                                     RouteDeviationService deviations,
+                                     DriverLocationRelayService relay,
                                      IFcmSender fcm,
                                      IConfiguration cfg,
                                      ILogger<InternalNotifyController> log)
     {
         _notifier = notifier;
-        _realtime = realtime;
-        _trips = trips;
-        _deviations = deviations;
+        _relay = relay;
         _fcm = fcm;
         _cfg = cfg;
         _log = log;
@@ -77,7 +72,9 @@ public class InternalNotifyController : ControllerBase
 
     /// <summary>
     /// POST /api/internal/notify/driver-location
-    /// Llamado por Drivers.Api cada vez que un conductor reporta GPS.
+    /// Un punto GPS de un conductor (compatibilidad). Mismo camino que el lote:
+    /// ver DriverLocationRelayService (viaje activo resuelto aquí y cacheado,
+    /// SignalR a admin y pasajero en cada punto, desvío de ruta cada N m / N s).
     /// </summary>
     [HttpPost("driver-location")]
     public async Task<IActionResult> NotifyDriverLocation(
@@ -87,56 +84,34 @@ public class InternalNotifyController : ControllerBase
     {
         if(!ValidateInternalToken(token, out var err)) return err!;
 
-        // Viaje activo del conductor. Se resuelve aquí por el conductor; no se
-        // confía en un tripId que venga del cliente (evita inyectar posiciones
-        // en otro viaje). Sirve para el pasajero (hub de viajes) y para el
-        // monitoreo (recorrido en vivo por viaje).
-        Guid? tripId = null;
-        if(req.HasActiveTrip)
+        await _relay.RelayAsync(new[]
         {
-            try
-            {
-                var trip = await _trips.GetActiveTripAsync(req.UserId, ct);
-                if(trip is not null && trip.DriverId == req.UserId) tripId = trip.Id;
-            }
-            catch(Exception ex)
-            {
-                _log.LogWarning(ex, "No se pudo resolver el viaje activo del conductor {UserId}.", req.UserId);
-            }
-        }
-
-        // Admins (grupo "admins" de /hubs/monitor): "driver:location" con tripId.
-        // Awaitamos para que cualquier error se loguee.
-        await _notifier.NotifyDriverLocationAsync(
-            req.UserId, req.Lat, req.Lng, req.HasActiveTrip, tripId, req.Heading, req.SpeedKmh, ct);
-
-        // Pasajero del viaje (grupo trip:{id} de /hubs/trips): "DriverLocation".
-        if(tripId is not null)
-        {
-            try
-            {
-                await _realtime.DriverLocationAsync(tripId.Value, req.Lat, req.Lng, req.Heading, req.SpeedKmh, ct);
-            }
-            catch(Exception ex)
-            {
-                _log.LogWarning(ex, "No se pudo emitir DriverLocation del conductor {UserId}.", req.UserId);
-            }
-        }
-
-        // Detección de desvío de ruta (ver RouteDeviationService). Va después
-        // del broadcast y con CancellationToken.None: Drivers corta a los 3s,
-        // pero queremos que el cálculo termine igual. Un error aquí no debe
-        // afectar al GPS.
-        try
-        {
-            await _deviations.ProcessDriverLocationAsync(
-                req.UserId, req.Lat, req.Lng, req.HasActiveTrip, CancellationToken.None);
-        }
-        catch(Exception ex)
-        {
-            _log.LogWarning(ex, "Error al revisar desvío de ruta del conductor {UserId}.", req.UserId);
-        }
+            new DriverLocationPoint(req.UserId, req.Lat, req.Lng, req.HasActiveTrip, req.SpeedKmh, req.Heading),
+        }, ct);
         return Ok();
+    }
+
+    /// <summary>
+    /// POST /api/internal/notify/driver-locations
+    /// Varios puntos GPS (de uno o varios conductores) en una sola llamada. Lo
+    /// manda el LocationWriterService de Drivers.Api con cada lote que escribe.
+    /// Body: { points: [ { userId, lat, lng, hasActiveTrip, speedKmh?, heading?, at? } ] }.
+    /// Se procesan en el orden recibido. Responde 200 { relayed }.
+    /// </summary>
+    [HttpPost("driver-locations")]
+    public async Task<IActionResult> NotifyDriverLocations(
+        [FromHeader(Name = "X-Internal-Token")] string? token,
+        [FromBody] NotifyDriverLocationsRequest req,
+        CancellationToken ct)
+    {
+        if(!ValidateInternalToken(token, out var err)) return err!;
+        var points = req.Points ?? new List<NotifyDriverLocationRequest>();
+        if(points.Count == 0) return Ok(new { relayed = 0 });
+
+        await _relay.RelayAsync(points
+            .Select(p => new DriverLocationPoint(p.UserId, p.Lat, p.Lng, p.HasActiveTrip, p.SpeedKmh, p.Heading))
+            .ToList(), ct);
+        return Ok(new { relayed = points.Count });
     }
 
     /// <summary>
@@ -180,9 +155,11 @@ public class InternalNotifyController : ControllerBase
     }
 }
 
-/// <summary>GPS del conductor desde Drivers.Api. SpeedKmh y Heading son opcionales (solo para el pasajero).</summary>
+/// <summary>GPS del conductor desde Drivers.Api. SpeedKmh, Heading y At (hora del punto) son opcionales.</summary>
 public record NotifyDriverLocationRequest(Guid UserId, double Lat, double Lng, bool HasActiveTrip,
-                                          double? SpeedKmh = null, double? Heading = null);
+                                          double? SpeedKmh = null, double? Heading = null, DateTime? At = null);
+/// <summary>Lote de puntos GPS (POST driver-locations).</summary>
+public record NotifyDriverLocationsRequest(List<NotifyDriverLocationRequest>? Points);
 public record NotifyDriverOfflineRequest(Guid UserId);
 public record SendPushRequest(Guid UserId, string Title, string? Body, string? Route,
                               Dictionary<string, string>? Data);

@@ -3,6 +3,7 @@ import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/in_app_alert_service.dart';
+import '../../../core/services/location_tracking_service.dart';
 import '../../../core/session/session.dart';
 import '../domain/passenger_document_model.dart';
 import '../domain/user_model.dart';
@@ -13,7 +14,13 @@ class AuthRepository {
   final ApiClient _api;
   final Session _session;
 
-  AuthRepository(this._api, this._session);
+  /// Tracking de ubicación: al cerrar sesión se mandan los puntos GPS
+  /// pendientes del conductor y se detiene (si no, seguiría corriendo sin
+  /// sesión). Opcional para no obligar a pasarlo en pruebas.
+  final LocationTrackingService? _tracking;
+
+  AuthRepository(this._api, this._session, {LocationTrackingService? tracking})
+      : _tracking = tracking;
 
   /// POST /api/auth/login
   Future<AuthResponse> login(String email, String password) async {
@@ -192,6 +199,8 @@ class AuthRepository {
   /// Cierra sesión: primero quita el token push de este celular en el
   /// backend (necesita la sesión), luego borra la sesión local.
   Future<void> logout({bool unregisterPush = true}) async {
+    // Primero (todavía con sesión): vaciar la cola de GPS y parar el tracking.
+    await _tracking?.flushAndStop();
     if (unregisterPush) await FcmService().unregister();
     // Quitar banners pendientes para que no los vea el próximo usuario.
     InAppAlertService().clear();

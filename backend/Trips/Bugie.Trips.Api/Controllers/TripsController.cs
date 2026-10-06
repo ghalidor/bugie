@@ -910,6 +910,8 @@ public class TripsController : ControllerBase
 
         // Tiempo real: pasajero y conductor (la pantalla pasa a "viaje terminado").
         _ = _realtime.TripChangedAsync(id, (int)result.Status, RealtimeReasons.Completed, trip.PassengerId, trip.DriverId);
+        // Drivers consolida el recorrido GPS del viaje (drivers.trippaths). Si falla, lo hace su job nocturno.
+        _ = _driversClient.ConsolidateTripPathAsync(id);
 
         // Crear pago automáticamente al completar el viaje
         if(trip.DriverId.HasValue)
@@ -1065,7 +1067,11 @@ public class TripsController : ControllerBase
 
         // Si seguia buscando conductor, la lista de solicitudes de los conductores cambia.
         var wasSearching = IsSearching(trip);
+        // Si ya estaba en curso, hay GPS del viaje: Drivers consolida el recorrido (drivers.trippaths).
+        var wasInProgress = trip.Status is Bugie.Trips.Domain.Enums.TripStatus.InProgress
+                                        or Bugie.Trips.Domain.Enums.TripStatus.SosActive;
         var dto = await _mediator.Send(new CancelTripCommand(id, by, reason), ct);
+        if(wasInProgress) _ = _driversClient.ConsolidateTripPathAsync(id);
 
         // Cerrar la negociacion y avisar a los conductores que habian ofertado.
         var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, "trip_cancelled", ct);

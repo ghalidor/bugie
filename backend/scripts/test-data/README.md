@@ -121,6 +121,32 @@ conductor "llega" al destino), lo aceptado sin iniciar lo cancela el conductor y
 pendientes los cancela su pasajero. Usa los usuarios de `logs/seed-resultado.json`; no toma
 conductores ni pasajeros que ya tengan un viaje activo (por ejemplo el viaje EN CURSO del seed).
 
+## Restaurar la base de prueba en otra PC (sin regenerar)
+
+`backend/bugie_test_backup.sql` es un volcado completo (esquema + datos, 26 scripts ya aplicados,
+particiones de GPS, recorridos consolidados, 979 viajes, 285 usuarios, carga del 6-oct-2026) hecho con
+`pg_dump --clean --if-exists --no-owner`. Se restaura asi (PostgreSQL 18, usuario postgres):
+
+```bash
+# desde backend/
+psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS bugie_test WITH (FORCE)"
+psql -U postgres -d postgres -c "CREATE DATABASE bugie_test"
+psql -U postgres -d bugie_test -f bugie_test_backup.sql
+```
+
+Ademas de la base hacen falta, en la otra PC:
+- Las imagenes: copiar la carpeta `C:/bugie-uploads` (986 archivos, ~63 MB). Hay un zip fuera del repo en
+  `D:\trabajo\jose\bugie_test_respaldo\bugie-uploads.zip`; descomprimirlo en `C:\bugie-uploads`.
+  Sin ellas los registros existen pero las fotos salen rotas.
+- GraphHopper local en `http://localhost:8989` con el mapa de la zona (lo usan Trips para las rutas,
+  el seed y el simulador). Sin el, las rutas caen a linea recta.
+- La contrasena de todos los usuarios de prueba sigue siendo la del seed (`PASSWORD`), incluidos los
+  de carga `cargacNNNN@bugie.test` / `cargapNNNN@bugie.test`.
+- Para la app en el celular: ajustar `bugie_app/.env` con la IP de la nueva PC (API_* y WEB_BASE_URL).
+- El dia de prueba quedo con GPS crudo de ~26 dias en particiones; el job nocturno de archivado
+  (o `POST /api/drivers/admin/gps-archive/run`) lo pasa a Parquet en `C:/bugie-uploads/gps-archive`
+  y deja solo 2 dias en la base. No se ha corrido todavia.
+
 ## Regenerar desde cero
 
 El seed tarda unos 15-20 minutos (manda ~3.000 posiciones GPS por calles y espera los
@@ -156,6 +182,8 @@ psql -U postgres -d bugie_test -f scripts/2026-10-04_landing_ciudad_configurable
 psql -U postgres -d bugie_test -f scripts/2026-10-04_aviso_sos_campana.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-04_beneficios_nivel_sorteos.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-05_negociacion_viajes.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-06_indices_rendimiento.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-06_historial_gps.sql
 psql -U postgres -d bugie_test -f scripts/test-data/01_limpiar_bugie_test.sql
 bash scripts/test-data/levantar_apis_test.sh        # en otra terminal
 node scripts/test-data/seed.mjs
@@ -251,7 +279,7 @@ appsettings: usan `http://localhost:5001` (en el servidor, definir `Services__Au
 | view:trips | `trips/admin/paged`, `trips/admin/stats` (filtros `search` = direccion, pasajero o conductor por nombre/correo/documento/celular, o placa; `from`/`to` = dias de Peru; `passengerId`, `driverUserId`), `trips/incidents/counts` |
 | view:trips o view:passengers | `trips/admin/by-passenger/{userId}` (viajes del pasajero, pestaña Viajes de su ficha) |
 | view:trips o view:drivers | `trips/admin/by-driver/{userId}` (viajes del conductor por su UserId) |
-| view:trips / view:live_map / view:complaints / view:sos_center / view:passengers / view:drivers / view:payments / view:commissions | detalle del viaje (`GET trips/{id}` (al admin con nombres de pasajero y conductor), fotos, incidencias, waypoints, ruta planificada, recorrido `drivers/admin/trips/{id}/path`, desvios del viaje) |
+| view:trips / view:live_map / view:complaints / view:sos_center / view:passengers / view:drivers / view:payments / view:commissions | detalle del viaje (`GET trips/{id}` (al admin con nombres de pasajero y conductor), fotos, incidencias, waypoints, ruta planificada, recorrido `drivers/admin/trips/{id}/path` y crudo `drivers/admin/trips/{id}/path/raw`, desvios del viaje) |
 | view:payments | `payments/paged`, `payments/stats` (filtros `status`, `search` = nombre/correo/documento de pasajero o conductor, referencia o Id del viaje; `method`; `from`/`to`) |
 | view:driver_payouts o view:rewards | `payments/admin/payouts/*` |
 | view:commissions | `payments/admin/wallets/*` |
@@ -264,7 +292,7 @@ appsettings: usan `http://localhost:5001` (en el servidor, definir `Services__Au
 | view:messages | `landing/contact/*` (admin), `landing/admin/notifications/summary` |
 | view:complaints | `landing/admin/complaints/*` (el listado acepta `from`/`to` = dias de registro) |
 | view:company | `PUT landing/admin/company`, logo, settings `company_*` |
-| view:settings | `PUT landing/settings/{key}` (tarifas, mapa, SOS, soporte, reclamaciones, negociacion: `fare_max_multiplier`, `trip_no_driver_cancel_min`, `driver_confirm_immediate_min`, `driver_confirm_scheduled_before_min`), feriados `landing/admin/holidays/*` |
+| view:settings | `PUT landing/settings/{key}` (tarifas, mapa, SOS, soporte, reclamaciones, negociacion: `fare_max_multiplier`, `trip_no_driver_cancel_min`, `driver_confirm_immediate_min`, `driver_confirm_scheduled_before_min`), feriados `landing/admin/holidays/*`, historial GPS `drivers/admin/gps-archive` (GET estado, POST run) |
 | view:notifications_config | `PUT landing/settings/admin_notify_*` y `doc_expiry_alert_days` |
 | view:security | catalogo y CRUD de roles (`auth/admin/security/*`, ademas super_admin) |
 | view:users / view:passengers / view:drivers | avisos de un usuario `trips/admin/users/{id}/notifications`; contacto de emergencia (tambien view:sos_center) |
@@ -279,3 +307,28 @@ Prueba rapida: entra al admin como `soporte@bugie.test` (dashboard, conductores,
 pasajeros, viajes, SOS, pagos a conductores, aprobar conductor y pasajero) y como
 `admin@bugie.pe` (todo). Con el token de soporte, `GET /api/auth/users/paged` o
 `GET /api/payments/paged` deben dar 403; `GET /api/trips/admin/paged` 200.
+
+## Historial GPS (particiones, recorridos consolidados y Parquet)
+
+Script: `scripts/2026-10-06_historial_gps.sql`. Codigo: Drivers.Api (`GpsArchiveService`, `GpsArchiveJobService`,
+`TripPathReadService`, `ParquetGpsArchiveStore`). Paquete NuGet `Parquet.Net` 5.4.0 en Bugie.Drivers.Infrastructure.
+
+- `drivers.locationhistory` esta **particionada por dia UTC** (`locationhistory_YYYYMMDD`, PK `(id, recordedat)`,
+  indices `ix_locationhistory_trip_recorded` y `ix_locationhistory_driver_recorded` heredados por particion) mas una
+  particion `locationhistory_default` de seguridad. `drivers.ensure_locationhistory_partitions(n)` crea hoy + n dias
+  (la API lo hace al arrancar y en el job).
+- `drivers.trippaths`: una fila por viaje terminado (polilinea `points` factor 1e6 + `details` jsonb con tiempos,
+  velocidades y rumbos). `drivers.consolidate_trip_path(tripid)` la arma desde el crudo. Trips avisa al completar o
+  cancelar en curso (`POST drivers/internal/trips/{id}/consolidate-path`, X-Internal-Token; Drivers espera
+  `GpsArchive:ConsolidateDelaySeconds` = 30 s para que entren los ultimos puntos). Si no llega el aviso, el job
+  consolida todo viaje sin GPS nuevo en `ConsolidateAfterHours` = 6 h.
+- Lectura (`drivers/admin/trips/{id}/path`, `drivers/me/trips/{id}/path`, `drivers/internal/trips/{id}/path`):
+  primero `trippaths`; si no existe (viaje en curso o recien terminado), el crudo como antes. Misma respuesta.
+- Job nocturno (`GpsArchive:RunAtHourUtc` = 8 -> 3 am Peru): particiones, consolidacion y exporta cada particion de
+  hace `KeepDays` (2) dias o mas a `{GpsArchive:Folder}/locationhistory_YYYY-MM-DD.parquet`
+  (default `C:/bugie-uploads/gps-archive`); borra la particion **solo** si el archivo tiene la misma cantidad de filas.
+  A mano: `POST drivers/admin/gps-archive/run` (view:settings); estado y archivos: `GET drivers/admin/gps-archive`.
+- Crudo de un viaje ya archivado: `GET drivers/admin/trips/{id}/path/raw` (lee los Parquet de los dias del viaje).
+- Al limpiar bugie_test (`01_limpiar_bugie_test.sql`) o repartir fechas (`03_repartir_fechas.sql`), las filas
+  caen en la particion de su dia o en `locationhistory_default` si no existe; `trippaths` se rearma con el job o
+  con `SELECT drivers.consolidate_trip_path(id)`.

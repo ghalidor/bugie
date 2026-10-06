@@ -1,0 +1,31 @@
+Cuentas: 210 conductores, 60 pasajeros. Iniciando sesion...
+Carga: 60 parejas en viaje continuo, 150 conductores conectados sin viaje, 3 min, maximo 200 viajes.
+  t+30s viajes=13 fallidos=0 peticiones=2427 p95=118ms errores=0
+  t+60s viajes=69 fallidos=0 peticiones=4489 p95=114ms errores=0
+  t+90s viajes=122 fallidos=0 peticiones=6548 p95=21ms errores=0
+  t+120s viajes=172 fallidos=0 peticiones=8606 p95=13ms errores=0
+  t+150s viajes=222 fallidos=0 peticiones=10391 p95=11ms errores=0
+  t+180s viajes=256 fallidos=0 peticiones=10994 p95=11ms errores=0
+
+== Resultado
+viajes completados=259 fallidos=0 duracion=197s
+┌─────────┬───────────────────────────────────┬──────┬─────┬─────┬──────┬─────────┐
+│ (index) │ endpoint                          │ n    │ p50 │ p95 │ max  │ errores │
+├─────────┼───────────────────────────────────┼──────┼─────┼─────┼──────┼─────────┤
+│ 0       │ 'drivers/location/batch'          │ 8316 │ 2   │ 6   │ 31   │ '{}'    │
+│ 1       │ 'auth/login'                      │ 271  │ 117 │ 123 │ 1811 │ '{}'    │
+│ 2       │ 'trips (crear)'                   │ 259  │ 5   │ 21  │ 1389 │ '{}'    │
+│ 3       │ 'trips/arrived'                   │ 259  │ 7   │ 15  │ 29   │ '{}'    │
+│ 4       │ 'trips/start'                     │ 259  │ 6   │ 14  │ 32   │ '{}'    │
+│ 5       │ 'trips/passenger-location'        │ 259  │ 2   │ 5   │ 14   │ '{}'    │
+│ 6       │ 'trips/complete'                  │ 259  │ 11  │ 23  │ 1622 │ '{}'    │
+│ 7       │ 'drivers/me'                      │ 210  │ 3   │ 5   │ 1276 │ '{}'    │
+│ 8       │ 'trips/ratings'                   │ 171  │ 5   │ 7   │ 32   │ '{}'    │
+│ 9       │ 'trips/driver-accept'             │ 140  │ 6   │ 17  │ 117  │ '{}'    │
+│ 10      │ 'trips/proposals'                 │ 140  │ 4   │ 9   │ 149  │ '{}'    │
+│ 11      │ 'trips/confirm-driver-acceptance' │ 140  │ 6   │ 10  │ 26   │ '{}'    │
+│ 12      │ 'trips/propose'                   │ 119  │ 7   │ 73  │ 175  │ '{}'    │
+│ 13      │ 'trips/accept-proposal'           │ 119  │ 2   │ 8   │ 26   │ '{}'    │
+│ 14      │ 'trips/confirm-acceptance'        │ 119  │ 6   │ 16  │ 46   │ '{}'    │
+└─────────┴───────────────────────────────────┴──────┴─────┴─────┴──────┴─────────┘
+GPS en BD: 44803 · viajes totales: 979

@@ -41,6 +41,22 @@ builder.Services.AddScoped<ILocationHistoryRepository, LocationHistoryRepository
 builder.Services.AddScoped<IDriverPresenceCheckInRepository, DriverPresenceCheckInRepository>();
 builder.Services.AddScoped<IApprovalAuditRepository, ApprovalAuditRepository>();
 builder.Services.AddScoped<IDriverReviewRequestRepository, DriverReviewRequestRepository>();
+builder.Services.AddScoped<ITripPathRepository, TripPathRepository>();
+builder.Services.AddScoped<IGpsArchiveRepository, GpsArchiveRepository>();
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.TripPathReadService>();
+
+// ── Historial GPS (particiones diarias, recorridos consolidados, Parquet) ──
+// El job (GpsArchive:RunAtHourUtc, 08:00 UTC = 3 am Peru) crea particiones,
+// consolida viajes terminados en drivers.trippaths y archiva en Parquet las
+// particiones de hace GpsArchive:KeepDays dias (borra solo con archivo verificado).
+// El scheduler consolida un viaje unos segundos despues de que Trips avisa que termino.
+builder.Services.Configure<Bugie.Drivers.Application.Services.GpsArchiveOptions>(
+    builder.Configuration.GetSection("GpsArchive"));
+builder.Services.AddSingleton<Bugie.Drivers.Application.Services.GpsArchiveState>();
+builder.Services.AddSingleton<IGpsArchiveStore, Bugie.Drivers.Infrastructure.GpsArchive.ParquetGpsArchiveStore>();
+builder.Services.AddSingleton<ITripPathConsolidationScheduler, Bugie.Drivers.Infrastructure.GpsArchive.TripPathConsolidationScheduler>();
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.GpsArchiveService>();
+builder.Services.AddHostedService<GpsArchiveJobService>();
 
 // ── Aprobación por excepción: plazo de 3 días para completar documentos ──
 // El servicio tiene las reglas; el job revisa cada hora y desactiva a los vencidos.
@@ -51,6 +67,18 @@ builder.Services.AddHostedService<DocumentsDeadlineService>();
 // El servicio tiene las reglas; el job (cada 30 min) termina las suspensiones con fecha.
 builder.Services.AddScoped<Bugie.Drivers.Application.Services.DriverAccountService>();
 builder.Services.AddHostedService<DriverSuspensionEndService>();
+
+// ── GPS de conductores ───────────────────────────────────────────────────
+// La peticion (PUT /location y /location/batch) solo valida, filtra puntos
+// repetidos, deja la posicion en memoria y encola. El LocationWriterService
+// escribe en la base por lotes y avisa a Trips en segundo plano.
+// Ajustes en appsettings "Location" (todos con default en codigo).
+builder.Services.Configure<Bugie.Drivers.Application.Services.Location.LocationOptions>(
+    builder.Configuration.GetSection(Bugie.Drivers.Application.Services.Location.LocationOptions.Section));
+builder.Services.AddSingleton<Bugie.Drivers.Application.Services.Location.DriverLiveLocations>();
+builder.Services.AddSingleton<Bugie.Drivers.Application.Services.Location.LocationQueue>();
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.Location.LocationIngestService>();
+builder.Services.AddHostedService<LocationWriterService>();
 
 // ── Almacenamiento ───────────────────────────────────────────────────────
 builder.Services.Configure<LocalStorageOptions>(

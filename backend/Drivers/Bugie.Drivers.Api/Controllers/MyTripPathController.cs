@@ -1,27 +1,29 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Bugie.Drivers.Application.Services;
 using Bugie.Drivers.Domain.Interfaces;
 
 namespace Bugie.Drivers.Api.Controllers;
 
 /// <summary>
 /// Recorrido REAL de un viaje pasado, visto por el propio conductor (web de
-/// consulta, historial). Usa los mismos puntos GPS que el admin
-/// (drivers.LocationHistory), pero solo devuelve los puntos que mando
-/// el conductor del token: si el viaje no es suyo, responde 404.
+/// consulta, historial). Usa los mismos puntos GPS que el admin (consolidado
+/// en drivers.trippaths o crudo en drivers.locationhistory), pero solo
+/// devuelve los puntos que mando el conductor del token: si el viaje no es
+/// suyo, responde 404.
 /// </summary>
 [ApiController]
 [Route("api/drivers/me/trips")]
 [Authorize(Roles = "driver")]
 public class MyTripPathController : ControllerBase
 {
-    private readonly ILocationHistoryRepository _history;
-    private readonly IDriverRepository          _drivers;
+    private readonly TripPathReadService _reader;
+    private readonly IDriverRepository   _drivers;
 
-    public MyTripPathController(ILocationHistoryRepository history, IDriverRepository drivers)
+    public MyTripPathController(TripPathReadService reader, IDriverRepository drivers)
     {
-        _history = history;
+        _reader  = reader;
         _drivers = drivers;
     }
 
@@ -44,7 +46,7 @@ public class MyTripPathController : ControllerBase
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if (driver is null) return NotFound(new { error = "Conductor no encontrado." });
 
-        var all = await _history.GetByTripAsync(tripId, ct);
+        var all = (await _reader.GetAsync(tripId, ct)).Points;
 
         // Solo los puntos del conductor del token. Si el viaje tiene puntos
         // pero ninguno es suyo, el viaje no es de este conductor.
@@ -55,27 +57,12 @@ public class MyTripPathController : ControllerBase
         if (all.Count > 0 && points.Count == 0)
             return NotFound(new { error = "Viaje no encontrado." });
 
-        double km = 0;
-        for (var i = 1; i < points.Count; i++)
-            km += Haversine(points[i - 1].Lat, points[i - 1].Lng, points[i].Lat, points[i].Lng);
-
         return Ok(new TripPathDto(
             tripId,
             points.Count,
-            Math.Round(km, 2),
+            Math.Round(TripPathReadService.DistanceKm(points), 2),
             points.FirstOrDefault()?.RecordedAt,
             points.LastOrDefault()?.RecordedAt,
             points.Select(p => new PathPointDto(p.Lat, p.Lng, p.RecordedAt)).ToList()));
-    }
-
-    private static double Haversine(double lat1, double lng1, double lat2, double lng2)
-    {
-        const double R = 6371;
-        double rad(double d) => d * Math.PI / 180;
-        var dLat = rad(lat2 - lat1);
-        var dLng = rad(lng2 - lng1);
-        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-              + Math.Cos(rad(lat1)) * Math.Cos(rad(lat2)) * Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
-        return 2 * R * Math.Asin(Math.Sqrt(a));
     }
 }

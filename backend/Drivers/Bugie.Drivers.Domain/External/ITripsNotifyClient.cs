@@ -23,6 +23,14 @@ public interface ITripsNotifyClient
                                     bool hasActiveTrip, double? speedKmh = null, double? heading = null,
                                     CancellationToken ct = default);
 
+    /// <summary>
+    /// Igual que NotifyDriverLocationAsync pero con varios puntos (de uno o varios
+    /// conductores) en UNA sola llamada: POST api/internal/notify/driver-locations.
+    /// Lo usa el LocationWriterService en segundo plano. Nunca lanza excepcion.
+    /// </summary>
+    Task NotifyDriverLocationsAsync(IReadOnlyList<DriverLocationNotice> points,
+                                     CancellationToken ct = default);
+
     /// <summary>Notifica que el conductor se puso offline (sacar pin del mapa).</summary>
     Task NotifyDriverOfflineAsync(Guid userId, CancellationToken ct = default);
 

@@ -9,6 +9,8 @@ import '../data/driver_repository.dart';
 /// muestra las solicitudes cercanas. Sin esto, el backend se queda con la
 /// posición de cuando se conectó (o de su último viaje).
 ///
+/// Va por el endpoint de lote (con 1 punto) para unificar el envío con el
+/// del viaje; si no hay red, el punto espera en la cola al siguiente ciclo.
 /// Si la sesión se cerró, el propio envío detiene el seguimiento.
 void startDriverIdleTracking(BuildContext context) {
   final tracking = context.read<LocationTrackingService>();
@@ -17,12 +19,12 @@ void startDriverIdleTracking(BuildContext context) {
 
   tracking.start(
     mode: TrackingMode.driverIdle,
-    sender: (pos) async {
+    batchSender: (points) async {
       if (!session.isLoggedIn) {
         tracking.stop();
         return;
       }
-      await repo.updateLocation(lat: pos.latitude, lng: pos.longitude);
+      await repo.updateLocationBatch(points: points);
     },
   );
 }
