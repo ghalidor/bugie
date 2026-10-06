@@ -11,6 +11,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/services/active_trip_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
+import '../../../core/services/trips_hub_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/ui/app_messenger.dart';
 import '../../../core/widgets/bugie_map.dart';
@@ -51,9 +52,12 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   LatLng? _myPosition;
   Timer? _myPositionTimer;
 
-  /// Refresco del viaje cada 10 s: si el pasajero cancela, el conductor se
-  /// entera aunque no le llegue el push.
+  /// Refresco del viaje cada 10 s (30 s con el hub conectado): si el
+  /// pasajero cancela, el conductor se entera aunque no le llegue el push.
   Timer? _pollTimer;
+
+  /// Viaje al que estamos suscritos en el hub (tiempo real).
+  String? _hubTripId;
 
   /// Ya se resolvio el final del viaje (evita avisos dobles).
   bool _endHandled = false;
@@ -65,8 +69,12 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     // "Viaje en curso · Volver".
     ActiveTripService().tripScreens.value++;
     _load();
-    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
+    _startPollTimer();
     FcmService.tripCancelled.addListener(_poll);
+    // Tiempo real (hub): cambios del viaje → mismo refresco del polling.
+    final hub = TripsHubService();
+    hub.connected.addListener(_onHubState);
+    hub.tripChanged.addListener(_onHubTripChanged);
     // Tick local para refrescar la posición del pin del conductor en el mapa.
     // No envía nada al backend; solo lee el último valor del tracking service.
     _myPositionTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -89,6 +97,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     _myPositionTimer?.cancel();
     _pollTimer?.cancel();
     FcmService.tripCancelled.removeListener(_poll);
+    final hub = TripsHubService();
+    hub.connected.removeListener(_onHubState);
+    hub.tripChanged.removeListener(_onHubTripChanged);
+    _syncHubTrip(null);
     // Vuelve la franja (si el viaje sigue activo). Se consulta de nuevo por
     // si el viaje terminó o se canceló.
     final active = ActiveTripService();
@@ -104,9 +116,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     super.dispose();
   }
 
-  /// Configura el LocationTrackingService para que sus updates incluyan
+  /// Configura el LocationTrackingService para que sus envíos incluyan
   /// el tripId actual (cuando hay) y use el modo indicado.
-  /// Como el sender depende del tripId, lo re-inyectamos al cambiar.
+  /// En viaje los puntos se juntan y van en lote (cada 12s o 5 puntos).
+  /// Como el envío depende del tripId, lo re-inyectamos al cambiar.
   void _switchTrackingTo(TrackingMode mode, {required String? tripId}) {
     final tracking = context.read<LocationTrackingService>();
     final repo = context.read<DriverRepository>();
@@ -117,24 +130,18 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       // (ej: reload de la app con sesión guardada), iniciamos nosotros.
       tracking.start(
         mode: mode,
-        sender: (pos) => repo.updateLocation(
-          lat: pos.latitude,
-          lng: pos.longitude,
+        batchSender: (points) => repo.updateLocationBatch(
+          points: points,
           tripId: _trackingTripId,
-          speedKmh: pos.speed * 3.6,
-          heading: pos.heading,
         ),
       );
     } else {
-      // Reagenda el sender para que incluya el tripId actual.
+      // Reagenda el envío para que incluya el tripId actual.
       tracking.start(
         mode: mode,
-        sender: (pos) => repo.updateLocation(
-          lat: pos.latitude,
-          lng: pos.longitude,
+        batchSender: (points) => repo.updateLocationBatch(
+          points: points,
           tripId: _trackingTripId,
-          speedKmh: pos.speed * 3.6,
-          heading: pos.heading,
         ),
       );
       tracking.setMode(mode);
@@ -153,10 +160,42 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
         // Conductor entró al viaje: subir frecuencia a 5s + tripId para historial.
         _switchTrackingTo(TrackingMode.driverInTrip, tripId: t.id);
         _maybeCalculateRoute(t);
+        _syncHubTrip(t.id);
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // ── Tiempo real (hub de Trips) ──────────────────────────────────────────
+
+  /// Suscribe al viaje en pantalla (y deja el anterior si cambió).
+  void _syncHubTrip(String? tripId) {
+    if (tripId == _hubTripId) return;
+    final hub = TripsHubService();
+    final prev = _hubTripId;
+    if (prev != null) hub.leaveTrip(prev);
+    _hubTripId = tripId;
+    if (tripId != null) hub.joinTrip(tripId);
+  }
+
+  /// Polling de respaldo: 10 s sin hub, 30 s con el hub conectado.
+  void _startPollTimer() {
+    _pollTimer?.cancel();
+    final seconds = TripsHubService().connected.value ? 30 : 10;
+    _pollTimer = Timer.periodic(Duration(seconds: seconds), (_) => _poll());
+  }
+
+  /// Hub (re)conectado: refresco completo y polling largo. Caído: polling corto.
+  void _onHubState() {
+    if (!mounted) return;
+    _startPollTimer();
+    if (TripsHubService().connected.value) _poll();
+  }
+
+  void _onHubTripChanged() {
+    final e = TripsHubService().tripChanged.value;
+    if (mounted && e != null && e.tripId == _trip?.id) _poll();
   }
 
   String _routeKeyFor(Trip t) =>
@@ -293,14 +332,22 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       _busy = true;
       _error = null;
     });
+    // Manda los puntos GPS que quedaron en cola con el tripId de este viaje.
+    await context.read<LocationTrackingService>().flush();
+    if (!mounted) return;
     try {
-      await context
+      final after = await context
           .read<TripsRepository>()
           .cancel(_trip!.id, reason: motivo.isEmpty ? 'Otro motivo' : motivo);
       if (!mounted) return;
+      // Programado cancelado antes de su hora: el viaje se reabre para otro
+      // conductor (ya no es mío) en vez de cancelarse.
+      final reopened = after != null && after.driverId == null;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Viaje cancelado. Le avisamos al pasajero.')),
+        SnackBar(
+            content: Text(reopened
+                ? 'Cancelaste el viaje programado; se buscará otro conductor.'
+                : 'Viaje cancelado. Le avisamos al pasajero.')),
       );
       ActiveTripService().clear(); // sin franja: ya no hay viaje
       context.go('/driver');
@@ -400,6 +447,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       _busy = true;
       _error = null;
     });
+    // Manda los puntos GPS que quedaron en cola con el tripId de este viaje,
+    // así el recorrido queda completo antes de cerrarlo.
+    await context.read<LocationTrackingService>().flush();
+    if (!mounted) return;
     try {
       await context.read<TripsRepository>().complete(_trip!.id);
       if (!mounted) return;

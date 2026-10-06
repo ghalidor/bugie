@@ -9,6 +9,7 @@ import '../../../core/services/in_app_alert_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/services/notification_prefs.dart';
 import '../../../core/services/request_alert_service.dart';
+import '../../../core/services/trips_hub_service.dart';
 import '../../trips/data/trips_repository.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver_model.dart';
@@ -71,10 +72,13 @@ class _DriverShellState extends State<DriverShell>
     // actualizamos el badge al toque.
     RequestAlertService().state.addListener(_onRequestPush);
     NotificationPrefs.driverOnline.addListener(_refreshPending);
-    // Mientras esté en línea, refresco ligero cada ~20 s.
-    _pendingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (NotificationPrefs.driverOnline.value != false) _refreshPending();
-    });
+    // Tiempo real (hub): cada cambio en las solicitudes actualiza el badge
+    // al toque; el timer queda solo de respaldo.
+    final hub = TripsHubService();
+    hub.joinDriverRequests();
+    hub.connected.addListener(_onHubState);
+    hub.requestsChanged.addListener(_onHubRequests);
+    _startPendingTimer();
   }
 
   @override
@@ -83,9 +87,33 @@ class _DriverShellState extends State<DriverShell>
     FcmService.driverAccount.removeListener(_onAccountPush);
     RequestAlertService().state.removeListener(_onRequestPush);
     NotificationPrefs.driverOnline.removeListener(_refreshPending);
+    final hub = TripsHubService();
+    hub.connected.removeListener(_onHubState);
+    hub.requestsChanged.removeListener(_onHubRequests);
+    hub.leaveDriverRequests();
     _pendingTimer?.cancel();
     _tabFade.dispose();
     super.dispose();
+  }
+
+  /// Mientras esté en línea, refresco ligero cada ~20 s (60 s con el hub
+  /// conectado, porque RequestsChanged avisa al instante).
+  void _startPendingTimer() {
+    _pendingTimer?.cancel();
+    final seconds = TripsHubService().connected.value ? 60 : 20;
+    _pendingTimer = Timer.periodic(Duration(seconds: seconds), (_) {
+      if (NotificationPrefs.driverOnline.value != false) _refreshPending();
+    });
+  }
+
+  void _onHubState() {
+    if (!mounted) return;
+    _startPendingTimer();
+    if (TripsHubService().connected.value) _refreshPending();
+  }
+
+  void _onHubRequests() {
+    if (mounted) _refreshPending();
   }
 
   @override
@@ -158,7 +186,7 @@ class _DriverShellState extends State<DriverShell>
       // posición de "en línea sin viaje". La tarjeta del inicio explica todo.
       if (d.isBlocked) {
         if (!d.isOnline && tracking.mode == TrackingMode.driverIdle) {
-          tracking.stop();
+          await tracking.flushAndStop();
         }
         return;
       }

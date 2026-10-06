@@ -27,6 +27,8 @@ class TripRequestCardCompact extends StatelessWidget {
   /// 0 = sin fotos. Si es mayor a 0 se muestra el chip "N fotos".
   final int? photoCount;
   final VoidCallback onTap;
+  /// La cuenta regresiva llegó a cero: la lista recarga.
+  final VoidCallback? onExpired;
 
   const TripRequestCardCompact({
     super.key,
@@ -36,6 +38,7 @@ class TripRequestCardCompact extends StatelessWidget {
     this.distanceToOriginKm,
     this.isNew = false,
     this.photoCount,
+    this.onExpired,
   });
 
   static String _timeAgo(DateTime d) {
@@ -55,14 +58,14 @@ class TripRequestCardCompact extends StatelessWidget {
     if (counter?.isMyPending == true) {
       statusPill = const _Pill(
         icon: Icons.hourglass_top,
-        text: 'Esperando respuesta',
+        text: 'Esperando al pasajero',
         color: BugieColors.warning,
       );
       borderTint = BugieColors.warning;
     } else if (counter?.isCounterFromPassenger == true) {
-      statusPill = const _Pill(
+      statusPill = _Pill(
         icon: Icons.swap_horiz,
-        text: 'Pasajero responde',
+        text: 'Te ofrece ${formatSoles(counter!.fare)}',
         color: BugieColors.primary,
       );
       borderTint = BugieColors.primary;
@@ -187,6 +190,7 @@ class TripRequestCardCompact extends StatelessWidget {
                     child: ExpiryCountdown(
                       expiresAt: trip.expiresAt!,
                       reason: trip.expiresReason,
+                      onExpired: onExpired,
                     ),
                   ),
                 ],

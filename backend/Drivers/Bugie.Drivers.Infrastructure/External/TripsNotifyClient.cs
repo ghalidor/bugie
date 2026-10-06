@@ -32,14 +32,15 @@ public class TripsNotifyClient : ITripsNotifyClient
     }
 
     public async Task NotifyDriverLocationAsync(Guid userId, double lat, double lng,
-                                                  bool hasActiveTrip, CancellationToken ct = default)
+                                                  bool hasActiveTrip, double? speedKmh = null, double? heading = null,
+                                                  CancellationToken ct = default)
     {
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post,
                 "api/internal/notify/driver-location");
             req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
-            req.Content = JsonContent.Create(new { userId, lat, lng, hasActiveTrip });
+            req.Content = JsonContent.Create(new { userId, lat, lng, hasActiveTrip, speedKmh, heading });
 
             // Timeout corto: si Trips no responde en 3s, asumimos que está
             // caído y seguimos. No queremos bloquear la respuesta al conductor
@@ -60,6 +61,41 @@ public class TripsNotifyClient : ITripsNotifyClient
         catch(Exception ex)
         {
             _log.LogWarning(ex, "NotifyDriverLocationAsync falló (no crítico).");
+        }
+    }
+
+    public async Task NotifyDriverLocationsAsync(IReadOnlyList<DriverLocationNotice> points,
+                                                   CancellationToken ct = default)
+    {
+        if(points.Count == 0) return;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                "api/internal/notify/driver-locations");
+            req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+            req.Content = JsonContent.Create(new
+            {
+                points = points.Select(p => new
+                {
+                    userId = p.UserId, lat = p.Lat, lng = p.Lng, hasActiveTrip = p.HasActiveTrip,
+                    speedKmh = p.SpeedKmh, heading = p.Heading, at = p.At,
+                }),
+            });
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+            using var res = await _http.SendAsync(req, cts.Token);
+            if(!res.IsSuccessStatusCode)
+                _log.LogWarning("Trips rechazo driver-locations ({Count} puntos): {Status}", points.Count, res.StatusCode);
+        }
+        catch(OperationCanceledException)
+        {
+            // Timeout: Trips lento o caido. El GPS ya esta en memoria/BD.
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "NotifyDriverLocationsAsync fallo (no critico).");
         }
     }
 

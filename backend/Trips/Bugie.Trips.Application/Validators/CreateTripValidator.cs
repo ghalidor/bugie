@@ -1,16 +1,26 @@
 using FluentValidation;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Domain.Common;
+using Bugie.Trips.Domain.External;
 
 namespace Bugie.Trips.Application.Validators;
 
 public class CreateTripValidator : AbstractValidator<CreateTripCommand>
 {
-    public CreateTripValidator()
+    public CreateTripValidator(ILandingClient landing)
     {
         RuleFor(x => x.OriginAddress).NotEmpty().MaximumLength(300);
         RuleFor(x => x.DestAddress).NotEmpty().MaximumLength(300);
         RuleFor(x => x.EstimatedFare).GreaterThan(0);
+        // Minimo = tarifa base de la plataforma (base_fare, Admin > Configuracion).
+        // Viajes y envios (los dos endpoints usan este validador).
+        RuleFor(x => x.EstimatedFare).CustomAsync(async (fare, ctx, ct) =>
+        {
+            if(fare <= 0) return;
+            var rules = await NegotiationRules.LoadAsync(landing, ct);
+            var error = rules.CreateFareError(fare);
+            if(error is not null) ctx.AddFailure(nameof(CreateTripCommand.EstimatedFare), error);
+        });
         RuleFor(x => x.PaymentMethod).Must(m => new[]{"cash","yape","plin"}.Contains(m))
             .WithMessage("PaymentMethod debe ser cash, yape o plin.");
         RuleFor(x => x.PassengerId).NotEmpty();

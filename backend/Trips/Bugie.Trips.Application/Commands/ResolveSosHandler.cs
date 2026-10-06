@@ -1,4 +1,5 @@
 ﻿using MediatR;
+using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Application.Commands;
@@ -13,11 +14,14 @@ public class ResolveSosHandler : IRequestHandler<ResolveSosCommand, Unit>
 {
     private readonly ISosRepository _sos;
     private readonly ITripRepository _trips;
+    /// <summary>Tiempo real a pasajero y conductor del viaje (hub /hubs/trips). Nunca lanza.</summary>
+    private readonly ITripRealtimeNotifier _realtime;
 
-    public ResolveSosHandler(ISosRepository sos, ITripRepository trips)
+    public ResolveSosHandler(ISosRepository sos, ITripRepository trips, ITripRealtimeNotifier realtime)
     {
         _sos = sos;
         _trips = trips;
+        _realtime = realtime;
     }
 
     public async Task<Unit> Handle(ResolveSosCommand cmd, CancellationToken ct)
@@ -48,6 +52,8 @@ public class ResolveSosHandler : IRequestHandler<ResolveSosCommand, Unit>
         {
             trip.ResolveSos();
             await _trips.UpdateAsync(trip, ct);
+            // El viaje vuelve a su estado normal: la app quita el aviso de SOS.
+            _ = _realtime.TripChangedAsync(trip, RealtimeReasons.SosResolved);
         }
 
         return Unit.Value;

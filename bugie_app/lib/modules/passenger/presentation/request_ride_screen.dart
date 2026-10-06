@@ -110,6 +110,10 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
       if (!mounted) return;
       setState(() { _baseFare = c.baseFare; _perKm = c.perKm; });
     });
+    // Mínimo para pedir (base_fare), igual que el backend y la web.
+    context.read<AdminSettingsService>().getFareRules().then((r) {
+      if (mounted) setState(() => _fareRules = r);
+    });
     _loadInitialLocation();
     _loadFavorites();
   }
@@ -469,10 +473,18 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     return double.parse(r.toStringAsFixed(2));
   }
 
-  /// Mínimo permitido: 50% del estimado del sistema.
-  double? get _minFare {
-    if (_fare == null) return null;
-    return double.parse((_fare! * 0.5).toStringAsFixed(2));
+  /// Reglas de monto del admin (mínimo = base_fare).
+  FareRules _fareRules = const FareRules();
+
+  /// Mínimo permitido: la tarifa base del admin (null si no la configuró).
+  double? get _minFare => _fareRules.minFare;
+
+  /// Error del monto escrito (mismos textos que el backend y la web);
+  /// null si es válido.
+  String? get _proposedFareError {
+    final v = _proposedFareValue;
+    if (v == null || v <= 0) return FareRules.invalidAmount;
+    return _fareRules.createError(v);
   }
 
   /// Lo que el usuario tipeó en el input de propuesta (puede ser null).
@@ -484,10 +496,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
   /// True si la propuesta actual es válida para enviar.
   bool get _isProposedFareValid {
-    final v = _proposedFareValue;
-    if (v == null || v <= 0) return false;
-    if (_minFare != null && v < _minFare!) return false;
-    return true;
+    return _proposedFareError == null;
   }
 
   /// Llamado cada vez que cambia la tarifa sugerida (al recalcular ruta).
@@ -511,13 +520,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     }
     // Validar la tarifa propuesta
     final fareToSend = _proposedFareValue;
-    if (fareToSend == null || fareToSend <= 0) {
-      setState(() => _error = 'Ingresa una tarifa válida.');
-      return;
-    }
-    if (_minFare != null && fareToSend < _minFare!) {
-      setState(() =>
-          _error = 'La tarifa mínima permitida es S/ ${_minFare!.toStringAsFixed(2)}.');
+    final fareError = _proposedFareError;
+    if (fareToSend == null || fareError != null) {
+      setState(() => _error = fareError ?? FareRules.invalidAmount);
       return;
     }
     final scheduledAt = _scheduledAt;
@@ -951,37 +956,17 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    errorText: (!_isProposedFareValid &&
-                                            _proposedFareCtrl.text.isNotEmpty)
-                                        ? (_minFare != null
-                                            ? 'Mínimo S/ ${_minFare!.toStringAsFixed(2)}'
-                                            : 'Tarifa inválida')
+                                    errorText: _proposedFareCtrl.text.isNotEmpty
+                                        ? _proposedFareError
                                         : null,
                                   ),
                                 ),
-                                if (_minFare != null) ...[
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.info_outline,
-                                          size: 14,
-                                          color: BugieColors.textMuted),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          'Mínimo permitido: S/ ${_minFare!.toStringAsFixed(2)}',
-                                          style: const TextStyle(
-                                              fontSize: 12.5,
-                                              color: BugieColors.textMuted),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
                                 const SizedBox(height: 8),
-                                const Text(
-                                  'Los conductores pueden aceptar tu oferta o proponerte otro monto.',
-                                  style: TextStyle(
+                                Text(
+                                  _minFare != null
+                                      ? 'Mínimo S/ ${_minFare!.toStringAsFixed(2)}. Los conductores pueden aceptarla o contraofertar.'
+                                      : 'Los conductores pueden aceptarla o contraofertar.',
+                                  style: const TextStyle(
                                       fontSize: 12.5,
                                       height: 1.3,
                                       color: BugieColors.textMuted),

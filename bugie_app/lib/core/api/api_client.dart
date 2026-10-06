@@ -198,7 +198,7 @@ class ApiClient {
     // 4xx / 5xx
     if (res.statusCode < 200 || res.statusCode >= 300) {
       final msg = _extractError(res.body) ?? 'Error ${res.statusCode}';
-      throw ApiException(res.statusCode, msg);
+      throw ApiException(res.statusCode, msg, data: _extractData(res.body));
     }
 
     // OK: parsear JSON o devolver null si está vacío
@@ -221,6 +221,15 @@ class ApiClient {
     try {
       final j = jsonDecode(body);
       if (j is Map) return j['code']?.toString();
+    } catch (_) {}
+    return null;
+  }
+
+  /// Cuerpo del error como mapa (para leer campos extra como waitingTripId).
+  Map<String, dynamic>? _extractData(String body) {
+    try {
+      final j = jsonDecode(body);
+      if (j is Map<String, dynamic>) return j;
     } catch (_) {}
     return null;
   }

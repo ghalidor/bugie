@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/services/active_trip_service.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
+import '../../../core/services/trips_hub_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_map.dart';
 import '../../trips/data/trips_repository.dart';
@@ -98,6 +100,16 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
     // nos aseguramos de que se esté enviando (si está en línea).
     ensureDriverIdleTracking(context);
     ActiveTripService().active.addListener(_onActiveTrip);
+    // Push de un viaje (oferta aceptada, eligió a otro, venció tu
+    // confirmación, cancelado...): recargar la lista.
+    FcmService.tripEvent.addListener(_onTripPush);
+    // Tiempo real (hub): solicitudes nuevas/tomadas/retiradas y cambios en
+    // mis ofertas → misma recarga del polling.
+    final hub = TripsHubService();
+    hub.joinDriverRequests();
+    hub.connected.addListener(_onHubState);
+    hub.requestsChanged.addListener(_onHubChanged);
+    hub.proposalsChanged.addListener(_onHubChanged);
     _load();
     _staleTickTimer = Timer.periodic(
       const Duration(seconds: 5),
@@ -111,6 +123,12 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ActiveTripService().active.removeListener(_onActiveTrip);
+    FcmService.tripEvent.removeListener(_onTripPush);
+    final hub = TripsHubService();
+    hub.connected.removeListener(_onHubState);
+    hub.requestsChanged.removeListener(_onHubChanged);
+    hub.proposalsChanged.removeListener(_onHubChanged);
+    hub.leaveDriverRequests();
     _pollingTimer?.cancel();
     _staleTickTimer?.cancel();
     super.dispose();
@@ -118,6 +136,24 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
 
   void _onActiveTrip() {
     if (mounted) setState(() {});
+  }
+
+  void _onTripPush() {
+    if (mounted && FcmService.tripEvent.value != null) _load();
+  }
+
+  /// Hub (re)conectado: recarga completa. Hub caído: polling corto.
+  void _onHubState() {
+    if (!mounted) return;
+    if (TripsHubService().connected.value) {
+      _load();
+    } else {
+      _scheduleNext();
+    }
+  }
+
+  void _onHubChanged() {
+    if (mounted) _load();
   }
 
   @override
@@ -143,6 +179,8 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
           (5 * (1 << (_failureCount - 1))).clamp(5, 30);
       return Duration(seconds: seconds);
     }
+    // Con el hub conectado los cambios llegan al instante: solo respaldo.
+    if (TripsHubService().connected.value) return const Duration(seconds: 30);
     if (_trips.isEmpty) return const Duration(seconds: 30);
     final hasActiveNegotiation = _counters.values.any(
       (c) => c.isMyPending || c.isCounterFromPassenger,
@@ -356,6 +394,7 @@ class _IncomingRequestsScreenState extends State<IncomingRequestsScreen>
                               counter: counter,
                               photoCount: _photoCountCache[t.id],
                               isNew: _isNew(t.id),
+                              onExpired: _load,
                               // Distancia conductor → origen del viaje.
                               // Si no tenemos GPS, queda en null y la card
                               // simplemente no muestra el chip "a X km".

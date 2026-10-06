@@ -10,6 +10,8 @@ public class TripProposal
     public string ProposedByRole { get; set; } = "driver";   // driver | passenger
     public string? RejectedBy { get; set; }               // passenger | driver | null
     public DateTime CreatedAt { get; set; }
+    /// <summary>Cuando el pasajero la acepto (estado accepted_by_passenger). Desde aqui corre el plazo del conductor.</summary>
+    public DateTime? AcceptedByPassengerAt { get; set; }
 
     public static TripProposal Create(Guid tripId, Guid driverId, decimal fare) => new()
     {

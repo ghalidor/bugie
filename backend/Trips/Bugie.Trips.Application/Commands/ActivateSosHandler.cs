@@ -19,9 +19,14 @@ public class ActivateSosHandler : IRequestHandler<ActivateSosCommand, Guid>
     /// Auth: contacto de emergencia del usuario y envio del correo de alerta.
     /// </summary>
     private readonly IAuthClient _auth;
+    /// <summary>
+    /// Tiempo real a pasajero y conductor del viaje (hub /hubs/trips). Nunca lanza.
+    /// </summary>
+    private readonly ITripRealtimeNotifier _realtime;
 
-    public ActivateSosHandler(ITripRepository trips, ISosRepository sos, IAdminNotifier notifier, IAuthClient auth)
-        => (_trips, _sos, _notifier, _auth) = (trips, sos, notifier, auth);
+    public ActivateSosHandler(ITripRepository trips, ISosRepository sos, IAdminNotifier notifier, IAuthClient auth,
+                              ITripRealtimeNotifier realtime)
+        => (_trips, _sos, _notifier, _auth, _realtime) = (trips, sos, notifier, auth, realtime);
 
     public async Task<Guid> Handle(ActivateSosCommand cmd, CancellationToken ct)
     {
@@ -51,6 +56,9 @@ public class ActivateSosHandler : IRequestHandler<ActivateSosCommand, Guid>
         var userName = await GetUserNameAsync(cmd.UserId, ct);
         await _notifier.NotifySosAsync(cmd.TripId, cmd.UserId, cmd.UserRole, cmd.Lat, cmd.Lng,
             alert.Id, userName, trip.OriginAddress, trip.DestAddress, ct);
+
+        // Pasajero y conductor del viaje: el viaje paso a SosActive (reason sos).
+        _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Sos);
 
         // Avisar por correo al contacto de emergencia (si tiene correo).
         await NotifyEmergencyContactAsync(cmd, userName, ct);

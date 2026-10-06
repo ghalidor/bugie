@@ -124,14 +124,23 @@ public record TripDto(
             : $"{first} {char.ToUpperInvariant(paternal[0])}.";
     }
 
-    // Solo en GET /api/trips/pending: cuando vence la solicitud para ESTE
-    // conductor (UTC en memoria; el JSON sale en hora de Peru). null = no hay
-    // regla de vencimiento. ExpiresReason dice que regla aplica:
-    //   "proposal_confirm"  su propuesta fue aceptada por el pasajero y debe
-    //                       confirmarla antes de CreatedAt + ProposalExpiration:ExpireAfterMinutes
-    //   "scheduled_time"    programado sin conductor: se cancela al llegar ScheduledAt
+    // GET /api/trips/pending (conductor) y GET /api/trips/active | /{id}/tracking
+    // (pasajero, mientras busca conductor): cuando vence la solicitud
+    // (UTC en memoria; el JSON sale en hora de Peru). null = no hay regla de
+    // vencimiento. ExpiresReason dice que regla aplica:
+    //   "proposal_confirm"   (solo conductor) su oferta fue aceptada por el pasajero
+    //                        y debe confirmarla antes de esta hora
+    //                        (driver_confirm_immediate_min / driver_confirm_scheduled_before_min)
+    //   "no_driver_timeout"  viaje inmediato sin conductor: Bugie lo cancela a esta
+    //                        hora (publicacion + trip_no_driver_cancel_min)
+    //   "scheduled_time"     programado sin conductor: se cancela al llegar ScheduledAt
     public DateTime? ExpiresAt { get; init; }
     public string? ExpiresReason { get; init; }
+
+    // Tarifa que pidio el pasajero al crear el viaje (EstimatedFare cambia al
+    // asignar). Rango para proponer / contraofertar:
+    //   minimo = base_fare; maximo = SuggestedFare x fare_max_multiplier.
+    public decimal? SuggestedFare { get; init; }
 
     // Oferta vigente del pasajero. Por defecto = EstimatedFare (lo que el
     // pasajero ofrecio al crear el viaje). En GET /api/trips/pending es la
@@ -204,7 +213,10 @@ public record ProposalDto(
     // Calificacion recibida por el conductor (trips.TripRatings).
     // null / 0 si todavia no tiene calificaciones.
     decimal? DriverRating = null,
-    int DriverRatingCount = 0);   // "passenger" | "driver" | null � NUEVO
+    int DriverRatingCount = 0,
+    // Solo en estado accepted_by_passenger: hasta cuando el conductor puede
+    // confirmar (despues vence como rejected / driver_no_confirm).
+    DateTime? ConfirmExpiresAt = null);   // "passenger" | "driver" | null � NUEVO
 
 public record ProposalHistoryDto(
     Guid Id,

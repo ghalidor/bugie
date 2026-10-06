@@ -20,6 +20,12 @@ public class Trip
     public decimal? ProposedFare { get; set; }  // Tarifa propuesta por conductor
     public Guid? ProposedDriverId { get; set; }  // Conductor que propuso
     public decimal? FinalFare { get; set; }
+    /// <summary>Tarifa que pidio el pasajero al crear el viaje (EstimatedFare cambia al asignar).
+    /// Base del maximo permitido al negociar. null en viajes antiguos: usar EstimatedFare.</summary>
+    public decimal? SuggestedFare { get; set; }
+    /// <summary>Cuando se publico (o republico) para buscar conductor. Desde aqui corre el
+    /// plazo para cancelar un viaje inmediato que nadie toma. null en viajes antiguos: CreatedAt.</summary>
+    public DateTime? PublishedAt { get; set; }
 
     // -- Cupon aplicado --
     public string?  CouponCode         { get; set; }
@@ -122,6 +128,7 @@ public class Trip
             DestLng = destLng,
             DistanceKm = distanceKm,
             EstimatedFare = estimatedFare,
+            SuggestedFare = estimatedFare,
             PaymentMethod = paymentMethod,
             ServiceType = serviceType,
             PackageDescription = packageDescription,
@@ -133,6 +140,7 @@ public class Trip
             ScheduledAt = scheduledAt,
             Status = TripStatus.Pending,
             CreatedAt = DateTime.UtcNow,
+            PublishedAt = DateTime.UtcNow,
         };
 
     public void Accept(Guid driverId, Guid? vehicleId = null)
@@ -240,6 +248,7 @@ public class Trip
         Reminder30SentAt = null;
         Reminder10SentAt = null;
         Status = TripStatus.Pending;
+        PublishedAt = nowUtc;
         return removed;
     }
 

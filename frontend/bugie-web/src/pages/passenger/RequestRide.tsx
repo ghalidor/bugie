@@ -5,7 +5,7 @@ import ServiceIcon from '../../components/ServiceIcon';
 import { API, apiFetch, ApiError } from '../../state/api';
 import { getToken } from '../../state/session';
 import { useDefaultLocation } from '../../hooks/useDefaultLocation';
-import { usePlatformConfig, calcularTarifa } from '../../hooks/usePlatformConfig';
+import { usePlatformConfig, calcularTarifa, createFareError } from '../../hooks/usePlatformConfig';
 import { Checkbox, Field, IconButton, Notice, Page, SectionCard, Select } from '../../components/ui';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -403,11 +403,13 @@ export default function PassengerRequestRide() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fare]);
 
-  // Mínimo permitido: 50% del estimado del sistema
-  const minFare = fare !== null ? Math.round(fare * 0.5 * 100) / 100 : null;
+  // Mínimo permitido: la tarifa base del admin (igual que el backend).
+  const minFare = fareConfig.minFare;
   const proposedFareNum = parseFloat(proposedFare);
-  const proposedFareInvalid =
-    proposedFare !== '' && (isNaN(proposedFareNum) || (minFare !== null && proposedFareNum < minFare));
+  const proposedFareError = proposedFare === '' ? null
+    : isNaN(proposedFareNum) || proposedFareNum <= 0 ? 'Ingresa un monto válido.'
+    : createFareError(proposedFareNum, fareConfig);
+  const proposedFareInvalid = proposedFareError !== null;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -417,13 +419,11 @@ export default function PassengerRequestRide() {
     // Validar la tarifa propuesta
     const fareToSend = parseFloat(proposedFare);
     if (isNaN(fareToSend) || fareToSend <= 0) {
-      setError('Ingresa una tarifa válida.');
+      setError('Ingresa un monto válido.');
       return;
     }
-    if (minFare !== null && fareToSend < minFare) {
-      setError(`La tarifa mínima permitida es S/ ${minFare.toFixed(2)}.`);
-      return;
-    }
+    const minError = createFareError(fareToSend, fareConfig);
+    if (minError) { setError(minError); return; }
 
     if (isDelivery) {
       if (!pkgDesc.trim()) { setError('Describe qué vas a enviar.'); return; }
@@ -484,7 +484,7 @@ export default function PassengerRequestRide() {
   const pendingHint = !originCoord ? 'Marca el origen'
     : !destCoord ? 'Marca el destino'
     : isDelivery && pkgPhotos.length === 0 ? 'Agrega al menos 1 foto del paquete'
-    : proposedFareInvalid ? `Tarifa mínima S/ ${minFare?.toFixed(2)}`
+    : proposedFareError ? proposedFareError
     : schedError ? schedError
     : null;
 
@@ -744,10 +744,10 @@ export default function PassengerRequestRide() {
                   <Field
                     label="Tu propuesta (S/)"
                     required
-                    error={proposedFareInvalid ? `La tarifa debe ser de al menos S/ ${minFare?.toFixed(2)}` : undefined}
+                    error={proposedFareError ?? undefined}
                     help={minFare !== null
-                      ? `Mínimo S/ ${minFare.toFixed(2)}. Los conductores pueden aceptarla o contraproponer.`
-                      : undefined}
+                      ? `Mínimo S/ ${minFare.toFixed(2)}. Los conductores pueden aceptarla o contraofertar.`
+                      : 'Los conductores pueden aceptarla o contraofertar.'}
                   >
                     <input
                       type="number" step="0.10" min="0" inputMode="decimal"

@@ -54,6 +54,10 @@ class Proposal {
   final double? driverRating;
   final int driverRatingCount;
 
+  /// Solo en 'accepted_by_passenger': hasta cuándo el conductor puede
+  /// confirmar (hora de Perú). Después vence (rejected / driver_no_confirm).
+  final DateTime? confirmExpiresAt;
+
   Proposal({
     required this.id,
     required this.tripId,
@@ -73,6 +77,7 @@ class Proposal {
     this.driverPhotoUrl,
     this.driverRating,
     this.driverRatingCount = 0,
+    this.confirmExpiresAt,
   });
 
   factory Proposal.fromJson(Map<String, dynamic> j) => Proposal(
@@ -94,6 +99,7 @@ class Proposal {
         driverPhotoUrl: j['driverPhotoUrl']?.toString(),
         driverRating:   (j['driverRating'] as num?)?.toDouble(),
         driverRatingCount: (j['driverRatingCount'] as num?)?.toInt() ?? 0,
+        confirmExpiresAt: DateTime.tryParse(j['confirmExpiresAt']?.toString() ?? ''),
       );
 
   /// Descripción legible del vehículo (ej: "Toyota · Corolla · Rojo").

@@ -1,4 +1,5 @@
 ﻿using Bugie.Trips.Domain.Entities;
+using Bugie.Trips.Domain.Enums;
 
 namespace Bugie.Trips.Domain.Interfaces;
 
@@ -13,9 +14,38 @@ public interface ITripProposalRepository
     Task AddAsync(TripProposal proposal, CancellationToken ct = default);
     Task<TripProposal?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task UpdateStatusAsync(Guid id, string status, string? rejectedBy, CancellationToken ct = default);
-    Task RejectOthersAsync(Guid tripId, Guid acceptedId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Cambia el estado SOLO si la propuesta sigue en uno de los estados
+    /// esperados (from). false = otro proceso la cambio antes (carrera).
+    /// </summary>
+    Task<bool> TransitionAsync(Guid id, string[] from, string to, string? rejectedBy = null,
+        CancellationToken ct = default);
+
+    /// <summary>pending -> accepted_by_passenger con la hora de aceptacion. false si ya no estaba pending.</summary>
+    Task<bool> MarkAcceptedByPassengerAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>accepted_by_passenger -> pending (el pasajero deshace). false si ya no estaba en ese estado.</summary>
+    Task<bool> UndoAcceptedByPassengerAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>La propuesta accepted_by_passenger vigente del viaje (solo puede haber una).</summary>
+    Task<TripProposal?> GetAcceptedByPassengerOnTripAsync(Guid tripId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Al asignar el viaje: las demas propuestas abiertas del viaje (pending,
+    /// driver_accepted, accepted_by_passenger) pasan a rejected/passenger.
+    /// Devuelve las cerradas con su estado anterior (para avisar).
+    /// </summary>
+    Task<List<ClosedProposal>> RejectOthersAsync(Guid tripId, Guid acceptedId, CancellationToken ct = default);
     Task<TripProposal?> GetDirectAcceptAsync(Guid tripId, Guid driverId, CancellationToken ct = default);
-    Task<int> SupersedePendingAsync(Guid tripId, Guid driverId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Marca superseded lo pending entre el viaje y el conductor (su oferta o
+    /// la contraoferta del pasajero). includeDriverAccepted: tambien su
+    /// aceptacion a tarifa (driver_accepted), cuando la reemplaza otro monto.
+    /// </summary>
+    Task<int> SupersedePendingAsync(Guid tripId, Guid driverId, bool includeDriverAccepted = false,
+        CancellationToken ct = default);
     Task<List<TripProposal>> GetHistoryByDriverAsync(
         Guid tripId, Guid driverId, CancellationToken ct = default);
     Task<int> RejectAllBetweenAsync(Guid tripId, Guid driverId, CancellationToken ct = default);
@@ -40,7 +70,8 @@ public interface ITripProposalRepository
     /// Rechaza TODAS las propuestas pending del viaje desde el lado del pasajero.
     /// Marca como 'rejected' con RejectedBy = 'passenger'.
     /// </summary>
-    Task<int> RejectAllByPassengerAsync(Guid tripId, CancellationToken ct = default);
+    /// Incluye las aceptaciones a tarifa (driver_accepted). Devuelve los conductores afectados.
+    Task<List<Guid>> RejectAllByPassengerAsync(Guid tripId, CancellationToken ct = default);
 
     /// <summary>
     /// Devuelve los TripIds donde el conductor tiene al menos una propuesta
@@ -64,17 +95,18 @@ public interface ITripProposalRepository
     /// las otras propuestas pending del mismo conductor en OTROS viajes.
     /// Motivo: 'driver_busy'. Devuelve cuántas se rechazaron.
     /// </summary>
-    Task<int> RejectAllOtherPendingByDriverAsync(
+    Task<List<ClosedProposal>> RejectAllOtherPendingByDriverAsync(
         Guid driverId, Guid exceptTripId, CancellationToken ct = default);
 
     /// <summary>
-    /// Expira las propuestas que están en estado 'accepted_by_passenger'
-    /// pero el conductor no las confirmó dentro de la ventana de tiempo.
-    /// Las marca como 'rejected' con RejectedBy = 'driver_no_confirm'.
-    /// Devuelve cuántas se expiraron (para log/métrica).
+    /// Expira las propuestas 'accepted_by_passenger' que el conductor no
+    /// confirmo a tiempo (ver NegotiationSettings.ConfirmDeadline):
+    /// inmediato = aceptacion + immediateMinutes; programado = hora del viaje
+    /// - scheduledBeforeMinutes (nunca antes de aceptacion + immediateMinutes).
+    /// Pasan a rejected / 'driver_no_confirm'. Devuelve las expiradas.
     /// </summary>
-    Task<int> ExpireStaleAcceptedByPassengerAsync(
-        DateTime cutoffUtc, CancellationToken ct = default);
+    Task<List<ClosedProposal>> ExpireUnconfirmedAsync(
+        DateTime nowUtc, int immediateMinutes, int scheduledBeforeMinutes, CancellationToken ct = default);
 
     /// <summary>
     /// Al cancelarse un viaje se cierra su negociación: todas las propuestas
@@ -82,7 +114,10 @@ public interface ITripProposalRepository
     /// 'cancelled'. Devuelve los conductores (userId) que tenían propuesta,
     /// para avisarles.
     /// </summary>
-    Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, CancellationToken ct = default);
+    /// closedBy queda en RejectedBy: 'trip_cancelled' o 'trip_reopened'
+    /// (programado que volvio a buscar conductor).
+    Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, string closedBy = "trip_cancelled",
+        CancellationToken ct = default);
 
     /// <summary>
     /// Rechaza todas las propuestas (incluida la aceptada) de un conductor en un
@@ -90,4 +125,19 @@ public interface ITripProposalRepository
     /// (RejectedBy = 'driver_no_show'), para que ya no lo vea como suyo.
     /// </summary>
     Task<int> RejectDriverOnTripAsync(Guid tripId, Guid driverId, string rejectedBy, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Propuesta cerrada por una operacion en bloque, con su estado anterior y
+/// datos del viaje para avisar a quien corresponda.
+/// </summary>
+public class ClosedProposal
+{
+    public Guid ProposalId { get; set; }
+    public Guid TripId { get; set; }
+    public Guid DriverId { get; set; }
+    public decimal Fare { get; set; }
+    public string OldStatus { get; set; } = string.Empty;
+    public Guid PassengerId { get; set; }
+    public ServiceType ServiceType { get; set; }
 }

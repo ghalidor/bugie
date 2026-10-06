@@ -64,6 +64,13 @@ public interface IDriversClient
     /// puntos o si Drivers no responde.
     /// </summary>
     Task<List<TripPathPointDto>> GetTripPathAsync(Guid tripId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Avisa a Drivers que el viaje termino (completado o cancelado en curso)
+    /// para que consolide su recorrido GPS (drivers.trippaths). Fire-and-forget:
+    /// no lanza excepcion; si falla, el job nocturno de Drivers lo consolida.
+    /// </summary>
+    Task ConsolidateTripPathAsync(Guid tripId, CancellationToken ct = default);
 }
 
 /// <summary>Un punto GPS del recorrido real de un viaje.</summary>

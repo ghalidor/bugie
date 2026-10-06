@@ -3,6 +3,9 @@ import { useMapConfig } from '../hooks/useMapConfig';
 
 export interface LatLng  { lat: number; lng: number; }
 export interface MapMarker extends LatLng {
+  /// Identificador estable del pin. Con id el mapa ACTUALIZA el pin existente
+  /// (lo mueve con animación suave) en vez de borrarlo y crearlo de nuevo.
+  /// Sin id se usa tipo + etiqueta como clave.
   id?: string;
   label?: string;
   type?:  'origin' | 'destination' | 'driver' | 'passenger' | 'default';
@@ -48,6 +51,8 @@ interface BugieMapAdminProps {
   /// Varias líneas con estilo propio (color, punteado, grosor), en orden de
   /// dibujo: la última queda encima. Puntos en formato Leaflet [lat, lng].
   /// Se suman a routeCoordinates (no lo reemplazan) y entran en el encuadre.
+  /// Con `id` estable, la línea se actualiza en sitio (setLatLngs) cuando
+  /// cambian sus puntos; las demás no se tocan.
   lines?: MapLine[];
 }
 
@@ -69,6 +74,12 @@ export const ROUTE_COLORS = {
   real:    '#10b981',  // recorrido real (verde)
   pickup:  '#94a3b8',  // tramo de recogida (gris tenue)
 } as const;
+
+/// Duración del movimiento suave de un pin entre dos posiciones GPS.
+const MOVE_ANIM_MS = 1000;
+/// Si el salto es mayor a esto (m), el pin se mueve de golpe (no tiene
+/// sentido "deslizar" un auto 5 km por un GPS atrasado).
+const MOVE_ANIM_MAX_M = 3000;
 
 // ── Iconos ─────────────────────────────────────────────────────────────
 
@@ -128,6 +139,83 @@ function makeDestinationIcon(): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/// URL del ícono según tipo y estado del pin.
+function iconUrlFor(m: MapMarker): string {
+  const isDriver    = m.type === 'driver';
+  const isPassenger = m.type === 'passenger';
+  const isOrigin    = m.type === 'origin';
+  const isDest      = m.type === 'destination' && !m.label?.includes('SOS');
+  const isSosLabel  = m.label?.includes('SOS');
+
+  // Si el usuario tiene SOS activo, su ícono se reemplaza por el de SOS
+  // (rojo + emoji 🚨) sin importar si era conductor o pasajero. Es la
+  // forma de mostrar emergencia sin agregar un pin extra encima.
+  if (m.sosActive)  return makeSosIcon();
+  if (isDriver)     return makeDriverIcon(m.extra?.hasActiveTrip ?? false, m.deviated ?? false);
+  if (isPassenger)  return makePassengerIcon();
+  if (isSosLabel)   return makeSosIcon();
+  if (isOrigin)     return makeOriginIcon();
+  if (isDest)       return makeDestinationIcon();
+  return makeDriverIcon(false, false);
+}
+
+/// HTML del popup del pin.
+function popupHtmlFor(m: MapMarker): string {
+  const isDriver    = m.type === 'driver';
+  const isPassenger = m.type === 'passenger';
+  if (m.sosActive) {
+    // Popup unificado de SOS — cualquier rol con alerta activa
+    const who = isDriver
+      ? (m.extra?.fullName || m.label || 'Conductor')
+      : (m.label || 'Pasajero');
+    return `
+      <div style="font-family:sans-serif;min-width:170px;padding:4px">
+        <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#dc2626">
+          🚨 SOS ACTIVO
+        </div>
+        <div style="font-size:0.86rem;font-weight:600;color:#1a1730;margin-bottom:2px">
+          ${who}
+        </div>
+        <div style="font-size:0.78rem;color:#555">
+          ${isDriver ? 'Conductor en emergencia' : 'Pasajero en emergencia'}
+        </div>
+      </div>`;
+  }
+  if (isDriver && m.extra) {
+    const status = m.deviated
+      ? '<span style="color:#dc2626;font-weight:700">⚠️ Fuera de la ruta</span>'
+      : m.extra.hasActiveTrip
+        ? '<span style="color:#818cf8;font-weight:600">🚗 En viaje</span>'
+        : '<span style="color:#34d399;font-weight:600">✅ Disponible</span>';
+    return `
+      <div style="font-family:sans-serif;min-width:160px;padding:4px">
+        <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
+          ${m.extra.fullName || 'Conductor'}
+        </div>
+        <div style="font-size:0.82rem;margin-bottom:4px">${status}</div>
+        <div style="font-size:0.82rem;color:#555">⭐ ${m.extra.rating?.toFixed(1) ?? '—'}</div>
+      </div>`;
+  }
+  if (isPassenger) {
+    const labelMap: Record<number, string> = {
+      1: '⏳ Buscando conductor',
+      2: '🚗 Conductor en camino',
+      3: '🚦 Viaje en curso',
+      6: '🚨 SOS activo',
+      7: '💬 Negociando tarifa',
+    };
+    const status = labelMap[m.extra?.tripStatus ?? 0] ?? 'En viaje';
+    return `
+      <div style="font-family:sans-serif;min-width:160px;padding:4px">
+        <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
+          ${m.label || 'Pasajero'}
+        </div>
+        <div style="font-size:0.82rem;color:#f97316;font-weight:600">${status}</div>
+      </div>`;
+  }
+  return `<div style="font-family:sans-serif;padding:4px;font-weight:600;color:#1a1730">${m.label ?? ''}</div>`;
+}
+
 /* Teselas del mapa.
    Se usa OpenStreetMap estándar, que NO pide clave. Antes se usaba
    basemaps.cartocdn.com, que empezó a exigirla y devolvía imágenes con el
@@ -147,6 +235,56 @@ const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Open
    nunca a los marcadores, para que los pines conserven su color. */
 const DARK_TILE_FILTER = 'invert(1) hue-rotate(180deg) brightness(.92) contrast(.95) saturate(.75)';
 
+// ── Estado interno por pin / línea (capas Leaflet vivas) ───────────────
+
+/// Anillos alrededor de un pin: SOS (rojo grande), desvío (rojo) y selección (dorado).
+type RingKind = 'sos' | 'dev' | 'hl';
+const RING_STYLE: Record<RingKind, { radius: number; color: string; fillOpacity: number; weight: number }> = {
+  // Anillo de SOS: más ancho que el de "desviado" para que se note que es
+  // una emergencia, no un desvío. Tiene prioridad sobre el de desvío.
+  sos: { radius: 120, color: '#dc2626', fillOpacity: 0.18, weight: 3 },
+  dev: { radius: 80,  color: '#dc2626', fillOpacity: 0.15, weight: 2 },
+  // Anillo dorado de selección. Se dibuja ADEMÁS del de SOS/desvío para que
+  // un pin pueda estar en SOS Y seleccionado y se vean ambos estados.
+  hl:  { radius: 60,  color: '#fbbf24', fillOpacity: 0.18, weight: 4 },
+};
+
+interface MarkerEntry {
+  data: MapMarker;
+  marker: any;
+  iconUrl: string;
+  popupHtml: string;
+  rings: Partial<Record<RingKind, any>>;
+  /// requestAnimationFrame activo del movimiento suave (0 = ninguno).
+  raf: number;
+}
+
+interface LineEntry {
+  layer: any;
+  points: [number, number][];
+  style: string;
+}
+
+const lineStyleKey = (ln: MapLine) => `${ln.color}|${ln.weight ?? 4}|${ln.opacity ?? 0.9}|${ln.dashArray ?? ''}`;
+
+function samePoints(a: [number, number][], b: [number, number][]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+  return true;
+}
+
+/// Distancia aproximada (m) entre dos coordenadas (suficiente para decidir si animar).
+function distanceM(a: LatLng, b: LatLng): number {
+  const R = 6371000, rad = (d: number) => d * Math.PI / 180;
+  const x = rad(b.lng - a.lng) * Math.cos(rad((a.lat + b.lat) / 2));
+  const y = rad(b.lat - a.lat);
+  return Math.sqrt(x * x + y * y) * R;
+}
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 export default function BugieMapAdmin({
   center, zoom,
   markers = [], height = 320,
@@ -164,15 +302,19 @@ export default function BugieMapAdmin({
   const mapRef       = useRef<any>(null);
   // Observa el cambio de tema para invertir las teselas en oscuro.
   const themeObserverRef = useRef<MutationObserver | null>(null);
-  const layersRef    = useRef<any[]>([]);
+  // Pines y líneas vivos, por clave. Se actualizan en sitio: solo se toca lo que cambió.
+  const markerEntries = useRef<Map<string, MarkerEntry>>(new Map());
+  const lineEntries   = useRef<Map<string, LineEntry>>(new Map());
   const didFitOnce   = useRef<boolean>(false);
-  // Polylines de la prop `lines` (entran en el encuadre).
-  const lineLayersRef = useRef<any[]>([]);
   // Si las líneas llegan después del primer encuadre, se reencuadra una vez.
   const didFitLines  = useRef<boolean>(false);
+  // El click usa siempre el handler más reciente sin recrear los pines.
+  const onMarkerClickRef = useRef(onMarkerClick);
+  onMarkerClickRef.current = onMarkerClick;
+
   const fitLayers = () => [
-    ...layersRef.current.filter(l => typeof l.getLatLng === 'function'),
-    ...lineLayersRef.current,
+    ...Array.from(markerEntries.current.values()).map(e => e.marker),
+    ...Array.from(lineEntries.current.values()).map(e => e.layer),
   ];
 
   // ResizeObserver para invalidateSize cuando cambia tamaño del contenedor.
@@ -238,7 +380,7 @@ export default function BugieMapAdmin({
     return () => { if (onFitBoundsRef) onFitBoundsRef.current = null; };
   }, [onFitBoundsRef]);
 
-  // Dibujar/actualizar markers
+  // Dibujar/actualizar markers y líneas (incremental: solo lo que cambió).
   useEffect(() => {
     const L = (window as any).L;
     if (!L) return;
@@ -258,6 +400,130 @@ export default function BugieMapAdmin({
         return;
       }
       drawMap();
+    };
+
+    /// Mueve el pin (y sus anillos) a la nueva posición. Conductores y
+    /// pasajeros se deslizan ~1 s entre GPS y GPS; el resto salta.
+    const moveEntry = (e: MarkerEntry, to: LatLng, animate: boolean) => {
+      if (e.raf) { cancelAnimationFrame(e.raf); e.raf = 0; }
+      const setAll = (lat: number, lng: number) => {
+        e.marker.setLatLng([lat, lng]);
+        Object.values(e.rings).forEach(r => r?.setLatLng([lat, lng]));
+      };
+      const from = e.marker.getLatLng() as LatLng;
+      const dist = distanceM(from, to);
+      if (!animate || dist < 0.5 || dist > MOVE_ANIM_MAX_M || prefersReducedMotion()) { setAll(to.lat, to.lng); return; }
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / MOVE_ANIM_MS);
+        const k = 1 - (1 - t) * (1 - t); // ease-out
+        setAll(from.lat + (to.lat - from.lat) * k, from.lng + (to.lng - from.lng) * k);
+        e.raf = t < 1 ? requestAnimationFrame(step) : 0;
+      };
+      e.raf = requestAnimationFrame(step);
+    };
+
+    const removeEntry = (map: any, e: MarkerEntry) => {
+      if (e.raf) cancelAnimationFrame(e.raf);
+      try { map.removeLayer(e.marker); } catch {}
+      Object.values(e.rings).forEach(r => { try { map.removeLayer(r); } catch {} });
+    };
+
+    const syncRing = (map: any, e: MarkerEntry, kind: RingKind, wanted: boolean, at: LatLng) => {
+      const cur = e.rings[kind];
+      if (wanted && !cur) {
+        const s = RING_STYLE[kind];
+        e.rings[kind] = L.circle([at.lat, at.lng], { radius: s.radius, color: s.color, fillColor: s.color, fillOpacity: s.fillOpacity, weight: s.weight }).addTo(map);
+      } else if (!wanted && cur) {
+        try { map.removeLayer(cur); } catch {}
+        delete e.rings[kind];
+      }
+    };
+
+    const syncMarkers = (map: any) => {
+      const entries = markerEntries.current;
+      const wanted = new Map<string, MapMarker>();
+      const seen: Record<string, number> = {};
+      markers.forEach(m => {
+        const base = m.id ?? `${m.type ?? 'default'}:${m.label ?? ''}`;
+        const n = seen[base] ?? 0; seen[base] = n + 1;
+        wanted.set(n === 0 ? base : `${base}#${n}`, m);
+      });
+
+      // Pines que ya no están
+      entries.forEach((e, key) => { if (!wanted.has(key)) { removeEntry(map, e); entries.delete(key); } });
+
+      wanted.forEach((m, key) => {
+        const iconUrl = iconUrlFor(m);
+        const popupHtml = popupHtmlFor(m);
+        const makeIcon = () => L.icon({ iconUrl, iconSize: [36, 44], iconAnchor: [18, 44], popupAnchor: [0, -44] });
+        let e = entries.get(key);
+        if (!e) {
+          const marker = L.marker([m.lat, m.lng], { icon: makeIcon() }).addTo(map);
+          marker.bindPopup(popupHtml);
+          const entry: MarkerEntry = { data: m, marker, iconUrl, popupHtml, rings: {}, raf: 0 };
+          marker.on('click', () => onMarkerClickRef.current?.(entry.data));
+          entries.set(key, entry);
+          e = entry;
+        } else {
+          if (e.iconUrl !== iconUrl) { e.marker.setIcon(makeIcon()); e.iconUrl = iconUrl; }
+          if (e.popupHtml !== popupHtml) { e.marker.setPopupContent(popupHtml); e.popupHtml = popupHtml; }
+          // Se compara contra la última posición pedida (no la visual, que
+          // puede estar a mitad de animación).
+          if (e.data.lat !== m.lat || e.data.lng !== m.lng) {
+            moveEntry(e, { lat: m.lat, lng: m.lng }, m.type === 'driver' || m.type === 'passenger');
+          }
+          e.data = m;
+        }
+
+        const at = e.raf ? (e.marker.getLatLng() as LatLng) : { lat: m.lat, lng: m.lng };
+        const inSos = m.sosActive === true;
+        syncRing(map, e, 'sos', inSos, at);
+        // Solo dibujamos el círculo de desvío si NO está en SOS (SOS gana).
+        syncRing(map, e, 'dev', !inSos && m.type === 'driver' && m.deviated === true, at);
+        syncRing(map, e, 'hl', m.highlighted === true, at);
+      });
+    };
+
+    const syncLines = (map: any) => {
+      const entries = lineEntries.current;
+      const wanted: Array<{ key: string; ln: MapLine }> = [];
+      // Si el padre pasa la ruta REAL calculada por GraphHopper (coordenadas
+      // siguiendo las calles), la dibujamos. Sin esto NO dibujamos nada entre
+      // origen y destino, porque una línea recta pasaría sobre edificios y
+      // no representa el viaje. routeCoordinates viene como [[lng,lat], ...]
+      // (convención GraphHopper), por eso invertimos para Leaflet ([lat,lng]).
+      if (routeCoordinates && routeCoordinates.length >= 2) {
+        wanted.push({ key: '__route', ln: { points: routeCoordinates.map(c => [c[1], c[0]] as [number, number]), color: '#3b82f6', weight: 5, opacity: 0.85 } });
+      }
+      (lines ?? []).forEach((ln, i) => {
+        if (!ln.points || ln.points.length < 2) return;
+        wanted.push({ key: ln.id ?? `line#${i}`, ln });
+      });
+      const wantedKeys = new Set(wanted.map(w => w.key));
+      entries.forEach((e, key) => { if (!wantedKeys.has(key)) { try { map.removeLayer(e.layer); } catch {} entries.delete(key); } });
+
+      let added = false;
+      wanted.forEach(({ key, ln }) => {
+        const style = lineStyleKey(ln);
+        const e = entries.get(key);
+        if (!e) {
+          const layer = L.polyline(ln.points, {
+            color: ln.color, weight: ln.weight ?? 4, opacity: ln.opacity ?? 0.9, dashArray: ln.dashArray,
+            lineCap: 'round', lineJoin: 'round',
+          }).addTo(map);
+          entries.set(key, { layer, points: ln.points, style });
+          added = true;
+          return;
+        }
+        if (e.style !== style) {
+          e.layer.setStyle({ color: ln.color, weight: ln.weight ?? 4, opacity: ln.opacity ?? 0.9, dashArray: ln.dashArray ?? null });
+          e.style = style;
+        }
+        if (!samePoints(e.points, ln.points)) { e.layer.setLatLngs(ln.points); e.points = ln.points; }
+      });
+      // Con líneas nuevas se respeta el orden de dibujo pedido (la última encima).
+      if (added) wanted.forEach(({ key }) => { try { entries.get(key)?.layer.bringToFront(); } catch {} });
     };
 
     const drawMap = () => {
@@ -292,180 +558,18 @@ export default function BugieMapAdmin({
       }
 
       const map = mapRef.current;
-
-      // Limpiar capas previas
-      layersRef.current.forEach(l => { try { map.removeLayer(l); } catch {} });
-      layersRef.current = [];
-      lineLayersRef.current = [];
-
-      markers.forEach(m => {
-        const isDriver    = m.type === 'driver';
-        const isPassenger = m.type === 'passenger';
-        const isOrigin    = m.type === 'origin';
-        const isDest      = m.type === 'destination' && !m.label?.includes('SOS');
-        const isSos       = m.label?.includes('SOS');
-        const inSos       = m.sosActive === true;
-
-        // Si el usuario tiene SOS activo, su ícono se reemplaza por el de SOS
-        // (rojo + emoji 🚨) sin importar si era conductor o pasajero. Es la
-        // forma de mostrar emergencia sin agregar un pin extra encima.
-        let iconUrl: string;
-        if (inSos) {
-          iconUrl = makeSosIcon();
-        } else if (isDriver) {
-          iconUrl = makeDriverIcon(m.extra?.hasActiveTrip ?? false, m.deviated ?? false);
-        } else if (isPassenger) {
-          iconUrl = makePassengerIcon();
-        } else if (isSos) {
-          iconUrl = makeSosIcon();
-        } else if (isOrigin) {
-          iconUrl = makeOriginIcon();
-        } else if (isDest) {
-          iconUrl = makeDestinationIcon();
-        } else {
-          iconUrl = makeDriverIcon(false, false);
-        }
-
-        const icon = L.icon({ iconUrl, iconSize: [36, 44], iconAnchor: [18, 44], popupAnchor: [0, -44] });
-
-        // Popup
-        let popupHtml = '';
-        if (inSos) {
-          // Popup unificado de SOS — cualquier rol con alerta activa
-          const who = isDriver
-            ? (m.extra?.fullName || m.label || 'Conductor')
-            : (m.label || 'Pasajero');
-          popupHtml = `
-            <div style="font-family:sans-serif;min-width:170px;padding:4px">
-              <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#dc2626">
-                🚨 SOS ACTIVO
-              </div>
-              <div style="font-size:0.86rem;font-weight:600;color:#1a1730;margin-bottom:2px">
-                ${who}
-              </div>
-              <div style="font-size:0.78rem;color:#555">
-                ${isDriver ? 'Conductor en emergencia' : 'Pasajero en emergencia'}
-              </div>
-            </div>`;
-        } else if (isDriver && m.extra) {
-          const status = m.deviated
-            ? '<span style="color:#dc2626;font-weight:700">⚠️ Fuera de la ruta</span>'
-            : m.extra.hasActiveTrip
-              ? '<span style="color:#818cf8;font-weight:600">🚗 En viaje</span>'
-              : '<span style="color:#34d399;font-weight:600">✅ Disponible</span>';
-          popupHtml = `
-            <div style="font-family:sans-serif;min-width:160px;padding:4px">
-              <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
-                ${m.extra.fullName || 'Conductor'}
-              </div>
-              <div style="font-size:0.82rem;margin-bottom:4px">${status}</div>
-              <div style="font-size:0.82rem;color:#555">⭐ ${m.extra.rating?.toFixed(1) ?? '—'}</div>
-            </div>`;
-        } else if (isPassenger) {
-          const labelMap: Record<number, string> = {
-            1: '⏳ Buscando conductor',
-            2: '🚗 Conductor en camino',
-            3: '🚦 Viaje en curso',
-            6: '🚨 SOS activo',
-            7: '💬 Negociando tarifa',
-          };
-          const status = labelMap[m.extra?.tripStatus ?? 0] ?? 'En viaje';
-          popupHtml = `
-            <div style="font-family:sans-serif;min-width:160px;padding:4px">
-              <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
-                ${m.label || 'Pasajero'}
-              </div>
-              <div style="font-size:0.82rem;color:#f97316;font-weight:600">${status}</div>
-            </div>`;
-        } else {
-          popupHtml = `<div style="font-family:sans-serif;padding:4px;font-weight:600;color:#1a1730">${m.label ?? ''}</div>`;
-        }
-
-        const marker = L.marker([m.lat, m.lng], { icon }).addTo(map);
-        marker.bindPopup(popupHtml);
-        if (onMarkerClick) {
-          marker.on('click', () => onMarkerClick(m));
-        }
-        layersRef.current.push(marker);
-
-        // Anillo de SOS: círculo rojo grande alrededor del marker. Más
-        // ancho que el de "desviado" para que se note claramente que es
-        // una emergencia, no un desvío. Tiene prioridad sobre el de desvío.
-        if (inSos) {
-          const sosRing = L.circle([m.lat, m.lng], {
-            radius: 120,
-            color: '#dc2626',
-            fillColor: '#dc2626',
-            fillOpacity: 0.18,
-            weight: 3,
-          }).addTo(map);
-          layersRef.current.push(sosRing);
-        } else if (isDriver && m.deviated) {
-          // Solo dibujamos el círculo de desvío si NO está en SOS (SOS gana).
-          const circle = L.circle([m.lat, m.lng], {
-            radius: 80,
-            color: '#dc2626',
-            fillColor: '#dc2626',
-            fillOpacity: 0.15,
-            weight: 2,
-          }).addTo(map);
-          layersRef.current.push(circle);
-        }
-
-        // Anillo dorado de selección. Se dibuja ADEMÁS del de SOS/desvío
-        // (no compite con ellos), para que un pin pueda estar en SOS Y
-        // seleccionado al mismo tiempo y se vea ambos estados.
-        if (m.highlighted) {
-          const ring = L.circle([m.lat, m.lng], {
-            radius: 60,
-            color: '#fbbf24',
-            fillColor: '#fbbf24',
-            fillOpacity: 0.18,
-            weight: 4,
-          }).addTo(map);
-          layersRef.current.push(ring);
-        }
-      });
-
-      // Si el padre pasa la ruta REAL calculada por GraphHopper (coordenadas
-      // siguiendo las calles), la dibujamos. Sin esto NO dibujamos nada entre
-      // origen y destino, porque una línea recta pasaría sobre edificios y
-      // no representa el viaje. routeCoordinates viene como [[lng,lat], ...]
-      // (convención GraphHopper), por eso invertimos para Leaflet ([lat,lng]).
-      if (routeCoordinates && routeCoordinates.length >= 2) {
-        const latlngs = routeCoordinates.map(c => [c[1], c[0]] as [number, number]);
-        const line = L.polyline(latlngs, {
-          color: '#3b82f6',
-          weight: 5,
-          opacity: 0.85,
-        }).addTo(map);
-        layersRef.current.push(line);
-      }
-
-      // Líneas con estilo, en orden (la última encima).
-      (lines ?? []).forEach(ln => {
-        if (!ln.points || ln.points.length < 2) return;
-        const pl = L.polyline(ln.points, {
-          color: ln.color,
-          weight: ln.weight ?? 4,
-          opacity: ln.opacity ?? 0.9,
-          dashArray: ln.dashArray,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }).addTo(map);
-        layersRef.current.push(pl);
-        lineLayersRef.current.push(pl);
-      });
+      syncMarkers(map);
+      syncLines(map);
 
       // Fit inicial (solo primera vez con markers o líneas)
-      const hasLines = lineLayersRef.current.length > 0;
+      const hasLines = lineEntries.current.size > 0;
       if ((!didFitOnce.current && (markers.length >= 1 || hasLines)) || (hasLines && !didFitLines.current)) {
         if (hasLines) didFitLines.current = true;
         const doFit = () => {
           if (cancelled || !mapRef.current) return;
           try {
             map.invalidateSize();
-            if (markers.length === 1 && lineLayersRef.current.length === 0) {
+            if (markers.length === 1 && lineEntries.current.size === 0) {
               map.setView([markers[0].lat, markers[0].lng], 15);
             } else {
               const ll = fitLayers();
@@ -490,10 +594,11 @@ export default function BugieMapAdmin({
 
   // Cleanup al desmontar
   useEffect(() => () => {
+    markerEntries.current.forEach(e => { if (e.raf) cancelAnimationFrame(e.raf); });
     try { mapRef.current?.remove(); } catch {}
     mapRef.current = null;
-    layersRef.current = [];
-    lineLayersRef.current = [];
+    markerEntries.current = new Map();
+    lineEntries.current = new Map();
     didFitOnce.current = false;
     didFitLines.current = false;
   }, []);

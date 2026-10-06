@@ -249,6 +249,26 @@ public class DriversClient : IDriversClient
         }
     }
 
+    /// <summary>
+    /// POST /api/drivers/internal/trips/{tripId}/consolidate-path (X-Internal-Token).
+    /// </summary>
+    public async Task ConsolidateTripPathAsync(Guid tripId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/drivers/internal/trips/{tripId}/consolidate-path");
+            req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
+            using var res = await _http.SendAsync(req, ct);
+            if(!res.IsSuccessStatusCode)
+                Console.WriteLine($"ConsolidateTripPathAsync: Drivers respondio {(int)res.StatusCode} para el viaje {tripId}");
+        }
+        catch(Exception e)
+        {
+            // No bloquea el cierre del viaje: el job nocturno de Drivers consolida igual.
+            Console.WriteLine($"ConsolidateTripPathAsync error: {e.Message}");
+        }
+    }
+
     private record DriverDetailResponse(DriverPayload? Driver);
     private record DriverPayload(Guid Id, Guid UserId, int Status);
     private record DriverStatusPayload(Guid Id, Guid UserId, int Status);

@@ -102,6 +102,46 @@ public class DriverRepository : IDriverRepository
             WHERE Id = @Id",
             driver);
 
+    /// <summary>Ultima posicion de varios conductores en UNA sentencia (UPDATE ... FROM unnest).</summary>
+    public Task UpdateLocationsAsync(IReadOnlyList<DriverLocationUpdate> updates, CancellationToken ct = default)
+    {
+        if(updates.Count == 0) return Task.CompletedTask;
+        return _db.ExecuteAsync(@"
+            UPDATE drivers.Drivers d
+            SET CurrentLat        = u.Lat,
+                CurrentLng        = u.Lng,
+                CurrentLocationAt = u.At::timestamp
+            FROM unnest(@Ids, @Lats, @Lngs, @Ats) AS u(Id, Lat, Lng, At)
+            WHERE d.Id = u.Id",
+            new
+            {
+                Ids  = updates.Select(u => u.DriverId).ToArray(),
+                Lats = updates.Select(u => u.Lat).ToArray(),
+                Lngs = updates.Select(u => u.Lng).ToArray(),
+                Ats  = updates.Select(u => DateTime.SpecifyKind(u.AtUtc, DateTimeKind.Utc)).ToArray(),
+            });
+    }
+
+    public async Task<List<OnlineDriverCandidate>> GetOnlineCandidatesAsync(CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<OnlineDriverCandidate>(@"
+            SELECT
+                d.Id           AS DriverId,
+                d.UserId,
+                d.CurrentLat   AS Lat,
+                d.CurrentLng   AS Lng,
+                COALESCE(d.Rating, 0) AS Rating,
+                v.Plate        AS VehiclePlate,
+                v.Brand || ' ' || v.Model AS VehicleModel,
+                v.Color        AS VehicleColor
+            FROM drivers.Drivers d
+            LEFT JOIN drivers.Vehicles v
+                ON v.DriverId = d.Id AND v.IsActive = TRUE
+            WHERE d.IsOnline = TRUE
+              AND d.Status   = 3");
+        return rows.ToList();
+    }
+
     public async Task<List<Driver>> GetWithExpiredDeadlineAsync(DateTime nowUtc, CancellationToken ct = default)
     {
         // Solo aprobados: si ya fue suspendido/rechazado por otro motivo, no aplica.

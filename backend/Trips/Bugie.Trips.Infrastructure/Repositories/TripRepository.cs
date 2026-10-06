@@ -92,7 +92,8 @@ public class TripRepository : ITripRepository {
                  ServiceType, PackageDescription, PackageWeightKg, PackageIsFragile, PackageDetails,
                  PickupVerified, PickupObservation,
                  CreatedAt, AcceptedAt, DriverArrivedAt, StartedAt, CompletedAt,
-                 CancelledBy, CancelReason, RecipientName, RecipientPhone, ScheduledAt)
+                 CancelledBy, CancelReason, RecipientName, RecipientPhone, ScheduledAt,
+                 SuggestedFare, PublishedAt)
             VALUES
                 (@Id, @PassengerId, @DriverId, @VehicleId,
                  @OriginAddress, @OriginLat, @OriginLng,
@@ -102,7 +103,8 @@ public class TripRepository : ITripRepository {
                  @ServiceType, @PackageDescription, @PackageWeightKg, @PackageIsFragile, @PackageDetails,
                  @PickupVerified, @PickupObservation,
                  @CreatedAt, @AcceptedAt, @DriverArrivedAt, @StartedAt, @CompletedAt,
-                 @CancelledBy, @CancelReason, @RecipientName, @RecipientPhone, @ScheduledAt)",
+                 @CancelledBy, @CancelReason, @RecipientName, @RecipientPhone, @ScheduledAt,
+                 @SuggestedFare, @PublishedAt)",
             trip);
 
     public async Task<List<Trip>> GetSosActiveAsync(CancellationToken ct = default) {
@@ -159,9 +161,54 @@ public class TripRepository : ITripRepository {
                 FareBeforeDiscount = @FareBeforeDiscount,
                 ScheduledAt        = @ScheduledAt,
                 Reminder30SentAt   = @Reminder30SentAt,
-                Reminder10SentAt   = @Reminder10SentAt
+                Reminder10SentAt   = @Reminder10SentAt,
+                PublishedAt        = @PublishedAt
             WHERE Id = @Id",
             trip);
+
+    public async Task<bool> AssignDriverAsync(Guid tripId, Guid driverUserId, decimal fare,
+        DateTime acceptedAtUtc, CancellationToken ct = default) {
+        var n = await _db.ExecuteAsync(@"
+            UPDATE trips.Trips
+               SET DriverId = @DriverId, EstimatedFare = @Fare, Status = 2, AcceptedAt = @At,
+                   ProposedFare = NULL, ProposedDriverId = NULL
+             WHERE Id = @Id AND DriverId IS NULL AND Status IN (1, 7)",
+            new { Id = tripId, DriverId = driverUserId, Fare = fare,
+                  At = DateTime.SpecifyKind(acceptedAtUtc, DateTimeKind.Unspecified) });
+        return n > 0;
+    }
+
+    public async Task<bool> ReopenScheduledAfterDriverCancelAsync(Guid tripId, Guid driverUserId,
+        DateTime nowUtc, CancellationToken ct = default) {
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var n = await _db.ExecuteAsync(@"
+            UPDATE trips.Trips
+               SET DriverId = NULL, VehicleId = NULL, AcceptedAt = NULL, DriverArrivedAt = NULL,
+                   ProposedFare = NULL, ProposedDriverId = NULL,
+                   Reminder30SentAt = NULL, Reminder10SentAt = NULL,
+                   Status = 1, PublishedAt = @Now
+             WHERE Id = @Id AND DriverId = @DriverId AND Status = 2
+               AND ScheduledAt IS NOT NULL AND ScheduledAt > @Now",
+            new { Id = tripId, DriverId = driverUserId, Now = now });
+        return n > 0;
+    }
+
+    public async Task<List<Trip>> CancelUnassignedImmediateAsync(DateTime nowUtc, int minutes, string reason,
+        CancellationToken ct = default) {
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var rows = await _db.QueryAsync<Trip>(@"
+            UPDATE trips.Trips t
+               SET Status = 5, CancelledBy = 'system', CancelReason = @Reason, CancelledAt = @Now
+             WHERE t.Status IN (1, 7)
+               AND t.DriverId IS NULL
+               AND t.ScheduledAt IS NULL
+               AND COALESCE(t.PublishedAt, t.CreatedAt) <= @Now - make_interval(mins => @Minutes)
+               AND NOT EXISTS (SELECT 1 FROM trips.TripProposals p
+                               WHERE p.TripId = t.Id AND p.Status = 'accepted_by_passenger')
+            RETURNING t.*",
+            new { Now = now, Minutes = minutes, Reason = reason });
+        return rows.ToList();
+    }
 
     public async Task<List<Guid>> GetDriversWithActiveTripAsync(
         IEnumerable<Guid> driverUserIds, CancellationToken ct = default) {

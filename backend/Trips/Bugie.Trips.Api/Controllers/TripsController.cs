@@ -30,15 +30,26 @@ public class TripsController : ControllerBase
     private readonly ITripNotificationService _notify;
     private readonly IRewardsClient _rewardsClient;
     private readonly IDriversClient _driversClient;
+    private readonly ILandingClient _landing;
+    // Tiempo real a pasajero y conductor (hub /hubs/trips). Fire-and-forget, nunca lanza.
+    private readonly ITripRealtimeNotifier _realtime;
+    // Conexion de la peticion (la misma que usan los repositorios): para las transacciones.
+    private readonly System.Data.IDbConnection _db;
 
     public TripsController(IMediator mediator, ITripRepository trips,
         IHttpClientFactory httpFactory, ITripProposalRepository proposals,
         IPassengerAcceptanceCancellationRepository cancellations,
         ITripNotificationService notify,
         IRewardsClient rewardsClient,
-        IDriversClient driversClient)
+        IDriversClient driversClient,
+        ILandingClient landing,
+        ITripRealtimeNotifier realtime,
+        System.Data.IDbConnection db)
     {
         _driversClient = driversClient;
+        _landing = landing;
+        _realtime = realtime;
+        _db = db;
         _mediator = mediator;
         _trips = trips;
         _http = httpFactory.CreateClient();
@@ -53,7 +64,7 @@ public class TripsController : ControllerBase
 
     /// <summary>
     /// Solo un usuario con rol driver y perfil de conductor APROBADO (estado 3)
-    /// puede actuar como conductor (mismo criterio que AcceptTripHandler).
+    /// puede actuar como conductor.
     /// null = puede; si no, 403 (no es conductor) o 409 (suspendido, rechazado,
     /// pendiente, sin perfil o Drivers no responde).
     /// </summary>
@@ -89,6 +100,9 @@ public class TripsController : ControllerBase
         try
         {
             var dto = await _mediator.Send(cmd, ct);
+            // Tiempo real: otras pantallas del pasajero y la lista de solicitudes de los conductores.
+            _ = _realtime.TripChangedAsync(dto.Id, (int)dto.Status, RealtimeReasons.Created, dto.PassengerId, null);
+            _ = _realtime.RequestsChangedAsync(dto.Id, RealtimeReasons.Published);
             return Ok(dto);
         }
         catch(InvalidOperationException ex)
@@ -182,6 +196,8 @@ public class TripsController : ControllerBase
         // El conductor quitado ya no ve el viaje como suyo.
         await _proposals.RejectDriverOnTripAsync(id, removedDriver, "driver_no_show", ct);
         _ = _notify.NotifyDriverRemovedNoShowAsync(removedDriver, id, trip.ServiceType);
+        _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Reopened, alsoNotify: new[] { removedDriver });
+        _ = _realtime.RequestsChangedAsync(id, RealtimeReasons.RequestsReopened);
 
         // Los demas conductores lo vuelven a ver (y reciben el aviso).
         await _mediator.Send(new NotifyNearbyDriversCommand(id), ct);
@@ -189,27 +205,120 @@ public class TripsController : ControllerBase
         return Ok(CreateTripHandler.ToDto(trip));
     }
 
-    [HttpPut("{id:guid}/accept")]
-    public async Task<IActionResult> Accept(Guid id, CancellationToken ct)
-    {
-        var denied = await EnsureApprovedDriverAsync(ct);
-        if(denied is not null) return denied;
+    // PUT /api/trips/{id}/accept (asignacion directa del conductor) se quito:
+    // el conductor acepta con driver-accept (el pasajero confirma), propone con
+    // propose o acepta la contraoferta del pasajero con accept-counter.
 
-        try
+    /// <summary>
+    /// Mensaje si el conductor no puede tomar este viaje porque esta ocupado; null si esta libre.
+    /// - Inmediato: tiene un viaje activo (o asignado). checkWaiting: ademas, una oferta
+    ///   suya aceptada por otro pasajero esperando su confirmacion.
+    /// - Programado: choque con otro programado suyo (margen ScheduledTrips.ConflictMarginMinutes)
+    ///   o, si este programado empieza dentro de ese margen, un viaje activo.
+    /// forDriver: texto para el conductor (true) o para el pasajero (false).
+    /// </summary>
+    private async Task<string?> DriverBusyMessageAsync(
+        Guid driverUserId, Trip trip, bool forDriver, bool checkWaiting, CancellationToken ct)
+    {
+        var active = await _trips.GetActiveTripAsync(driverUserId, ct);
+        if(active is not null && active.Id == trip.Id) active = null;
+
+        if(trip.ScheduledAt.HasValue)
         {
-            var dto = await _mediator.Send(new AcceptTripCommand(id, CurrentUserId), ct);
-            // Notificar al pasajero que el conductor confirmó/aceptó.
-            _ = _notify.NotifyPassengerDriverConfirmedAsync(dto.PassengerId, id, dto.ServiceType);
-            return Ok(dto);
+            var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, driverUserId, trip, ct, forDriver);
+            if(conflict is not null) return conflict;
+            if(active is not null &&
+               trip.ScheduledAt.Value <= DateTime.UtcNow.AddMinutes(Bugie.Trips.Domain.Common.ScheduledTrips.ConflictMarginMinutes))
+                return forDriver
+                    ? "Tienes un viaje activo y este programado empieza en menos de 1 hora."
+                    : "Este conductor está en otro viaje y no llega a tu programado. Elige otra oferta.";
+            return null;
         }
-        catch(InvalidOperationException ex)
+
+        if(active is not null)
+            return forDriver
+                ? "Ya tienes un viaje activo. Termínalo antes de tomar otro."
+                : "Este conductor ya tomó otro viaje. Elige otra oferta.";
+
+        if(checkWaiting)
         {
-            return Conflict(new { error = ex.Message });
+            var waiting = await _proposals.GetAcceptedByPassengerForDriverAsync(driverUserId, ct);
+            if(waiting is not null && waiting.TripId != trip.Id)
+                return "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o espera a que venza.";
         }
-        catch(KeyNotFoundException ex)
+        return null;
+    }
+
+    private static bool IsSearching(Trip trip) =>
+        trip.DriverId is null &&
+        (trip.Status == Bugie.Trips.Domain.Enums.TripStatus.Pending ||
+         trip.Status == Bugie.Trips.Domain.Enums.TripStatus.Negotiating);
+
+    /// <summary>
+    /// Cierra el trato en UNA transaccion: la propuesta pasa a 'accepted' (solo si
+    /// sigue en fromStatuses), el viaje se asigna (solo si sigue buscando
+    /// conductor), las demas propuestas del viaje se rechazan y, si es inmediato,
+    /// las del conductor en otros viajes inmediatos (driver_busy).
+    /// Si algo cambio en medio (otro conductor, el pasajero cancelo...) no queda
+    /// nada a medias y se responde 409.
+    /// Avisa a los conductores cuya oferta aceptada se cerro y a los pasajeros
+    /// cuyo conductor elegido quedo ocupado.
+    /// </summary>
+    private async Task<(IActionResult? Error, int Cascaded)> AssignAsync(
+        Trip trip, TripProposal proposal, string[] fromStatuses, string staleMessage, CancellationToken ct)
+    {
+        if(_db.State != System.Data.ConnectionState.Open) _db.Open();
+        List<ClosedProposal> others, cascaded;
+        var now = DateTime.UtcNow;
+        using(var tx = _db.BeginTransaction())
         {
-            return NotFound(new { error = ex.Message });
+            // Primero el viaje: su fila es el "candado" comun. Si dos confirmaciones
+            // llegan a la vez, la segunda espera aqui y al seguir ve el viaje tomado
+            // (0 filas) -> 409. Si se bloqueara primero la propuesta, cada una
+            // tendria la suya y al rechazar las demas se cruzarian (deadlock).
+            if(!await _trips.AssignDriverAsync(trip.Id, proposal.DriverId, proposal.Fare, now, ct))
+            {
+                tx.Rollback();
+                return (Conflict(new { error = "Este viaje ya fue tomado." }), 0);
+            }
+            if(!await _proposals.TransitionAsync(proposal.Id, fromStatuses, "accepted", null, ct))
+            {
+                tx.Rollback();
+                return (Conflict(new { error = staleMessage }), 0);
+            }
+            others = await _proposals.RejectOthersAsync(trip.Id, proposal.Id, ct);
+            // Un programado no ocupa al conductor ahora: sin cascada.
+            cascaded = trip.IsScheduled
+                ? new List<ClosedProposal>()
+                : await _proposals.RejectAllOtherPendingByDriverAsync(proposal.DriverId, trip.Id, ct);
+            tx.Commit();
         }
+
+        trip.EstimatedFare = proposal.Fare;
+        trip.DriverId = proposal.DriverId;
+        trip.Status = Bugie.Trips.Domain.Enums.TripStatus.Accepted;
+        trip.AcceptedAt = now;
+        trip.ProposedFare = null;
+        trip.ProposedDriverId = null;
+
+        foreach(var o in others.Where(o => o.OldStatus == "accepted_by_passenger"))
+            _ = _notify.NotifyDriverNotChosenAsync(o.DriverId, trip.Id, trip.ServiceType);
+        foreach(var c in cascaded.Where(c => c.OldStatus == "accepted_by_passenger"))
+            _ = _notify.NotifyPassengerChosenDriverBusyAsync(c.PassengerId, c.TripId, c.ServiceType);
+
+        // Tiempo real: el viaje quedo asignado (pasajero + conductor), la oferta ganadora,
+        // las demas ofertas del viaje, las del conductor en otros viajes y la lista de
+        // solicitudes de todos los conductores (el viaje ya no esta disponible).
+        _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Accepted);
+        _ = _realtime.ProposalsChangedAsync(trip.Id, trip.PassengerId, proposal.DriverId, proposal.Id, "accepted", "accepted");
+        foreach(var o in others)
+            _ = _realtime.ProposalsChangedAsync(trip.Id, trip.PassengerId, o.DriverId, o.ProposalId, "rejected",
+                o.OldStatus == "accepted_by_passenger" ? "not_chosen" : "trip_taken");
+        foreach(var c in cascaded)
+            _ = _realtime.ProposalsChangedAsync(c.TripId, c.PassengerId, c.DriverId, c.ProposalId, "rejected", "driver_busy");
+        _ = _realtime.RequestsChangedAsync(trip.Id, RealtimeReasons.Taken);
+
+        return (null, cascaded.Count);
     }
 
     /// <summary>
@@ -225,13 +334,22 @@ public class TripsController : ControllerBase
 
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
-        if(trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Pending &&
-           trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Negotiating)
+        if(!IsSearching(trip))
             return BadRequest(new { error = "Este viaje ya no está disponible." });
 
-        // Programado: no puede chocar con otro programado suyo (margen 1 hora).
-        var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
-        if(conflict is not null) return Conflict(new { error = conflict });
+        // Ocupado: viaje activo, oferta aceptada en otro viaje o choque de programados.
+        if(!trip.IsScheduled)
+        {
+            var waitingConfirm = await _proposals.GetAcceptedByPassengerForDriverAsync(CurrentUserId, ct);
+            if(waitingConfirm is not null && waitingConfirm.TripId != id)
+                return Conflict(new
+                {
+                    error = "Un pasajero ya aceptó tu propuesta en otro viaje. Confírmalo o espera a que venza.",
+                    waitingTripId = waitingConfirm.TripId,
+                });
+        }
+        var busy = await DriverBusyMessageAsync(CurrentUserId, trip, forDriver: true, checkWaiting: false, ct);
+        if(busy is not null) return Conflict(new { error = busy });
 
         // ¿Este conductor ya aceptó este viaje? No duplicar.
         var existing = await _proposals.GetDirectAcceptAsync(id, CurrentUserId, ct);
@@ -243,6 +361,18 @@ public class TripsController : ControllerBase
                 status = "driver_accepted",
             });
 
+        // Si el pasajero ya aceptó su oferta, lo que corresponde es confirmarla.
+        var accepted = await _proposals.GetAcceptedByPassengerOnTripAsync(id, ct);
+        if(accepted is not null && accepted.DriverId == CurrentUserId)
+            return Conflict(new
+            {
+                error = "El pasajero ya aceptó tu oferta. Confírmala para tomar el viaje.",
+                proposalId = accepted.Id,
+            });
+
+        // Su oferta / la contraoferta del pasajero hacia él quedan reemplazadas.
+        await _proposals.SupersedePendingAsync(id, CurrentUserId, includeDriverAccepted: false, ct);
+
         // Crear la aceptación (propuesta a tarifa estimada, estado driver_accepted).
         var accept = Bugie.Trips.Domain.Entities.TripProposal.Create(
             id, CurrentUserId, trip.EstimatedFare);
@@ -251,6 +381,7 @@ public class TripsController : ControllerBase
 
         // Notificar al pasajero que un conductor aceptó su viaje.
         _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, trip.EstimatedFare, trip.ServiceType);
+        _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, CurrentUserId, accept.Id, "driver_accepted", "driver_accepted");
 
         return Ok(new
         {
@@ -279,35 +410,30 @@ public class TripsController : ControllerBase
         if(trip.PassengerId != CurrentUserId) return Forbid();
         if(trip.DriverId is not null)
             return Conflict(new { error = "Este viaje ya tiene un conductor asignado." });
+        if(!IsSearching(trip))
+            return Conflict(new { error = "Este viaje ya no está disponible." });
 
         // El conductor tiene que seguir aprobado (pudo ser suspendido despues de aceptar).
         var driverStatus = await _driversClient.GetDriverStatusByUserIdAsync(proposal.DriverId, ct);
         if(driverStatus?.Status != Bugie.Trips.Api.Security.DriverAccess.StatusApproved)
             return Conflict(new { error = "Este conductor ya no está disponible. Elige otra propuesta." });
 
-        // Programado: el conductor no puede tener otro programado a menos de 1 hora.
-        var conflict = await ScheduledConflicts.FindConflictMessageAsync(
-            _trips, proposal.DriverId, trip, ct, forDriver: false);
-        if(conflict is not null) return Conflict(new { error = conflict });
+        // El conductor no puede estar ocupado (viaje activo / choque de programados).
+        // Su aceptación se cierra para que el pasajero no la vuelva a ver.
+        var busy = await DriverBusyMessageAsync(proposal.DriverId, trip, forDriver: false, checkWaiting: false, ct);
+        if(busy is not null)
+        {
+            await _proposals.TransitionAsync(proposalId, new[] { "driver_accepted" }, "rejected", "driver_busy", ct);
+            _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, proposal.DriverId, proposalId, "rejected", "driver_busy");
+            return Conflict(new { error = busy });
+        }
 
-        // 1) Marcar esta aceptación como aceptada definitiva.
-        await _proposals.UpdateStatusAsync(proposalId, "accepted", null, ct);
-        // 2) Rechazar las otras propuestas/aceptaciones del mismo viaje.
-        await _proposals.RejectOthersAsync(id, proposalId, ct);
-        // 3) Cascada: aceptaciones/propuestas del MISMO conductor en OTROS viajes.
-        //    Un programado no ocupa al conductor ahora: sin cascada.
-        var cascaded = trip.IsScheduled ? 0 : await _proposals.RejectAllOtherPendingByDriverAsync(
-            proposal.DriverId, id, ct);
+        var (error, cascaded) = await AssignAsync(trip, proposal,
+            new[] { "driver_accepted" }, "Esta aceptación ya no está vigente.", ct);
+        if(error is not null) return error;
 
-        // 4) Asignar conductor y pasar a Accepted ("Conductor en camino").
-        trip.EstimatedFare = proposal.Fare;
-        trip.DriverId = proposal.DriverId;
-        trip.Status = Bugie.Trips.Domain.Enums.TripStatus.Accepted;
-        trip.AcceptedAt = DateTime.UtcNow;
-        await _trips.UpdateAsync(trip, ct);
-
-        // 5) Notificar al conductor que el pasajero lo confirmó (va a recogerlo).
-        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType);
+        // Aviso al conductor: inmediato "Ve al punto de recojo"; programado, con fecha y hora.
+        _ = _notify.NotifyDriverChosenAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType, trip.ScheduledAt);
 
         return Ok(new
         {
@@ -317,9 +443,10 @@ public class TripsController : ControllerBase
     }
 
     /// <summary>
-    /// Propuesta del conductor. Si ya tiene una propuesta pending para este viaje,
-    /// se marca como 'superseded' y se inserta la nueva. Esto preserva el historial.
-    /// Si el viaje ya fue tomado por otro conductor, rechaza la propuesta.
+    /// Propuesta del conductor. Si ya tiene una propuesta pending (o su aceptación
+    /// a tarifa) para este viaje, se marca como 'superseded' y se inserta la nueva.
+    /// Esto preserva el historial. Si el viaje ya fue tomado, rechaza la propuesta.
+    /// Monto: entre base_fare y SuggestedFare x fare_max_multiplier.
     /// </summary>
     [HttpPut("{id:guid}/propose")]
     public async Task<IActionResult> Propose(Guid id, [FromBody] ProposeFareRequest req, CancellationToken ct)
@@ -330,21 +457,25 @@ public class TripsController : ControllerBase
         var trip = await _trips.GetByIdAsync(id, ct);
         if(trip is null) return NotFound();
 
-        // Validar que el viaje siga disponible (Pending o Negotiating).
+        // Validar que el viaje siga disponible (Pending o Negotiating, sin conductor).
         // Si ya fue aceptado, completado, cancelado, etc. → bloquear.
-        if(trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Pending &&
-            trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Negotiating)
+        if(!IsSearching(trip))
         {
             return BadRequest(new { error = "Este viaje ya no está disponible. Otro conductor lo tomó." });
         }
 
+        // Rango de precio permitido.
+        var rules = await NegotiationRules.LoadAsync(_landing, ct);
+        var fareError = rules.FareError(req.ProposedFare, trip.SuggestedFare ?? trip.EstimatedFare);
+        if(fareError is not null) return BadRequest(new { error = fareError });
+
         // VALIDACIÓN: el conductor no puede proponer si ya está ocupado
         // (viaje activo o propuesta accepted_by_passenger pendiente de confirmar).
-        // Programado: no lo bloquea un viaje activo (es para mas tarde), pero no
-        // puede chocar con otro programado suyo (margen 1 hora).
+        // Programado: no lo bloquea un viaje activo (salvo que empiece en menos
+        // de 1 hora), pero no puede chocar con otro programado suyo (margen 1 hora).
         if(trip.IsScheduled)
         {
-            var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
+            var conflict = await DriverBusyMessageAsync(CurrentUserId, trip, forDriver: true, checkWaiting: false, ct);
             if(conflict is not null) return Conflict(new { error = conflict });
         }
         else
@@ -362,8 +493,18 @@ public class TripsController : ControllerBase
                 });
         }
 
-        // 1) Marcar como 'superseded' la propuesta pending vigente del conductor (si existe)
-        await _proposals.SupersedePendingAsync(id, CurrentUserId, ct);
+        // Si el pasajero ya aceptó su oferta en ESTE viaje, no puede cambiar el monto.
+        var accepted = await _proposals.GetAcceptedByPassengerOnTripAsync(id, ct);
+        if(accepted is not null && accepted.DriverId == CurrentUserId)
+            return Conflict(new
+            {
+                error = "El pasajero ya aceptó tu oferta. Confírmala o espera a que venza.",
+                proposalId = accepted.Id,
+            });
+
+        // 1) Marcar como 'superseded' la propuesta pending vigente del conductor
+        //    (y su aceptación a tarifa, driver_accepted, si la tenía).
+        await _proposals.SupersedePendingAsync(id, CurrentUserId, includeDriverAccepted: true, ct);
 
         // 2) Insertar la nueva propuesta como pending
         var proposal = TripProposal.Create(id, CurrentUserId, req.ProposedFare);
@@ -374,10 +515,12 @@ public class TripsController : ControllerBase
         {
             trip.ProposeFare(CurrentUserId, req.ProposedFare);
             await _trips.UpdateAsync(trip, ct);
+            _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Proposal);
         }
 
         // 4) Notificar al pasajero que llegó una propuesta nueva.
         _ = _notify.NotifyPassengerDriverProposeAsync(trip.PassengerId, id, req.ProposedFare, trip.ServiceType);
+        _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, CurrentUserId, proposal.Id, "pending", "proposed");
 
         return Ok(new { message = "Propuesta enviada", proposalId = proposal.Id });
     }
@@ -433,14 +576,12 @@ public class TripsController : ControllerBase
     /// Importante: este endpoint NO asigna el conductor todavía. El viaje
     /// queda en estado normal y la propuesta pasa a 'accepted_by_passenger'.
     /// El conductor verá esa propuesta y deberá confirmar con
-    /// PUT /api/trips/{id}/confirm-acceptance/{proposalId} para que el viaje
-    /// quede realmente asignado.
+    /// PUT /api/trips/{id}/confirm-acceptance/{proposalId} antes de
+    /// confirmExpiresAt (driver_confirm_immediate_min / driver_confirm_scheduled_before_min);
+    /// si no, vence (rejected / driver_no_confirm).
     ///
-    /// Justificación: el conductor puede tener varias propuestas activas en
-    /// distintos viajes, y debe poder elegir cuál confirma. Sin este paso
-    /// intermedio se le asignaría automáticamente el primer pasajero que
-    /// aceptase, perdiendo control y rechazando sus otras negociaciones de
-    /// forma silenciosa.
+    /// Solo puede haber UNA aceptación del pasajero por viaje (índice único):
+    /// para elegir otra, primero deshace la actual (cancel-acceptance).
     /// </summary>
     [HttpPut("{id:guid}/accept-proposal/{proposalId:guid}")]
     public async Task<IActionResult> AcceptProposal(Guid id, Guid proposalId, CancellationToken ct)
@@ -455,17 +596,43 @@ public class TripsController : ControllerBase
         if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
         if(trip.PassengerId != CurrentUserId)
             return Forbid();
+        if(proposal.ProposedByRole == "passenger")
+            return Conflict(new { error = "Es tu contraoferta: espera la respuesta del conductor." });
+        if(!IsSearching(trip))
+            return Conflict(new { error = "Este viaje ya no está disponible." });
 
-        // Marcar la propuesta como 'aceptada por el pasajero'.
-        // El conductor verá la señal y tendrá que confirmar.
-        // Las otras propuestas del MISMO viaje quedan en pending todavía:
-        // si el conductor no confirma a tiempo, el pasajero podrá aceptar otra.
-        await _proposals.UpdateStatusAsync(proposalId, "accepted_by_passenger", null, ct);
+        // Una sola aceptación del pasajero por viaje.
+        var already = await _proposals.GetAcceptedByPassengerOnTripAsync(id, ct);
+        if(already is not null)
+            return Conflict(new
+            {
+                error = "Ya aceptaste otra oferta en este viaje. Espera la confirmación de ese conductor o deshaz tu aceptación.",
+                acceptedProposalId = already.Id,
+            });
+
+        // Marcar la propuesta como 'aceptada por el pasajero' (solo si sigue pending).
+        bool marked;
+        try
+        {
+            marked = await _proposals.MarkAcceptedByPassengerAsync(proposalId, ct);
+        }
+        catch(Npgsql.PostgresException ex) when(ex.SqlState == Npgsql.PostgresErrorCodes.UniqueViolation)
+        {
+            // Dos aceptaciones al mismo tiempo: el índice único deja pasar solo una.
+            return Conflict(new { error = "Ya aceptaste otra oferta en este viaje. Espera la confirmación de ese conductor o deshaz tu aceptación." });
+        }
+        if(!marked)
+            return Conflict(new { error = "Esta propuesta ya no está vigente." });
+
+        // Plazo del conductor para confirmar.
+        proposal.AcceptedByPassengerAt = DateTime.UtcNow;
+        var rules = await NegotiationRules.LoadAsync(_landing, ct);
+        var confirmExpiresAt = rules.ConfirmDeadline(trip, proposal);
 
         // Notificar al conductor que su propuesta fue aceptada y que debe
-        // confirmar para iniciar el viaje. Es el evento que resolvía el bug
-        // de UX: el conductor antes no veía señal hasta volver a la lista.
-        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType);
+        // confirmar (con la hora límite).
+        _ = _notify.NotifyDriverPassengerAcceptedAsync(proposal.DriverId, id, proposal.Fare, trip.ServiceType, confirmExpiresAt);
+        _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, proposal.DriverId, proposalId, "accepted_by_passenger", "accepted_by_passenger");
 
         return Ok(new
         {
@@ -473,6 +640,7 @@ public class TripsController : ControllerBase
             tripId = id,
             proposalId,
             status = "accepted_by_passenger",
+            confirmExpiresAt,
         });
     }
 
@@ -480,7 +648,7 @@ public class TripsController : ControllerBase
     /// El CONDUCTOR confirma la propuesta que el pasajero ya aceptó.
     /// Aquí se asigna el conductor y el viaje pasa a 'Accepted'.
     /// Además, todas las otras propuestas pending/accepted_by_passenger del
-    /// mismo conductor en OTROS viajes se rechazan en cascada (driver_busy).
+    /// mismo conductor en OTROS viajes inmediatos se rechazan en cascada (driver_busy).
     /// </summary>
     [HttpPut("{id:guid}/confirm-acceptance/{proposalId:guid}")]
     public async Task<IActionResult> ConfirmAcceptance(Guid id, Guid proposalId, CancellationToken ct)
@@ -500,31 +668,74 @@ public class TripsController : ControllerBase
         if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
         if(trip.DriverId is not null)
             return Conflict(new { error = "Este viaje ya tiene un conductor asignado." });
+        if(!IsSearching(trip))
+            return Conflict(new { error = "Este viaje ya no está disponible." });
 
-        // Programado: no puede chocar con otro programado suyo (margen 1 hora).
-        var conflict = await ScheduledConflicts.FindConflictMessageAsync(_trips, CurrentUserId, trip, ct);
-        if(conflict is not null) return Conflict(new { error = conflict });
+        // Plazo vencido: se cierra ya (el servicio de vencimientos lo haría en segundos).
+        var rules = await NegotiationRules.LoadAsync(_landing, ct);
+        if(DateTime.UtcNow > rules.ConfirmDeadline(trip, proposal))
+        {
+            if(await _proposals.TransitionAsync(proposalId, new[] { "accepted_by_passenger" }, "rejected", "driver_no_confirm", ct))
+            {
+                _ = _notify.NotifyPassengerDriverNoConfirmAsync(trip.PassengerId, id, trip.ServiceType);
+                _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, CurrentUserId, proposalId, "rejected", "driver_no_confirm");
+            }
+            return Conflict(new { error = "Se venció el plazo para confirmar este viaje." });
+        }
 
-        // 1) Marcar la propuesta como aceptada definitiva.
-        await _proposals.UpdateStatusAsync(proposalId, "accepted", null, ct);
-        // 2) Las otras propuestas DEL MISMO VIAJE pasan a rejected.
-        await _proposals.RejectOthersAsync(id, proposalId, ct);
-        // 3) RECHAZO EN CASCADA: las propuestas del MISMO CONDUCTOR en OTROS
-        //    viajes (pending o accepted_by_passenger) se rechazan con motivo
-        //    'driver_busy'. El conductor queda libre solo para este viaje.
-        //    Un programado no ocupa al conductor ahora: sin cascada.
-        var cascaded = trip.IsScheduled ? 0 : await _proposals.RejectAllOtherPendingByDriverAsync(
-            CurrentUserId, id, ct);
+        // Ocupado: viaje activo / choque de programados.
+        var busy = await DriverBusyMessageAsync(CurrentUserId, trip, forDriver: true, checkWaiting: false, ct);
+        if(busy is not null) return Conflict(new { error = busy });
 
-        // 4) Asignar conductor y tarifa.
-        trip.EstimatedFare = proposal.Fare;
-        trip.DriverId = proposal.DriverId;
-        trip.Status = Bugie.Trips.Domain.Enums.TripStatus.Accepted;
-        trip.AcceptedAt = DateTime.UtcNow;
-        await _trips.UpdateAsync(trip, ct);
+        var (error, cascaded) = await AssignAsync(trip, proposal,
+            new[] { "accepted_by_passenger" }, "Esta propuesta no está esperando tu confirmación.", ct);
+        if(error is not null) return error;
 
-        // 5) Notificar al pasajero que el conductor confirmó. Viaje en curso.
-        _ = _notify.NotifyPassengerDriverConfirmedAsync(trip.PassengerId, id, trip.ServiceType);
+        // Notificar al pasajero: inmediato "Conductor en camino"; programado "Conductor asignado para...".
+        _ = _notify.NotifyPassengerDriverConfirmedAsync(trip.PassengerId, id, trip.ServiceType, trip.ScheduledAt);
+
+        return Ok(new
+        {
+            tripDto = CreateTripHandler.ToDto(trip),
+            otherProposalsRejected = cascaded,
+        });
+    }
+
+    /// <summary>
+    /// POST /api/trips/{id}/accept-counter/{proposalId}
+    /// El CONDUCTOR acepta la contraoferta que el pasajero le envió, a ESE monto.
+    /// Como el pasajero ya ofreció ese monto a este conductor, se asigna directo
+    /// (no hay paso de confirmación del pasajero), con las mismas validaciones
+    /// que confirm-acceptance. Respuesta igual: { tripDto, otherProposalsRejected }.
+    /// </summary>
+    [HttpPost("{id:guid}/accept-counter/{proposalId:guid}")]
+    public async Task<IActionResult> AcceptCounter(Guid id, Guid proposalId, CancellationToken ct)
+    {
+        var denied = await EnsureApprovedDriverAsync(ct);
+        if(denied is not null) return denied;
+
+        var proposal = await _proposals.GetByIdAsync(proposalId, ct);
+        if(proposal is null) return NotFound(new { error = "Contraoferta no encontrada." });
+        if(proposal.TripId != id) return BadRequest(new { error = "La contraoferta no pertenece a este viaje." });
+        if(proposal.DriverId != CurrentUserId) return Forbid();
+        if(proposal.ProposedByRole != "passenger")
+            return BadRequest(new { error = "Esta no es una contraoferta del pasajero." });
+        if(proposal.Status != "pending")
+            return Conflict(new { error = "Esta contraoferta ya no está vigente." });
+
+        var trip = await _trips.GetByIdAsync(id, ct);
+        if(trip is null) return NotFound(new { error = "Viaje no encontrado." });
+        if(!IsSearching(trip))
+            return Conflict(new { error = "Este viaje ya fue tomado." });
+
+        var busy = await DriverBusyMessageAsync(CurrentUserId, trip, forDriver: true, checkWaiting: false, ct);
+        if(busy is not null) return Conflict(new { error = busy });
+
+        var (error, cascaded) = await AssignAsync(trip, proposal,
+            new[] { "pending" }, "Esta contraoferta ya no está vigente.", ct);
+        if(error is not null) return error;
+
+        _ = _notify.NotifyPassengerDriverConfirmedAsync(trip.PassengerId, id, trip.ServiceType, trip.ScheduledAt);
 
         return Ok(new
         {
@@ -536,17 +747,11 @@ public class TripsController : ControllerBase
     /// <summary>
     /// El PASAJERO deshace su aceptación de una propuesta antes de que el
     /// conductor confirme. La propuesta vuelve a 'pending' (no se rechaza),
-    /// así el conductor puede seguir confirmando si quiere. El pasajero queda
-    /// libre para aceptar otra propuesta.
+    /// así el conductor puede seguir ofertando. El pasajero queda libre para
+    /// aceptar otra propuesta. Se avisa al conductor.
     ///
     /// Se guarda un registro inmutable en trips.PassengerAcceptanceCancellations
     /// con TripId, ProposalId, PassengerId y CanceledAt para auditoría.
-    ///
-    /// Validaciones:
-    /// - Solo el pasajero del viaje puede deshacer.
-    /// - La propuesta debe estar en estado 'accepted_by_passenger'.
-    /// - El viaje no debe haber sido aceptado por el conductor todavía
-    ///   (DriverId == null y status no Accepted/InProgress/Completed/Cancelled).
     /// </summary>
     [HttpPut("{id:guid}/cancel-acceptance/{proposalId:guid}")]
     public async Task<IActionResult> CancelAcceptance(
@@ -563,23 +768,26 @@ public class TripsController : ControllerBase
         if(trip.PassengerId != CurrentUserId) return Forbid();
 
         // Si el viaje ya tiene conductor asignado, NO se puede deshacer.
-        // El conductor ya confirmó (race condition: el pasajero presiona
-        // "deshacer" justo cuando el conductor presiona "confirmar").
         if(trip.DriverId is not null)
             return Conflict(new
             {
                 error = "El conductor ya confirmó. No puedes cambiar de opinión."
             });
 
-        // 1) Volver la propuesta a 'pending'. El conductor podría seguir
-        //    confirmando si quiere, pero ya no bloquea al pasajero.
-        await _proposals.UpdateStatusAsync(proposalId, "pending", null, ct);
+        // 1) Volver la propuesta a 'pending' solo si sigue esperando confirmación
+        //    (si el conductor confirmó en ese instante, gana la confirmación).
+        if(!await _proposals.UndoAcceptedByPassengerAsync(proposalId, ct))
+            return Conflict(new { error = "Esta propuesta no está en estado pendiente de confirmación." });
 
         // 2) Guardar registro histórico (auditoría / métricas).
         await _cancellations.AddAsync(
             Bugie.Trips.Domain.Entities.PassengerAcceptanceCancellation.Create(
                 id, proposalId, CurrentUserId),
             ct);
+
+        // 3) Avisar al conductor: ya no tiene que confirmar.
+        _ = _notify.NotifyDriverAcceptanceUndoneAsync(proposal.DriverId, id, trip.ServiceType);
+        _ = _realtime.ProposalsChangedAsync(id, trip.PassengerId, proposal.DriverId, proposalId, "pending", "acceptance_undone");
 
         return Ok(new
         {
@@ -635,6 +843,7 @@ public class TripsController : ControllerBase
         }
         // Notificar al pasajero que el viaje arrancó.
         _ = _notify.NotifyPassengerTripStartedAsync(trip.PassengerId, id, trip.ServiceType);
+        _ = _realtime.TripChangedAsync(id, (int)dto.Status, RealtimeReasons.Started, trip.PassengerId, trip.DriverId);
         return Ok(dto);
     }
 
@@ -665,6 +874,7 @@ public class TripsController : ControllerBase
         }
         await _trips.UpdateAsync(trip, ct);
         _ = _notify.NotifyPassengerDriverArrivedAsync(trip.PassengerId, id, trip.ServiceType);
+        _ = _realtime.TripChangedAsync(trip, RealtimeReasons.DriverArrived);
         return Ok(CreateTripHandler.ToDto(trip));
     }
 
@@ -697,6 +907,11 @@ public class TripsController : ControllerBase
             // Ej.: envio sin confirmar la entrega, o viaje que no esta en curso.
             return Conflict(new { error = ex.Message });
         }
+
+        // Tiempo real: pasajero y conductor (la pantalla pasa a "viaje terminado").
+        _ = _realtime.TripChangedAsync(id, (int)result.Status, RealtimeReasons.Completed, trip.PassengerId, trip.DriverId);
+        // Drivers consolida el recorrido GPS del viaje (drivers.trippaths). Si falla, lo hace su job nocturno.
+        _ = _driversClient.ConsolidateTripPathAsync(id);
 
         // Crear pago automáticamente al completar el viaje
         if(trip.DriverId.HasValue)
@@ -758,8 +973,10 @@ public class TripsController : ControllerBase
     {
         try
         {
-            return Ok(await _mediator.Send(
-                new ApplyCouponCommand(id, CurrentUserId, body.Code ?? string.Empty), ct));
+            var applied = await _mediator.Send(
+                new ApplyCouponCommand(id, CurrentUserId, body.Code ?? string.Empty), ct);
+            await NotifyCouponChangedAsync(id, ct);
+            return Ok(applied);
         }
         catch (KeyNotFoundException ex)         { return NotFound(new { error = ex.Message }); }
         catch (UnauthorizedAccessException ex)  { return StatusCode(403, new { error = ex.Message }); }
@@ -773,6 +990,7 @@ public class TripsController : ControllerBase
         try
         {
             await _mediator.Send(new RemoveCouponCommand(id, CurrentUserId), ct);
+            await NotifyCouponChangedAsync(id, ct);
             return Ok(new { message = "Cupon quitado." });
         }
         catch (KeyNotFoundException ex)        { return NotFound(new { error = ex.Message }); }
@@ -780,12 +998,21 @@ public class TripsController : ControllerBase
         catch (InvalidOperationException ex)   { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>TripChanged (reason coupon): el conductor ve al instante el nuevo monto a cobrar.</summary>
+    private async Task NotifyCouponChangedAsync(Guid tripId, CancellationToken ct)
+    {
+        var trip = await _trips.GetByIdAsync(tripId, ct);
+        if(trip is not null) _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Coupon);
+    }
+
     /// <summary>
     /// PUT /api/trips/{id}/cancel  body opcional: { "reason": "..." }
     /// Se guarda QUIEN cancela de verdad (pasajero, conductor o admin):
     ///  - pasajero: mientras el viaje no termine.
     ///  - conductor: solo con el viaje aceptado y antes de iniciarlo
-    ///    (ya en curso, se usa SOS o se completa).
+    ///    (ya en curso, se usa SOS o se completa). Si es un PROGRAMADO y
+    ///    todavia no llega su hora, el viaje no se cancela: vuelve a Pending
+    ///    sin conductor para otros conductores (respuesta: el viaje reabierto).
     /// Cancelar cierra la negociacion: las propuestas abiertas pasan a
     /// 'cancelled' y se avisa a esos conductores.
     /// </summary>
@@ -808,15 +1035,46 @@ public class TripsController : ControllerBase
         if(by == "driver" && trip.Status != Bugie.Trips.Domain.Enums.TripStatus.Accepted)
             return Conflict(new { error = "Solo puedes cancelar un viaje aceptado que todavía no empezó." });
 
+        // Programado aceptado que el conductor cancela ANTES de su hora: el viaje
+        // no se cancela, vuelve a buscar conductor (Pending, sin conductor, sigue
+        // programado). Si ya paso la hora, se cancela como siempre.
+        if(by == "driver" && trip.ScheduledAt.HasValue && trip.ScheduledAt.Value > DateTime.UtcNow)
+        {
+            var driverUserId = CurrentUserId;
+            if(!await _trips.ReopenScheduledAfterDriverCancelAsync(id, driverUserId, DateTime.UtcNow, ct))
+                return Conflict(new { error = "Este viaje ya no se puede cancelar." });
+
+            // Su propuesta aceptada queda rechazada (motivo driver_cancelled) y
+            // cualquier otra abierta del viaje se cierra (trip_reopened).
+            await _proposals.RejectDriverOnTripAsync(id, driverUserId, "driver_cancelled", ct);
+            await _proposals.CancelOpenByTripAsync(id, "trip_reopened", ct);
+
+            _ = _notify.NotifyPassengerDriverCancelledReopenedAsync(trip.PassengerId, id, trip.ScheduledAt, trip.ServiceType);
+            _ = _realtime.TripChangedAsync(id, (int)Bugie.Trips.Domain.Enums.TripStatus.Pending, RealtimeReasons.Reopened,
+                trip.PassengerId, null, new[] { driverUserId });
+            _ = _realtime.RequestsChangedAsync(id, RealtimeReasons.RequestsReopened);
+            // Los demas conductores lo vuelven a ver (y reciben el aviso de solicitud nueva).
+            await _mediator.Send(new NotifyNearbyDriversCommand(id), ct);
+
+            var reopened = await _trips.GetByIdAsync(id, ct);
+            return Ok(CreateTripHandler.ToDto(reopened!));
+        }
+
         // Programado cuyo conductor no llego: el pasajero cancela sin penalidad.
         var reason = req?.Reason;
         if(by == "passenger" && string.IsNullOrWhiteSpace(reason) && trip.IsDriverLate(DateTime.UtcNow))
             reason = "El conductor no llegó a la hora programada.";
 
+        // Si seguia buscando conductor, la lista de solicitudes de los conductores cambia.
+        var wasSearching = IsSearching(trip);
+        // Si ya estaba en curso, hay GPS del viaje: Drivers consolida el recorrido (drivers.trippaths).
+        var wasInProgress = trip.Status is Bugie.Trips.Domain.Enums.TripStatus.InProgress
+                                        or Bugie.Trips.Domain.Enums.TripStatus.SosActive;
         var dto = await _mediator.Send(new CancelTripCommand(id, by, reason), ct);
+        if(wasInProgress) _ = _driversClient.ConsolidateTripPathAsync(id);
 
         // Cerrar la negociacion y avisar a los conductores que habian ofertado.
-        var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, ct);
+        var proposalDrivers = await _proposals.CancelOpenByTripAsync(id, "trip_cancelled", ct);
         foreach(var driverUserId in proposalDrivers.Where(d => d != trip.DriverId))
             _ = _notify.NotifyTripCancelledAsync(driverUserId, id, by, dto.CancelReason, trip.ServiceType);
 
@@ -825,6 +1083,11 @@ public class TripsController : ControllerBase
             _ = _notify.NotifyTripCancelledAsync(trip.PassengerId, id, by, dto.CancelReason, trip.ServiceType);
         if(by != "driver" && trip.DriverId.HasValue)
             _ = _notify.NotifyTripCancelledAsync(trip.DriverId.Value, id, by, dto.CancelReason, trip.ServiceType);
+
+        // Tiempo real: pasajero, conductor asignado y conductores que habian ofertado.
+        _ = _realtime.TripChangedAsync(id, (int)dto.Status, RealtimeReasons.Cancelled, trip.PassengerId, trip.DriverId, proposalDrivers);
+        if(wasSearching)
+            _ = _realtime.RequestsChangedAsync(id, RealtimeReasons.Withdrawn);
 
         return Ok(dto);
     }

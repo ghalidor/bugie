@@ -10,7 +10,14 @@ class ApiException implements Exception {
   final int status;
   final String message;
 
-  ApiException(this.status, this.message);
+  /// Cuerpo JSON del error, con los campos extra que manda el backend
+  /// además de `error` (ej. waitingTripId, proposalId). null si no hay.
+  final Map<String, dynamic>? data;
+
+  ApiException(this.status, this.message, {this.data});
+
+  /// Campo extra del cuerpo del error como texto (null si no viene).
+  String? field(String key) => data?[key]?.toString();
 
   /// Errores de red (no llegamos a obtener respuesta del servidor).
   /// status = 0. Las pantallas pueden detectarlos con `isNetwork`.

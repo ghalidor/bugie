@@ -26,14 +26,17 @@ public class DeliveryController : ControllerBase
     private readonly ITripPhotoRepository _photos;
     private readonly IFileStorageService _storage;
     private readonly ITripNotificationService _notify;
+    // Tiempo real a pasajero y conductor (hub /hubs/trips). Fire-and-forget, nunca lanza.
+    private readonly ITripRealtimeNotifier _realtime;
 
     public DeliveryController(ITripRepository trips, ITripPhotoRepository photos, IFileStorageService storage,
-        ITripNotificationService notify)
+        ITripNotificationService notify, ITripRealtimeNotifier realtime)
     {
         _trips = trips;
         _photos = photos;
         _storage = storage;
         _notify = notify;
+        _realtime = realtime;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -139,12 +142,17 @@ public class DeliveryController : ControllerBase
             {
                 trip.Cancel("system", "No se pudieron guardar las fotos del paquete.");
                 await _trips.UpdateAsync(trip, CancellationToken.None);
+                _ = _realtime.TripChangedAsync(trip, RealtimeReasons.Cancelled);
             }
             return StatusCode(500, new { error = "No se pudieron guardar las fotos del paquete. Intenta de nuevo." });
         }
 
         // 5. Recien ahora los conductores cercanos ven y reciben el envio.
         await mediator.Send(new Bugie.Trips.Application.Commands.NotifyNearbyDriversCommand(dto.Id), ct);
+        // Tiempo real: otras pantallas del cliente y la lista de solicitudes de los conductores
+        // (recien ahora el envio es visible, porque ya tiene fotos).
+        _ = _realtime.TripChangedAsync(dto.Id, (int)dto.Status, RealtimeReasons.Created, dto.PassengerId, null);
+        _ = _realtime.RequestsChangedAsync(dto.Id, RealtimeReasons.Published);
         return Ok(dto);
     }
 
@@ -202,6 +210,7 @@ public class DeliveryController : ControllerBase
             await _trips.UpdateAsync(trip, ct);
             // Aviso al remitente: push + correo.
             _ = _notify.NotifyPassengerPackagePickedUpAsync(trip.PassengerId, tripId, trip.PackageDescription);
+            _ = _realtime.TripChangedAsync(trip, RealtimeReasons.PickupVerified);
             return Ok(new { verified = true });
         }
         catch(InvalidOperationException ex)
@@ -246,6 +255,7 @@ public class DeliveryController : ControllerBase
             await _trips.UpdateAsync(trip, ct);
             // Aviso al remitente: push + correo.
             _ = _notify.NotifyPassengerPackageDeliveredAsync(trip.PassengerId, tripId, trip.DeliveryReceivedBy ?? receivedBy.Trim());
+            _ = _realtime.TripChangedAsync(trip, RealtimeReasons.DeliveryConfirmed);
             return Ok(new { confirmed = true, trip.DeliveryReceivedBy, trip.DeliveryConfirmedAt });
         }
         catch(InvalidOperationException ex)

@@ -15,6 +15,7 @@ import 'core/services/in_app_alert_service.dart';
 import 'core/services/location_tracking_service.dart';
 import 'core/services/notification_prefs.dart';
 import 'core/services/request_alert_service.dart';
+import 'core/services/trips_hub_service.dart';
 import 'core/session/session.dart';
 import 'core/theme/bugie_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -88,6 +89,8 @@ class BugieApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apiClient = ApiClient(session);
+    // Singleton de tracking: lo comparten las pantallas y el logout.
+    final locationTracking = LocationTrackingService();
 
     return MultiProvider(
       providers: [
@@ -109,10 +112,16 @@ class BugieApp extends StatelessWidget {
 
         // Tracking de ubicación (singleton de la app). Cualquier pantalla
         // que necesite enviar ubicación lo arranca y lo para por sí misma.
-        Provider(create: (_) => LocationTrackingService()),
+        Provider.value(value: locationTracking),
 
         // Repositorios — uno por módulo
-        Provider(create: (_) => AuthRepository(apiClient, session)),
+        Provider(
+          create: (_) => AuthRepository(
+            apiClient,
+            session,
+            tracking: locationTracking,
+          ),
+        ),
         Provider(create: (_) => TripsRepository(apiClient)),
         Provider(create: (_) => DriverRepository(apiClient)),
         Provider(create: (_) => PaymentsRepository(apiClient)),
@@ -140,6 +149,11 @@ class BugieApp extends StatelessWidget {
             session: session,
             trips: context.read<TripsRepository>(),
           );
+
+          // Canal en tiempo real con Trips (hub SignalR). Las pantallas del
+          // viaje se suscriben; se desconecta al cerrar sesión y en segundo
+          // plano.
+          TripsHubService().attach(session: session);
 
           // Contador de notificaciones sin leer (campana). Antes de FCM para
           // que un push tocado con la app cerrada pueda marcarse como leído.

@@ -84,6 +84,30 @@ public interface ITripRepository {
 
     Task AddAsync(Trip trip, CancellationToken ct = default);
     Task UpdateAsync(Trip trip, CancellationToken ct = default);
+
+    /// <summary>
+    /// Asigna el conductor SOLO si el viaje sigue buscando (Status 1/7 y sin
+    /// conductor). false = otro conductor lo tomo o el viaje cambio (carrera).
+    /// </summary>
+    Task<bool> AssignDriverAsync(Guid tripId, Guid driverUserId, decimal fare, DateTime acceptedAtUtc,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// El conductor cancela un programado aceptado antes de su hora: el viaje
+    /// vuelve a Pending sin conductor (sigue programado) y se publica de nuevo.
+    /// false si ya no estaba aceptado por ese conductor o ya paso la hora.
+    /// </summary>
+    Task<bool> ReopenScheduledAfterDriverCancelAsync(Guid tripId, Guid driverUserId, DateTime nowUtc,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Cancela (cancelledBy = 'system') los viajes inmediatos que siguen
+    /// buscando conductor despues de 'minutes' desde que se publicaron y que
+    /// no tienen una aceptacion del pasajero esperando confirmacion.
+    /// Devuelve los viajes cancelados.
+    /// </summary>
+    Task<List<Trip>> CancelUnassignedImmediateAsync(DateTime nowUtc, int minutes, string reason,
+        CancellationToken ct = default);
     Task<List<Trip>> GetSosActiveAsync(CancellationToken ct = default);
     Task<List<TripWaypoint>> GetWaypointsAsync(Guid tripId, CancellationToken ct = default);
     Task SaveWaypointsAsync(Guid tripId, List<TripWaypoint> waypoints, CancellationToken ct = default);

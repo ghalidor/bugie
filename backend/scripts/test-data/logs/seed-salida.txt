@@ -6,9 +6,10 @@ Imagenes generadas: 104
   ✔ [Admin] completa documento y nombres del admin principal
   ✔ [Admin] crear rol "soporte" — 8 permisos
   ✔ [Admin] crear admin soporte@bugie.test
+  ✔ [Admin] settings de negociacion — base_fare=5.00 fare_max_multiplier=3 trip_no_driver_cancel_min=10 driver_confirm_immediate_min=2
 
 == Configuracion de rewards
-  ✔ [Rewards] activar cupones en tarifa
+  ✔ [Rewards] activar cupones en tarifa (coupons_apply_to_fare = true)
   ✔ [Rewards] promocion "Doble puntos de lanzamiento"
   ✔ [Rewards] promocion "Bono primer viaje del dia"
   ✔ [Rewards] promocion "Yape suma mas (conductores)"
@@ -18,224 +19,313 @@ Imagenes generadas: 104
   ✔ [Rewards] sorteo "Sorteo especial aniversario"
 
 == Pasajeros: registro -> documentos -> activacion
-  ✔ [Registro] passenger Lucia Mamani Quispe — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] passenger Lucia Mamani Quispe — correo de bienvenida a ghaluix+p1@gmail.com
   ✔ [Pasajero] P1 sube DNI (frente y reverso)
   ✔ [Pasajero] P1 sube foto de perfil
-  ✔ [Pasajero] P1 activado por admin — correo "cuenta activa" a ghaluix@gmail.com
-  ✔ [Registro] passenger Carlos Ticona Flores — correo de bienvenida a ghaluix@gmail.com, referido con LUCCM3XZ
+  ✔ [Pasajero] P1 activado por admin — correo "cuenta activa" a ghaluix+p1@gmail.com
+  ✔ [Registro] passenger Carlos Ticona Flores — correo de bienvenida a ghaluix+p2@gmail.com, referido con LUCD877T
   ✔ [Pasajero] P2 sube DNI (frente y reverso)
   ✔ [Pasajero] P2 sube foto de perfil
-  ✔ [Pasajero] P2 activado por admin — correo "cuenta activa" a ghaluix@gmail.com
-  ✔ [Registro] passenger Maria Fernanda Choque — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Pasajero] P2 activado por admin — correo "cuenta activa" a ghaluix+p2@gmail.com
+  ✔ [Registro] passenger Maria Fernanda Choque — correo de bienvenida a ghaluix+p3@gmail.com
   ✔ [Pasajero] P3 sube DNI (frente y reverso)
   ✔ [Pasajero] P3 sube foto de perfil
-  ✔ [Pasajero] P3 activado por admin — correo "cuenta activa" a ghaluix@gmail.com
-  ✔ [Registro] passenger Jorge Luis Apaza — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Pasajero] P3 activado por admin — correo "cuenta activa" a ghaluix+p3@gmail.com
+  ✔ [Registro] passenger Jorge Luis Apaza — correo de bienvenida a ghaluix+p4@gmail.com
   ✔ [Pasajero] P4 sube DNI (frente y reverso)
   ✔ [Pasajero] P4 sube foto de perfil
-  ✔ [Pasajero] P4 activado por admin — correo "cuenta activa" a ghaluix@gmail.com
-  ✔ [Registro] passenger Rosa Elena Condori — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Pasajero] P4 activado por admin — correo "cuenta activa" a ghaluix+p4@gmail.com
+  ✔ [Registro] passenger Rosa Elena Condori — correo de bienvenida a ghaluix+p5@gmail.com
   ✔ [Pasajero] P5 sube DNI (frente y reverso)
   ✔ [Pasajero] P5 sube foto de perfil
-  ✔ [Pasajero] P5 activado por admin — correo "cuenta activa" a ghaluix@gmail.com
+  ✔ [Pasajero] P5 activado por admin — correo "cuenta activa" a ghaluix+p5@gmail.com
   ✔ [Cuenta] admin corrige nombres de P5 — Rosa Elena Condory -> Rosa Elena Condori
-  ✔ [Registro] passenger Diego Huanca Rivera — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] passenger Diego Huanca Rivera — correo de bienvenida a ghaluix+p6@gmail.com
   ✔ [Pasajero] P6 sube DNI (frente y reverso)
   ✔ [Pasajero] P6 sube foto de perfil
-  ✔ [Pasajero] P6 rechazado por admin — correo "vuelve a subir documentos" a ghaluix@gmail.com
-  ✔ [Registro] passenger Ana Paredes Coaquira — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Pasajero] P6 rechazado por admin — correo "vuelve a subir documentos" a ghaluix+p6@gmail.com
+  ✔ [Registro] passenger Ana Paredes Coaquira — correo de bienvenida a ghaluix+p7@gmail.com
   ✔ [Pasajero] P7 sube DNI (frente y reverso)
   ✔ [Pasajero] P7 sube foto de perfil
   ✔ [Pasajero] P7 queda pendiente de revision
-  ✔ [Registro] passenger Sofia Ramos Ticona — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] passenger Sofia Ramos Ticona — correo de bienvenida a ghaluix+p8@gmail.com
   ✔ [Pasajero] P8 sube DNI (frente y reverso)
   ✔ [Pasajero] P8 sube foto de perfil
-  ✔ [Pasajero] P8 elimina su cuenta — correo "cuenta eliminada" a ghaluix@gmail.com
+  ✔ [Pasajero] P8 elimina su cuenta — correo "cuenta eliminada" a ghaluix+p8@gmail.com
 
 == Conductores: registro -> documentos -> vehiculo -> activacion
-  ✔ [Registro] driver Juan Carlos Pari Vargas — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] driver Juan Carlos Pari Vargas — correo de bienvenida a ghaluix+d1@gmail.com
   ✔ [Conductor] D1 sube 7 documentos
   ✔ [Conductor] D1 registra vehiculo Toyota Yaris Z1A-101 con 3 fotos
   ✔ [Conductor] D1 envia a revision
-  ✔ [Conductor] D1 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix@gmail.com
+  ✔ [Conductor] D1 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix+d1@gmail.com
   ✔ [Conexion] D1 4 conexiones cerradas — selfie + en linea + desconexion
   ✔ [Conductor] D1 selfie de conexion + en linea en Plaza de Armas de Tacna
-  ✔ [Registro] driver Miguel Angel Cutipa — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] driver Miguel Angel Cutipa — correo de bienvenida a ghaluix+d2@gmail.com
   ✔ [Conductor] D2 sube 7 documentos
   ✔ [Conductor] D2 registra vehiculo Hyundai Accent Z2B-202 con 3 fotos
   ✔ [Conductor] D2 envia a revision
-  ✔ [Conductor] D2 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix@gmail.com
+  ✔ [Conductor] D2 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix+d2@gmail.com
   ✔ [Conexion] D2 4 conexiones cerradas — selfie + en linea + desconexion
   ✔ [Conductor] D2 selfie de conexion + en linea en Hospital Hipolito Unanue, Tacna
-  ✔ [Registro] driver Pedro Mendoza Calle — correo de bienvenida a ghaluix@gmail.com, referido con LUCCM3XZ
+  ✔ [Registro] driver Pedro Mendoza Calle — correo de bienvenida a ghaluix+d3@gmail.com, referido con LUCD877T
   ✔ [Conductor] D3 sube 7 documentos
   ✔ [Conductor] D3 registra vehiculo Kia Rio Z3C-303 con 3 fotos
   ✔ [Conductor] D3 envia a revision
-  ✔ [Conductor] D3 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix@gmail.com
+  ✔ [Conductor] D3 documentos aprobados y conductor activado — correo "cuenta activa" a ghaluix+d3@gmail.com
   ✔ [Conexion] D3 4 conexiones cerradas — selfie + en linea + desconexion
   ✔ [Conductor] D3 selfie de conexion + en linea en Universidad Nacional Jorge Basadre Grohmann
-  ✔ [Registro] driver Raul Ccama Limachi — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] driver Raul Ccama Limachi — correo de bienvenida a ghaluix+d4@gmail.com
   ✔ [Conductor] D4 sube 7 documentos
   ✔ [Conductor] D4 registra vehiculo Suzuki Swift Z4D-404 con 3 fotos
   ✔ [Conductor] D4 envia a revision
   ✔ [Conductor] D4 queda en revision con SOAT rechazado
-  ✔ [Registro] driver Hugo Flores Quispe — correo de bienvenida a ghaluix@gmail.com
+  ✔ [Registro] driver Hugo Flores Quispe — correo de bienvenida a ghaluix+d5@gmail.com
   ✔ [Conductor] D5 sube 7 documentos
   ✔ [Conductor] D5 registra vehiculo Nissan Sentra Z5E-505 con 3 fotos
   ✔ [Conductor] D5 envia a revision
   ✔ [Conductor] D5 queda en revision (el admin lo rechaza al final)
 
 == Viajes (tanda 1)
-  ✔ [Viaje] P1->D1 plaza->unjbg [directo] — completado S/ 7.5 cash
-  ✔ [Viaje] P1->D2 unjbg->pocollay [negociado 2 ofertas] — completado S/ 15 yape
-  ✔ [Viaje] P1->D3 pocollay->mercado [contraoferta pasajero] — completado S/ 9.5 plin
+  ✔ [Viaje] P1->D1 plaza->unjbg [directo] — completado S/ 7.5 cash · GPS 1+25 puntos (0+2.37 km)
+  ✔ [Viaje] P1->D2 unjbg->pocollay [negociado 2 ofertas] — completado S/ 15 yape · GPS 30+47 puntos (2.9+4.51 km)
+  ✔ [Viaje] P1->D3 pocollay->mercado [contraoferta pasajero] — completado S/ 9.5 plin · GPS 47+39 puntos (4.51+3.87 km)
   ✔ [Viaje] P1->D1 mercado->plaza [cancelado pendiente] — cancelado por pasajero antes de asignar
-  ✔ [Viaje] P1->D2 plaza->aeropuerto [conductor acepta tarifa] — completado S/ 15 yape
-  ✔ [Viaje] P2->D3 terminal->plaza [directo] — completado S/ 9.5 cash
+  ✔ [Viaje] P1->D2 plaza->aeropuerto [conductor acepta tarifa] — completado S/ 15 yape · GPS 44+53 puntos (4.35+5.26 km)
+  ✔ [Viaje] P2->D3 terminal->plaza [directo] — completado S/ 9.5 cash · GPS 34+32 puntos (3.29+3.18 km)
   ✔ [Viaje] P2->D1 plaza->estadio [cancelado negociando] — cancelado negociando: 0 ofertas cerradas
-  ✔ [Viaje] P2->D2 estadio->albarr [directo] — completado S/ 13 plin
+  ✔ [Viaje] P2->D2 estadio->albarr [directo] — completado S/ 13 plin · GPS 61+46 puntos (6.05+4.48 km)
   ✔ [Incidente] pasajero reporta incidente
-  ✔ [Envio] P2->D1 albarr->hospital [delivery] entrega confirmada — recibio: Carmen Flores · correos "recogido" y "entregado" a ghaluix@gmail.com
-  ✔ [Viaje] P2->D1 albarr->hospital [delivery] — completado S/ 12.5 cash
-  ✔ [Viaje] P3->D2 hospital->ciudadN [directo] — completado S/ 9 cash
+  ✔ [Envio] P2->D1 albarr->hospital [delivery] entrega confirmada — recibio: Carmen Flores · correos "recogido" y "entregado" a ghaluix+p2@gmail.com
+  ✔ [Viaje] P2->D1 albarr->hospital [delivery] — completado S/ 12.5 cash · GPS 24+47 puntos (2.28+4.56 km)
+  ✔ [Viaje] P3->D2 hospital->ciudadN [directo] — completado S/ 9 cash · GPS 47+29 puntos (4.56+2.88 km)
   ✔ [Viaje] P3->D3 ciudadN->paseo [aceptado y cancelado por conductor] — cancelado por el CONDUCTOR (motivo: El pasajero no se presenta)
-  ✔ [Viaje] P3->D1 paseo->unjbg [conductor acepta tarifa] — completado S/ 8 yape
-  ✔ [SOS] P3 activa SOS en viaje — alerta b01a10ba-7fe7-4e6f-a272-6ddfec2071ef
+  ✔ [Viaje] P3->D1 paseo->unjbg [conductor acepta tarifa] — completado S/ 8 yape · GPS 11+24 puntos (0.99+2.25 km)
+  ✔ [SOS] P3 activa SOS en viaje — alerta 86a5495b-0374-4d0b-ac71-a16af93f2e92
   ✔ [SOS] admin resuelve SOS
-  ✔ [Viaje] P3->D3 unjbg->albarr [con SOS resuelto] — completado S/ 8.5 cash
-  ✔ [Viaje] P4->D1 aeropuerto->plaza [negociado] — completado S/ 17 plin
-  ✔ [Viaje] P4->D2 plaza->terminal [directo] — completado S/ 9.5 cash
-  ✔ [Viaje] P4->D3 terminal->pocollay [contraoferta] — completado S/ 7.5 yape
+  ✔ [Viaje] P3->D3 unjbg->albarr [con SOS resuelto] — completado S/ 8.5 cash · GPS 35+24 puntos (3.37+2.3 km)
+  ✔ [Viaje] P4->D1 aeropuerto->plaza [negociado] — completado S/ 17 plin · GPS 48+57 puntos (4.65+5.44 km)
+  ✔ [Viaje] P4->D2 plaza->terminal [directo] — completado S/ 9.5 cash · GPS 40+36 puntos (3.95+3.5 km)
+  ✔ [Viaje] P4->D3 terminal->pocollay [contraoferta] — completado S/ 7.5 yape · GPS 67+33 puntos (6.76+3.09 km)
   ✔ [Viaje] P4->D1 pocollay->mercado [cancelado pendiente] — cancelado por pasajero antes de asignar
-  ✔ [Viaje] P5->D3 bolognesi->hospital [directo] — completado S/ 8 yape
-  ✔ [Envio] P5->D2 hospital->unjbg [delivery] entrega confirmada — recibio: Oficina de Mesa de Partes · correos "recogido" y "entregado" a ghaluix@gmail.com
-  ✔ [Viaje] P5->D2 hospital->unjbg [delivery] — completado S/ 9 cash
-  ✔ [Viaje] P5->D1 unjbg->estadio [negociado] — completado S/ 11.5 plin
+  ✔ [Viaje] P5->D3 bolognesi->hospital [directo] — completado S/ 8 yape · GPS 53+18 puntos (5.19+1.67 km)
+  ✔ [Envio] P5->D2 hospital->unjbg [delivery] entrega confirmada — recibio: Oficina de Mesa de Partes · correos "recogido" y "entregado" a ghaluix+p5@gmail.com
+  ✔ [Viaje] P5->D2 hospital->unjbg [delivery] — completado S/ 9 cash · GPS 22+30 puntos (1.99+2.9 km)
+  ✔ [Viaje] P5->D1 unjbg->estadio [negociado] — completado S/ 11.5 plin · GPS 24+33 puntos (2.37+3.13 km)
   ✔ [Incidente] driver reporta incidente
 
 == Canjes de puntos
-  ✔ [Puntos] P1 tiene 2155 pts disponibles — nivel bronze
-  ✔ [Canje] P1 canjea S/. 2 de descuento — cupon BG-FVXV78, le quedan 1655 pts
-  ✔ [Canje] P1 canjea S/. 2 de descuento — cupon BG-3WSSY6, le quedan 1155 pts
-  ✔ [Puntos] P2 tiene 810 pts disponibles — nivel bronze
-  ✔ [Canje] P2 canjea S/. 2 de descuento — cupon BG-L9APJB, le quedan 310 pts
+  ✔ [Puntos] P1 tiene 2155 pts disponibles — nivel bronze · total 2155
+  ✔ [Canje] P1 canjea S/. 2 de descuento — cupon BG-8JEEKL, le quedan 1655 pts
+  ✔ [Canje] P1 canjea S/. 2 de descuento — cupon BG-MPKVTR, le quedan 1155 pts
+  ✔ [Puntos] P2 tiene 810 pts disponibles — nivel bronze · total 810
+  ✔ [Canje] P2 canjea S/. 2 de descuento — cupon BG-T5TX5A, le quedan 310 pts
   ✘ [Canje] P2 pass_discount_2 — puntos insuficientes (310)
-  ✔ [Puntos] P3 tiene 620 pts disponibles — nivel bronze
-  ✔ [Canje] P3 canjea S/. 2 de descuento — cupon BG-CZGM9N, le quedan 120 pts
+  ✔ [Puntos] P3 tiene 620 pts disponibles — nivel bronze · total 620
+  ✔ [Canje] P3 canjea S/. 2 de descuento — cupon BG-JVGCUB, le quedan 120 pts
   ✘ [Canje] P3 pass_discount_2 — puntos insuficientes (120)
-  ✔ [Puntos] P4 tiene 820 pts disponibles — nivel bronze
-  ✔ [Canje] P4 canjea S/. 2 de descuento — cupon BG-VS5A7P, le quedan 320 pts
+  ✔ [Puntos] P4 tiene 820 pts disponibles — nivel bronze · total 820
+  ✔ [Canje] P4 canjea S/. 2 de descuento — cupon BG-N4TEET, le quedan 320 pts
   ✘ [Canje] P4 pass_discount_2 — puntos insuficientes (320)
-  ✔ [Puntos] P5 tiene 680 pts disponibles — nivel bronze
-  ✔ [Canje] P5 canjea S/. 2 de descuento — cupon BG-SQY5MB, le quedan 180 pts
+  ✔ [Puntos] P5 tiene 680 pts disponibles — nivel bronze · total 680
+  ✔ [Canje] P5 canjea S/. 2 de descuento — cupon BG-ZAE66J, le quedan 180 pts
   ✘ [Canje] P5 pass_discount_2 — puntos insuficientes (180)
-  ✔ [Puntos] D1 tiene 795 pts disponibles — nivel bronze
-  ✔ [Canje] D1 canjea Bono de S/. 5 — cupon BG-WTWZYV, le quedan 295 pts
-  ✔ [Puntos] D2 tiene 1015 pts disponibles — nivel bronze
-  ✔ [Canje] D2 canjea Bono de S/. 5 — cupon BG-UVM9KF, le quedan 515 pts
-  ✔ [Puntos] D3 tiene 640 pts disponibles — nivel bronze
-  ✔ [Canje] D3 canjea Bono de S/. 5 — cupon BG-RB2PKQ, le quedan 140 pts
+  ✔ [Puntos] D1 tiene 795 pts disponibles — nivel bronze · total 795
+  ✔ [Canje] D1 canjea Bono de S/. 5 — cupon BG-TDVEZK, le quedan 295 pts
+  ✔ [Puntos] D2 tiene 1015 pts disponibles — nivel bronze · total 1015
+  ✔ [Canje] D2 canjea Bono de S/. 5 — cupon BG-HTC8NX, le quedan 515 pts
+  ✔ [Puntos] D3 tiene 640 pts disponibles — nivel bronze · total 640
+  ✔ [Canje] D3 canjea Bono de S/. 5 — cupon BG-JRKNRY, le quedan 140 pts
+  ✔ [Puntos] ajuste +3945 pts a P1 para llegar a Plata — ahora 5100 disponibles, total 6100, nivel silver
+  ✔ [Puntos] P1 (Plata) reclama su cupon de nivel — BG-P7KPTP: 10% de descuento · quedan 1 este mes · se usa en el siguiente viaje
+  ✔ [Canje] P1 canjea "1 ticket extra de sorteo mensual" — cupon BG-6BFXRB, le quedan 100 pts
+  ✔ [Sorteo] P1 usa su cupon de ticket en "Sorteo especial aniversario" — +1 ticket(s) BG-000001 · ahora tiene 1
+  ✔ [Sorteo] usar el mismo cupon de ticket otra vez -> 400 — Ese cupón ya se usó.
 
 == Viajes (tanda 2, con cupones)
-  ✔ [Cupon] P1 aplica BG-FVXV78 — descuento S/ 2
-  ✔ [Viaje] P1->D3 aeropuerto->paseo [con cupon] — completado S/ 13.5 cash con cupon (antes S/ 15.5)
-  ✔ [Viaje] P1->D1 paseo->ciudadN [directo] — completado S/ 10.5 yape
-  ✔ [Viaje] P1->D2 ciudadN->terminal [directo] — completado S/ 6.5 plin
-  ✔ [Viaje] P1->D3 terminal->unjbg [conductor acepta tarifa] — completado S/ 12 cash
-  ✔ [Cupon] P2 aplica BG-L9APJB — descuento S/ 2
-  ✔ [Viaje] P2->D2 hospital->aeropuerto [con cupon] — completado S/ 14.5 yape con cupon (antes S/ 16.5)
-  ✔ [Viaje] P2->D3 aeropuerto->plaza [negociado] — completado S/ 17 cash
-  ✔ [Viaje] P2->D1 plaza->mercado [directo] — completado S/ 6 plin
-  ✔ [Cupon] P3 aplica BG-CZGM9N — descuento S/ 2
-  ✔ [Viaje] P3->D1 albarr->aeropuerto [con cupon] — completado S/ 8.5 cash con cupon (antes S/ 10.5)
-  ✔ [Viaje] P3->D2 aeropuerto->bolognesi [directo] — completado S/ 14 yape
+  ✔ [Cupon] P1 aplica BG-P7KPTP — descuento S/ 1.55
+  ✔ [Viaje] P1->D3 aeropuerto->paseo [con cupon de nivel] — completado S/ 13.95 cash con cupon (antes S/ 15.5) · GPS 65+66 puntos (6.28+6.46 km)
+  ✔ [Viaje] P1->D1 paseo->ciudadN [directo] — completado S/ 10.5 yape · GPS 11+40 puntos (1.01+3.83 km)
+  ✔ [Viaje] P1->D2 ciudadN->terminal [directo] — completado S/ 6.5 plin · GPS 55+11 puntos (5.49+1.03 km)
+  ✔ [Viaje] P1->D3 terminal->unjbg [conductor acepta tarifa] — completado S/ 12 cash · GPS 32+49 puntos (3.11+4.77 km)
+  ✔ [Cupon] P2 aplica BG-T5TX5A — descuento S/ 2
+  ✔ [Viaje] P2->D2 hospital->aeropuerto [con cupon] — completado S/ 14.5 yape con cupon (antes S/ 16.5) · GPS 23+65 puntos (2.15+6.28 km)
+  ✔ [Viaje] P2->D3 aeropuerto->plaza [negociado] — completado S/ 17 cash · GPS 47+57 puntos (4.64+5.44 km)
+  ✔ [Viaje] P2->D1 plaza->mercado [directo] — completado S/ 6 plin · GPS 40+10 puntos (3.95+0.84 km)
+  ✔ [Cupon] P3 aplica BG-JVGCUB — descuento S/ 2
+  ✔ [Viaje] P3->D1 albarr->aeropuerto [con cupon] — completado S/ 8.5 cash con cupon (antes S/ 10.5) · GPS 42+43 puntos (4.04+4.17 km)
+  ✔ [Viaje] P3->D2 aeropuerto->bolognesi [directo] — completado S/ 14 yape · GPS 1+49 puntos (0+4.69 km)
   ✔ [Viaje] P3->D3 bolognesi->pocollay [cancelado pendiente] — cancelado por pasajero antes de asignar
-  ✔ [Viaje] P3->D1 pocollay->plaza [directo] — completado S/ 12 cash
-  ✔ [Cupon] P4 aplica BG-VS5A7P — descuento S/ 2
-  ✔ [Viaje] P4->D2 mercado->unjbg [con cupon] — completado S/ 6 yape con cupon (antes S/ 8)
-  ✔ [Envio] P4->D3 unjbg->estadio [delivery] entrega confirmada — recibio: Sofia Apaza · correos "recogido" y "entregado" a ghaluix@gmail.com
-  ✔ [Viaje] P4->D3 unjbg->estadio [delivery] — completado S/ 9.5 cash
-  ✔ [Viaje] P4->D1 estadio->plaza [directo] — completado S/ 7 plin
-  ✔ [Cupon] P5 aplica BG-SQY5MB — descuento S/ 2
-  ✔ [Viaje] P5->D2 estadio->albarr [con cupon] — completado S/ 11 cash con cupon (antes S/ 13)
+  ✔ [Viaje] P3->D1 pocollay->plaza [directo] — completado S/ 12 cash · GPS 91+46 puntos (8.92+4.35 km)
+  ✔ [Cupon] P4 aplica BG-N4TEET — descuento S/ 2
+  ✔ [Viaje] P4->D2 mercado->unjbg [con cupon] — completado S/ 6 yape con cupon (antes S/ 8) · GPS 15+24 puntos (1.32+2.42 km)
+  ✔ [Envio] P4->D3 unjbg->estadio [delivery] entrega confirmada — recibio: Sofia Apaza · correos "recogido" y "entregado" a ghaluix+p4@gmail.com
+  ✔ [Viaje] P4->D3 unjbg->estadio [delivery] — completado S/ 9.5 cash · GPS 25+33 puntos (2.37+3.13 km)
+  ✔ [Viaje] P4->D1 estadio->plaza [directo] — completado S/ 7 plin · GPS 14+11 puntos (1.28+1.01 km)
+  ✔ [Cupon] P5 aplica BG-ZAE66J — descuento S/ 2
+  ✔ [Viaje] P5->D2 estadio->albarr [con cupon] — completado S/ 11 cash con cupon (antes S/ 13) · GPS 33+47 puntos (3.12+4.48 km)
   ✔ [Viaje] P5->D3 albarr->terminal [aceptado y cancelado por conductor] — cancelado por el CONDUCTOR (motivo: El pasajero no se presenta)
-  ✔ [Viaje] P5->D1 terminal->plaza [directo] — completado S/ 9.5 cash
+  ✔ [Viaje] P5->D1 terminal->plaza [directo] — completado S/ 9.5 cash · GPS 36+33 puntos (3.5+3.18 km)
+
+== Negociacion: escenarios nuevos
+  ✔ [Negociacion] a) pasajero elige a D1 entre dos que aceptaron su precio — D1 asignado · oferta de D2 rejected|passenger
+  ✔ [Negociacion] b) conductor acepta la contraoferta del pasajero — viaje a S/ 6 (ofrecio S/ 9)
+  ✔ [Negociacion] c) crear viaje bajo base_fare -> 400 — El monto debe ser al menos S/ 5.00.
+  ✔ [Negociacion] c) proponer 0 -> 400 — El monto debe estar entre S/ 5.00 y S/ 22.50.
+  ✔ [Negociacion] c) proponer negativo -> 400 — El monto debe estar entre S/ 5.00 y S/ 22.50.
+  ✔ [Negociacion] c) proponer 10x la tarifa -> 400 — El monto debe estar entre S/ 5.00 y S/ 22.50.
+  ✔ [Negociacion] c) contraoferta fuera de rango -> 400 — El monto debe estar entre S/ 5.00 y S/ 22.50.
+  ✔ [Negociacion] c) contraoferta 0 -> 400 — Ingresa un monto válido.
+  ✘ [Negociacion] d) dos confirmaciones a la vez — 200=1 errores=500 status=2 driver=dc0b4b20-344d-4e42-a135-d6758138103b accepted=1
+  ✔ [Negociacion] e) acepta a D1, deshace y acepta a D2 — D1 volvio a pending y luego quedo rejected|passenger · 1 registro de aceptacion deshecha
+  ✔ [Negociacion] f) conductor retira su oferta ya aceptada; el pasajero elige a otro — oferta de D3 rejected|driver · aviso offer_withdrawn en la bandeja de P1 · D1 asignado
+  ✔ [Negociacion] k) conductor en viaje en curso no puede aceptar ni ofertar en otro (409) — Ya tienes un viaje activo. Termínalo antes de tomar otro. · Ya tienes un viaje activo. Termínalo antes de negociar otro.
+  ✔ [Negociacion] l) reject-all con 2 ofertas — 2 ofertas rechazadas por el pasajero
+  ✔ [Negociacion] l) rechazar una aceptacion a tarifa (driver_accepted) — queda rejected|passenger; rechazarla de nuevo da 400
+  ✔ [Negociacion] i) programado cancelado por el conductor antes de la hora -> reabierto — status 1, sin conductor, sigue programado 2026-10-06T10:00:00 · oferta de D1 rejected|driver_cancelled · aviso trip_reopened a P1: 1 (push; el backend no envia correo por esto)
+  ✔ [Negociacion] i) otro conductor (D3) toma el programado reabierto — queda para la demo: programado manana 10:00 CON conductor
+  ✔ [Negociacion] j) programado con conductor que no llego: el pasajero republica — driverLate=true · viaje vuelve a pendiente · oferta de D2 rejected|driver_no_show
+  ✔ [Vencimientos] settings bajados a 1 minuto — driver_confirm_immediate_min=1, trip_no_driver_cancel_min=1
+  ✔ [Vencimientos] g) P2 acepta la oferta de D3 y D3 NO confirma — vence 2026-10-05T22:42:50.9840569 (segun el setting de ese momento)
+  ✔ [Vencimientos] h) P5 crea un viaje que nadie toma — vence 2026-10-05T22:50:50.97291
 
 == Admin: revisiones, sorteos, ajustes, contacto
-  ✔ [Pago] bono BG-WTWZYV de D1 pagado por plin — op 88211 · correo a ghaluix@gmail.com
-  ✔ [Pago] bono BG-UVM9KF de D2 pagado por yape — op 88212 · correo a ghaluix@gmail.com
-  ✔ [Pago] bono BG-RB2PKQ de D3 pagado por plin — op 88213 · correo a ghaluix@gmail.com
-  ✔ [Pago] pago manual en efectivo a D2 — S/ 20 · correo a ghaluix@gmail.com
+  ✔ [Pago] bono BG-TDVEZK de D1 pagado por plin — op 88211 · correo a ghaluix+d1@gmail.com
+  ✔ [Pago] bono BG-HTC8NX de D2 pagado por yape — op 88212 · correo a ghaluix+d2@gmail.com
+  ✔ [Pago] bono BG-JRKNRY de D3 pagado por plin — op 88213 · correo a ghaluix+d3@gmail.com
+  ✔ [Pago] pago manual en efectivo a D2 — S/ 20 · correo a ghaluix+d2@gmail.com
   ✔ [Admin] ajuste +200 pts a P3
   ✔ [Admin] ajuste +150 pts a D2
   ✔ [Admin] ajuste -50 pts a P2
-  ✔ [Sorteo] repartir tickets (mantenimiento) — {"ticketsGranted":59,"rafflesDrawn":0,"messages":["Sorteo semanal conductores: kit de mantenimiento: 8 tickets entregados.","Sorteo mensual: 1 mes de 
-  ✔ [Sorteo] "Sorteo especial aniversario" — 31 tickets
-  ✔ [Sorteo] "Sorteo mensual: 1 mes de viajes gratis" — 20 tickets
-  ✔ [Sorteo] "Sorteo semanal conductores: kit de mantenimiento" — 8 tickets
-  ✔ [Sorteo] se sortea "Sorteo mensual: 1 mes de viajes gratis" — ganador ticket BG-000016
-  ✔ [Sorteo] premio entregado — a Lucia Mamani Quispe
-  ✔ [Sorteo] sorteo semanal: ganó Juan Carlos Pari Vargas — premio pagado por transferencia · correo a ghaluix@gmail.com
-  ✔ [Rewards] bono sin cancelaciones — {"awarded":2,"points":200,"driversChecked":3,"reason":null}
+  ✔ [Sorteo] repartir tickets (mantenimiento) — {"ticketsGranted":75,"rafflesDrawn":0,"messages":["Sorteo semanal conductores: kit de mantenimiento: 10 tickets entregados.","Sorteo mensual: 1 mes de
+  ✔ [Sorteo] "Sorteo especial aniversario" — 40 tickets
+  ✔ [Sorteo] "Sorteo mensual: 1 mes de viajes gratis" — 26 tickets
+  ✔ [Sorteo] "Sorteo semanal conductores: kit de mantenimiento" — 10 tickets
+  ✔ [Sorteo] se sortea "Sorteo mensual: 1 mes de viajes gratis" — ganador Jorge Luis Apaza ticket BG-000016 · correo + push a ghaluix+p4@gmail.com
+  ✔ [Sorteo] premio entregado — a Jorge Luis Apaza
+  ✔ [Sorteo] sorteo semanal: ganó Pedro Mendoza Calle — premio pagado por transferencia · correos a ghaluix+d3@gmail.com
+  ✔ [Sorteo] "Sortear ahora" en "Sorteo especial aniversario" — 2 ganador(es): Carlos Ticona Flores (BG-000038), Jorge Luis Apaza (BG-000016) · P1 participo con 11 ticket(s) · correo + push a los ganadores
+  ✔ [Rewards] bono sin cancelaciones — {"awarded":0,"points":0,"driversChecked":0,"reason":null}
   ✔ [Referido] P1 invita por correo — correo de invitacion a ghaluix@gmail.com
   ✔ [Contacto] mensaje desde la web — correo de aviso al admin
   ✔ [Contacto] admin responde — correo de respuesta a ghaluix@gmail.com
   ✔ [Contacto] segundo mensaje sin leer (para bandeja del admin)
-  ✔ [Reporte] viajes stats — {"total":37,"pending":0,"inProgress":0,"completed":31,"totalFare":327.5}
-  ✔ [Reporte] ranking conductores — {"year":2026,"month":10,"page":1,"pageSize":20,"total":3,"totalPages":1,"items":[{"driverUserId":"95ceabfb-5eee-4ead-b3d2-7d0ba4b0c0c9","fullName":"Juan Carlos 
-  ✔ [Reporte] pagos stats — {"totalAmount":327.5,"totalFee":32.75,"totalDriver":294.75,"pendingCount":0,"completedCount":31}
+  ✔ [Reporte] viajes stats — {"total":50,"pending":2,"inProgress":0,"completed":41,"totalFare":423.95}
+  ✔ [Reporte] ranking conductores — {"year":2026,"month":10,"page":1,"pageSize":20,"total":3,"totalPages":1,"items":[{"driverUserId":"937df51b-2713-439a-8741-87cc7bd55813","fullName":"Pedro Mendoz
+  ✔ [Reporte] pagos stats — {"totalAmount":423.95,"totalFee":42.4,"totalDriver":381.56,"pendingCount":0,"completedCount":41}
   ✔ [Reporte] usuarios stats — {"total":14,"activos":7,"pasajeros":7,"conductores":5,"verificados":6,"noVerificados":8}
   ✔ [Reporte] conductores stats — {"total":5,"online":3,"pendingDocs":0,"underReview":2,"approved":3,"expired":0,"suspended":0,"rejected":0,"openReviewRequests":0}
-  ✔ [Reporte] uso de cupones — {"trips":5,"tripsCompleted":5,"tripsCancelled":0,"totalDiscount":10,"averageDiscount":2,"featureEnabled":true,"recent":[{"tripId":"fa24f43d-338e-47a9-870b-3bd53
-  ✔ [Reporte] balance de puntos — {"profiles":8,"profilesWithPoints":8,"pointsIssued":14170,"pointsAvailable":9620,"pointsRedeemed":4500,"pointsExpired":0,"activeRedemptions":1,"redemptionRate":
+  ✔ [Reporte] uso de cupones — {"trips":5,"tripsCompleted":5,"tripsCancelled":0,"totalDiscount":9.55,"averageDiscount":1.91,"featureEnabled":true,"recent":[{"tripId":"de2fe6e3-e6c3-4647-97c1-
+  ✔ [Reporte] balance de puntos — {"profiles":8,"profilesWithPoints":8,"pointsIssued":21528,"pointsAvailable":11978,"pointsRedeemed":9500,"pointsExpired":0,"activeRedemptions":2,"redemptionRate"
   ✔ [Reporte] SOS — []
-  ✔ [Reporte] pagos a conductores — {"items":[{"id":"f28a51e3-0dd2-4655-bd48-17f15bcfd969","driverId":"95ceabfb-5eee-4ead-b3d2-7d0ba4b0c0c9","driverName":"Juan Carlos Pari Vargas","amount":120,"me
-  ✔ [Pagos recibidos] D1 ve 2 pago(s) — S/ 125
+  ✔ [Reporte] pagos a conductores — {"items":[{"id":"69ca191a-1af7-4358-b478-ba8bf60b5555","driverId":"937df51b-2713-439a-8741-87cc7bd55813","driverName":"Pedro Mendoza Calle","amount":120,"method
+  ✔ [Pagos recibidos] D1 ve 1 pago(s) — S/ 5
   ✔ [Pagos recibidos] D2 ve 2 pago(s) — S/ 25
-  ✔ [Pagos recibidos] D3 ve 1 pago(s) — S/ 5
-  ✔ [Cancelacion] hora de cancelacion guardada — passenger · 2026-10-04T12:21:35.521594
+  ✔ [Pagos recibidos] D3 ve 2 pago(s) — S/ 125
+  ✔ [Cancelacion] hora de cancelacion guardada — passenger · 2026-10-05T22:39:57.919553
   ✔ [Admin] viajes con nombre de pasajero — 20/20
-  ✔ [Admin] pagos con nombres — Rosa Elena Condori -> Juan Carlos Pari Vargas
+  ✔ [Admin] pagos con nombres — Rosa Elena Condori -> Pedro Mendoza Calle
   ✔ [Cancelacion] P3 ve que el conductor cancelo — El pasajero no se presenta
-  ✔ [Recorrido] viaje P1->D1 — 16 puntos GPS, 2.21 km
+  ✔ [Recorrido] viaje P1->D1 — 26 puntos GPS, 2.29 km
+  ✔ [Puntos] cupon de nivel BG-P7KPTP usado en el viaje P1->D3 aeropuerto->paseo
 
 == Estados del conductor: suspension, revision, rechazo
-  ✔ [Estado conductor] D2 suspendido hasta 2026-10-07 — estado 4
+  ✔ [Estado conductor] D2 suspendido hasta 2026-10-08 — estado 4 · correo a ghaluix+d2@gmail.com
   ✔ [Estado conductor] D2 solicita revision
   ✔ [Estado conductor] admin mantiene la suspension de D2
   ✔ [Estado conductor] D2 solicita revision de nuevo
+  ✔ [Vencimientos] g) la oferta vence por falta de confirmacion — rejected|driver_no_confirm a los 84 s · aviso driver_no_confirm a P2: 1
   ✔ [Estado conductor] admin reactiva a D2 — queda aprobado
   ✔ [Conexion] D2 vuelve a conectarse (selfie + en linea)
   ✔ [Estado conductor] linea de tiempo de D2 — approved > suspended > review_requested > review_kept > review_requested > reactivated
-  ✔ [Estado conductor] admin rechaza el registro de D5 — estado 5 · correo "registro no aceptado" a ghaluix@gmail.com
+  ✔ [Vencimientos] g) confirmar despues del plazo -> 409 — Esta propuesta no está esperando tu confirmación.
+  ✔ [Vencimientos] h) viaje sin ofertas cancelado por el sistema — cancelledBy=system · "Nadie aceptó tu pedido a tiempo" · aviso no_driver_timeout a P5: 1
+  ✔ [Vencimientos] settings restaurados — driver_confirm_immediate_min=2, trip_no_driver_cancel_min=10
+  ✔ [Estado conductor] admin rechaza el registro de D5 — estado 5 · correo "registro no aceptado" a ghaluix+d5@gmail.com
   ✔ [Estado conductor] D5 sube su licencia recategorizada
   ✔ [Estado conductor] D5 envia solicitud de revision — queda ABIERTA para el admin
 
 == Feriado extra y Libro de Reclamaciones
   ✔ [Feriado] feriado extra "Feriado de prueba (decreto)" — 2026-10-12
-  ✔ [Libro] reclamo pendiente LR-2026-000001 — enlazado al viaje OK · vence 2026-10-27
-  ✔ [Libro] queja pendiente LR-2026-000002 — vence 2026-10-27
+  ✔ [Libro] reclamo pendiente LR-2026-000001 — enlazado al viaje OK · vence 2026-10-28
+  ✔ [Libro] queja pendiente LR-2026-000002 — vence 2026-10-28
   ✔ [Libro] queja respondida LR-2026-000003 — correos de confirmacion y respuesta a ghaluix@gmail.com
   ✔ [Libro] hoja anulada LR-2026-000004 — con motivo
   ✔ [Libro] posible bot descartado LR-2026-000005 — con motivo
   ✔ [Libro] posible bot sin resolver LR-2026-000006 — marcado como posible bot
 
-== Cuenta: contrasena y cuenta eliminada
-  ✔ [Cuenta] P3 cambia su contrasena — inicia sesion con la nueva
+== Cuenta: contrasena, desactivacion y cuenta eliminada
+  ✔ [Cuenta] P3 cambia su contrasena — inicia sesion con la nueva · correo de constancia a ghaluix+p3@gmail.com
   ✔ [Cuenta] P3 vuelve a la contrasena 10203040
-  ✔ [Cuenta] P8 sigue eliminada — desde 2026-10-04T12:20:46.025817 · motivo: Ya no uso la aplicacion
+  ✔ [Cuenta] admin desactiva la cuenta de P4 — login 401, token anterior 401 · motivo: Verificacion de identidad pendiente por denuncia de un tercero. (sin correo: el backend no envia uno)
+  ✔ [Cuenta] admin reactiva la cuenta de P4 — vuelve a iniciar sesion · auditoria: reactivated > deactivated
+  ✔ [Cuenta] P8 sigue eliminada — desde 2026-10-05T22:38:26.876869 · motivo: Ya no uso la aplicacion
 
-== Estados finales para la demo
-  ✔ [Viaje] P2->D1 plaza->aeropuerto [EN CURSO para mapa] — queda EN CURSO (seguimiento en mapa)
-  ✔ [Viaje] P4->D2 hospital->pocollay [PENDIENTE buscando conductor] — queda pendiente buscando conductor
-  ✔ [Programado] P1->D3 plaza->aeropuerto [PROGRAMADO viaje manana 10:00] — aceptado para 2026-10-05T10:00:00 (hora de Peru)
-  ✔ [Programado] P3->D2 hospital->terminal [PROGRAMADO envio manana 15:00] — aceptado para 2026-10-05T15:00:00 (hora de Peru)
+== Estados finales para la demo (los pendientes inmediatos duran 10 min)
+  ✔ [Programado] P5->D2 hospital->terminal [PROGRAMADO envio manana 15:00 SIN conductor] — queda PROGRAMADO SIN conductor para 2026-10-06T15:00:00 (hora de Peru)
+  ✔ [Viaje] P2->D1 plaza->aeropuerto [EN CURSO para mapa] — queda EN CURSO (seguimiento en mapa): 27 puntos GPS, a mitad de la ruta
+  ✔ [Viaje] P3->D2 unjbg->pocollay [NEGOCIANDO con 2 ofertas] — queda NEGOCIANDO con 2 ofertas (S/ 15 y S/ 16.5); Bugie lo cancela a los 10 min si el pasajero no elige
+  ✔ [Viaje] P4->D2 hospital->pocollay [PENDIENTE buscando conductor] — queda pendiente buscando conductor (Bugie lo cancela a los 10 min si nadie lo toma; vence ?)
 
 == Bandeja de notificaciones
-  ✔ [Bandeja] P1 tiene 33 avisos — 16 marcados leidos, 17 sin leer
-  ✔ [Bandeja] P2 tiene 30 avisos — 15 marcados leidos, 15 sin leer
-  ✔ [Bandeja] P3 tiene 25 avisos — 12 marcados leidos, 13 sin leer
-  ✔ [Bandeja] D1 tiene 48 avisos — 24 marcados leidos, 24 sin leer
-  ✔ [Bandeja] D3 tiene 47 avisos — 23 marcados leidos, 24 sin leer
+  ✔ [Bandeja] P1 tiene 41 avisos — 20 marcados leidos, 21 sin leer
+  ✔ [Bandeja] P2 tiene 38 avisos — 19 marcados leidos, 19 sin leer
+  ✔ [Bandeja] P3 tiene 29 avisos — 14 marcados leidos, 15 sin leer
+  ✔ [Bandeja] D1 tiene 78 avisos — 25 marcados leidos, 53 sin leer
+  ✔ [Bandeja] D3 tiene 79 avisos — 25 marcados leidos, 54 sin leer
 
-Listo en 275 s — 208 OK, 4 con error.
+== Verificacion de imagenes
+  ✔ [Imagenes] 117 URLs de imagenes verificadas (todas responden 200)
+
+Correos reales enviados (estimado): 48 de un maximo de 50
+   - P1: bienvenida
+   - P1: cuenta activa
+   - P2: bienvenida
+   - P2: cuenta activa
+   - P3: bienvenida
+   - P3: cuenta activa
+   - P4: bienvenida
+   - P4: cuenta activa
+   - P5: bienvenida
+   - P5: cuenta activa
+   - P6: bienvenida
+   - P6: rechazo de documentos
+   - P7: bienvenida
+   - P8: bienvenida
+   - P8: cuenta eliminada
+   - D1: bienvenida
+   - D1: conductor activado
+   - D2: bienvenida
+   - D2: conductor activado
+   - D3: bienvenida
+   - D3: conductor activado
+   - D4: bienvenida
+   - D5: bienvenida
+   - P2: paquete recogido
+   - P2: envio entregado
+   - P5: paquete recogido
+   - P5: envio entregado
+   - P4: paquete recogido
+   - P4: envio entregado
+   - D1: pago de bono
+   - D2: pago de bono
+   - D3: pago de bono
+   - D2: pago manual
+   - P4: ganador sorteo mensual
+   - D3: ganador sorteo semanal
+   - D3: pago del premio
+   - P2: ganador sorteo especial
+   - P4: ganador sorteo especial
+   - directo: invitacion de referido
+   - directo: respuesta de contacto
+   - D2: suspension
+   - D2: revision: se mantiene
+   - D2: reactivacion
+   - D5: registro rechazado
+   - directo: libro: confirmacion
+   - directo: libro: respuesta
+   - P3: cambio de contrasena
+   - P3: cambio de contrasena (vuelve)
+
+Listo en 396 s — 242 OK, 5 con error.
+exit 0

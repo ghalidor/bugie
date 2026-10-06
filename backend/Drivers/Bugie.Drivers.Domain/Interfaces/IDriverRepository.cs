@@ -68,6 +68,20 @@ public interface IDriverRepository
     Task UpdateAsync(Driver driver, CancellationToken ct = default);
 
     /// <summary>
+    /// Actualiza la ultima posicion (CurrentLat/CurrentLng/CurrentLocationAt) de
+    /// varios conductores en UNA sola sentencia. Lo usa el LocationWriterService
+    /// con el ultimo punto de cada conductor del lote.
+    /// </summary>
+    Task UpdateLocationsAsync(IReadOnlyList<DriverLocationUpdate> updates, CancellationToken ct = default);
+
+    /// <summary>
+    /// Conductores online y aprobados con su vehiculo activo y su ultima posicion
+    /// en base (puede ser NULL). La distancia la calcula el handler de /nearby con
+    /// la posicion en memoria (DriverLiveLocations) o, si no hay, con esta.
+    /// </summary>
+    Task<List<OnlineDriverCandidate>> GetOnlineCandidatesAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Vehículos activos de los conductores cuyos UserId se pasan.
     /// JOIN drivers.Drivers + drivers.Vehicles dentro de SU propia BD.
     /// Usado por Trips.Api vía HTTP para enriquecer las propuestas.
@@ -84,6 +98,20 @@ public interface IDriverRepository
     Task<List<Guid>> MarkStaleAsOfflineAsync(
         DateTime cutoffUtc, CancellationToken ct = default);
 }
+
+/// <summary>Ultima posicion de un conductor para UpdateLocationsAsync (AtUtc en UTC).</summary>
+public record DriverLocationUpdate(Guid DriverId, double Lat, double Lng, DateTime AtUtc);
+
+/// <summary>Conductor online con su vehiculo activo (ver GetOnlineCandidatesAsync).</summary>
+public record OnlineDriverCandidate(
+    Guid DriverId,
+    Guid UserId,
+    double? Lat,
+    double? Lng,
+    decimal Rating,
+    string? VehiclePlate,
+    string? VehicleModel,
+    string? VehicleColor);
 
 public record NearbyDriverDto(
     Guid DriverId,

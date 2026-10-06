@@ -9,9 +9,11 @@ export interface ToastOptions {
   message: string;
   /** ms antes de cerrarse solo. 0 = no se cierra solo. Por defecto 4000 (errores 6500). */
   duration?: number;
+  /** Si se define, el aviso es clicable (p. ej. ir a la pantalla del viaje) y se cierra al hacer clic. */
+  onClick?: () => void;
 }
 
-interface ToastItem extends Required<Omit<ToastOptions, 'title'>> { id: number; title?: string; leaving?: boolean }
+interface ToastItem extends Required<Omit<ToastOptions, 'title' | 'onClick'>> { id: number; title?: string; onClick?: () => void; leaving?: boolean }
 
 export interface ToastApi {
   show: (opts: ToastOptions) => number;
@@ -49,7 +51,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const id = ++seq;
     const tone = opts.tone ?? 'info';
     const duration = opts.duration ?? (tone === 'error' ? 6500 : 4000);
-    setItems(list => [...list.slice(-3), { id, tone, title: opts.title, message: opts.message, duration }]);
+    setItems(list => [...list.slice(-3), { id, tone, title: opts.title, message: opts.message, duration, onClick: opts.onClick }]);
     if (duration > 0) timers.current.set(id, setTimeout(() => remove(id), duration));
     return id;
   }, [remove]);
@@ -72,13 +74,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div className="bx-toasts" aria-live="polite" aria-atomic="false">
           {items.map(t => {
             const cfg = TONE[t.tone];
+            const activate = t.onClick ? () => { t.onClick?.(); remove(t.id); } : undefined;
             return (
-              <div key={t.id} role={t.tone === 'error' ? 'alert' : 'status'} className={`bx-toast ${cfg.cls} ${t.leaving ? 'is-leaving' : ''}`}>
+              <div key={t.id} role={t.tone === 'error' ? 'alert' : 'status'} className={`bx-toast ${cfg.cls} ${t.leaving ? 'is-leaving' : ''} ${activate ? 'is-clickable' : ''}`}>
                 <i className={`fa-solid ${cfg.icon} bx-toast-icon`} aria-hidden="true" />
-                <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                  <div className="bx-toast-title">{t.title ?? cfg.title}</div>
-                  <div className="bx-toast-msg">{t.message}</div>
-                </div>
+                {activate ? (
+                  <button type="button" className="bx-toast-body flex-grow-1" onClick={activate}>
+                    <div className="bx-toast-title">{t.title ?? cfg.title}</div>
+                    <div className="bx-toast-msg">{t.message}</div>
+                  </button>
+                ) : (
+                  <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                    <div className="bx-toast-title">{t.title ?? cfg.title}</div>
+                    <div className="bx-toast-msg">{t.message}</div>
+                  </div>
+                )}
                 <button type="button" className="bx-icon-btn sm ghost" onClick={() => remove(t.id)} aria-label="Cerrar aviso">
                   <i className="fa-solid fa-xmark" />
                 </button>

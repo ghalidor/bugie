@@ -1,4 +1,5 @@
 ﻿using Bugie.Trips.Application.DTOs;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 using MediatR;
@@ -12,17 +13,23 @@ public class GetEnrichedProposalsHandler
     private readonly IAuthClient _auth;
     private readonly IDriversClient _drivers;
     private readonly ITripRatingRepository _ratings;
+    private readonly ITripRepository _trips;
+    private readonly ILandingClient _landing;
 
     public GetEnrichedProposalsHandler(
         ITripProposalRepository proposals,
         IAuthClient auth,
         IDriversClient drivers,
-        ITripRatingRepository ratings)
+        ITripRatingRepository ratings,
+        ITripRepository trips,
+        ILandingClient landing)
     {
         _proposals = proposals;
         _auth = auth;
         _drivers = drivers;
         _ratings = ratings;
+        _trips = trips;
+        _landing = landing;
     }
 
     public async Task<List<ProposalDto>> Handle(
@@ -47,6 +54,11 @@ public class GetEnrichedProposalsHandler
         // Calificacion recibida por cada conductor (promedio + cantidad),
         // calculada desde trips.TripRatings (un solo query para todos).
         var ratingStats = await _ratings.GetDriverStatsAsync(driverIds, ct);
+
+        // Plazo del conductor para confirmar la oferta que el pasajero acepto.
+        var trip = list.Any(p => p.Status == "accepted_by_passenger")
+            ? await _trips.GetByIdAsync(q.TripId, ct) : null;
+        var rules = trip is null ? null : await NegotiationRules.LoadAsync(_landing, ct);
 
         var result = new List<ProposalDto>(list.Count);
         foreach(var p in list)
@@ -84,7 +96,9 @@ public class GetEnrichedProposalsHandler
                 p.RejectedBy,
                 di?.PhotoUrl ?? user?.ProfilePhotoUrl,
                 rs?.Average,
-                rs?.Count ?? 0));
+                rs?.Count ?? 0,
+                p.Status == "accepted_by_passenger" && trip is not null && rules is not null
+                    ? rules.ConfirmDeadline(trip, p) : null));
         }
 
         return result;

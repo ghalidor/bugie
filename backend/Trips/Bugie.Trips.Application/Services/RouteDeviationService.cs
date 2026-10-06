@@ -62,6 +62,30 @@ public class RouteDeviationService
         if(!await IsEnabledAsync(ct)) return;
 
         var trip = await _trips.GetActiveTripAsync(driverUserId, ct);
+        await ProcessWithTripAsync(driverUserId, lat, lng, trip, ct);
+    }
+
+    /// <summary>
+    /// Igual que la version con hasActiveTrip, pero con el viaje activo ya
+    /// resuelto por el llamador (DriverLocationRelayService lo cachea unos
+    /// segundos para no consultar la base en cada punto). null = sin viaje.
+    /// </summary>
+    public async Task ProcessDriverLocationAsync(Guid driverUserId, double lat, double lng,
+                                                 Trip? activeTrip, CancellationToken ct = default)
+    {
+        if(activeTrip is null)
+        {
+            await CloseEndedTripsAsync(driverUserId, ct);
+            return;
+        }
+
+        if(!await IsEnabledAsync(ct)) return;
+        await ProcessWithTripAsync(driverUserId, lat, lng, activeTrip, ct);
+    }
+
+    private async Task ProcessWithTripAsync(Guid driverUserId, double lat, double lng,
+                                            Trip? trip, CancellationToken ct)
+    {
         if(trip is null || trip.DriverId != driverUserId)
         {
             await CloseEndedTripsAsync(driverUserId, ct);
@@ -258,6 +282,10 @@ public class RouteDeviationService
         }
         return best;
     }
+
+    /// <summary>Distancia en metros entre dos coordenadas.</summary>
+    public static double HaversineMeters(double lat1, double lng1, double lat2, double lng2) =>
+        Haversine(lat1, lng1, lat2, lng2);
 
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {

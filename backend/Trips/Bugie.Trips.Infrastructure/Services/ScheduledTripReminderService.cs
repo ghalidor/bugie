@@ -1,3 +1,4 @@
+using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,15 +36,19 @@ public class ScheduledTripReminderService : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ITripNotificationService _notify;
+    // Tiempo real a pasajero y conductor (hub /hubs/trips). Nunca lanza.
+    private readonly ITripRealtimeNotifier _realtime;
     private readonly ILogger<ScheduledTripReminderService> _log;
 
     public ScheduledTripReminderService(
         IServiceScopeFactory scopeFactory,
         ITripNotificationService notify,
+        ITripRealtimeNotifier realtime,
         ILogger<ScheduledTripReminderService> log)
     {
         _scopeFactory = scopeFactory;
         _notify = notify;
+        _realtime = realtime;
         _log = log;
     }
 
@@ -98,6 +103,7 @@ public class ScheduledTripReminderService : BackgroundService
                 trip.DriverId.Value, trip.Id, true, minutesLeft, trip.ScheduledAt.Value, trip.ServiceType);
             _ = _notify.NotifyScheduledReminderAsync(
                 trip.PassengerId, trip.Id, false, minutesLeft, trip.ScheduledAt.Value, trip.ServiceType);
+            _ = _realtime.TripChangedAsync(trip, RealtimeReasons.ScheduledReminder);
 
             _log.LogInformation("Recordatorio de {Min} min enviado para el programado {TripId}.", reminder, trip.Id);
         }
@@ -123,10 +129,14 @@ public class ScheduledTripReminderService : BackgroundService
                 var cancelled = await trips.CancelExpiredScheduledAsync(trip.Id, ExpiredReason, ct);
                 if(!cancelled) continue; // un conductor lo tomo justo ahora
 
-                var proposalDrivers = await proposals.CancelOpenByTripAsync(trip.Id, ct);
+                var proposalDrivers = await proposals.CancelOpenByTripAsync(trip.Id, "trip_cancelled", ct);
                 foreach(var driverUserId in proposalDrivers)
                     _ = _notify.NotifyTripCancelledAsync(driverUserId, trip.Id, "system", ExpiredReason, trip.ServiceType);
                 _ = _notify.NotifyScheduledExpiredAsync(trip.PassengerId, trip.Id, ExpiredReason, trip.ServiceType);
+                // Tiempo real: pasajero y conductores que ofertaron; la solicitud sale de la lista.
+                _ = _realtime.TripChangedAsync(trip.Id, (int)TripStatus.Cancelled, RealtimeReasons.Cancelled,
+                    trip.PassengerId, null, proposalDrivers);
+                _ = _realtime.RequestsChangedAsync(trip.Id, RealtimeReasons.Expired);
 
                 _log.LogInformation("Programado {TripId} cancelado: vencio sin conductor.", trip.Id);
                 continue;
@@ -140,6 +150,7 @@ public class ScheduledTripReminderService : BackgroundService
                 var minutesLeft = Math.Max(1, (int)Math.Ceiling(left));
                 _ = _notify.NotifyScheduledNoDriverYetAsync(
                     trip.PassengerId, trip.Id, minutesLeft, trip.ScheduledAt.Value, trip.ServiceType);
+                _ = _realtime.TripChangedAsync(trip, RealtimeReasons.ScheduledNoDriver);
                 _log.LogInformation("Aviso 'aun sin conductor' enviado para el programado {TripId}.", trip.Id);
             }
         }

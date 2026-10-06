@@ -22,7 +22,13 @@ String? resolvePushRoute({
   required String? route,
   String? pushType,
   String? tripId,
+  String? reasonCode,
 }) {
+  // Avisos de negociación que el backend manda sin ruta pero que deben
+  // abrir algo al tocarlos.
+  if (route == null || route.trim().isEmpty) {
+    route = _defaultRouteFor(pushType, tripId, reasonCode);
+  }
   if (route == null || route.trim().isEmpty) return null;
   final home = _homeFor(role);
   if (home == null) return null;
@@ -47,13 +53,47 @@ String? resolvePushRoute({
   if (path == '/passenger/tracking' &&
       tripId != null &&
       tripId.isNotEmpty &&
-      (pushType == 'scheduled_reminder' || pushType == 'scheduled_no_driver')) {
+      _passengerTripTypes.contains(pushType)) {
     query['trip'] = tripId;
   }
 
   final target = Uri(path: path, queryParameters: query.isEmpty ? null : query)
       .toString();
   return routeExists(router, target) ? target : home;
+}
+
+/// Avisos al pasajero que abren el seguimiento de ESE viaje (?trip=<id>):
+/// así también funciona con un programado que todavía no es el viaje activo.
+const _passengerTripTypes = {
+  'scheduled_reminder',
+  'scheduled_no_driver',
+  'driver_assigned',
+  'driver_no_confirm',
+  'offer_driver_busy',
+  'offer_withdrawn',
+  'trip_reopened',
+  'trip_cancelled',
+};
+
+/// Ruta para avisos que llegan sin data.route.
+///  - offer_not_chosen / confirm_expired (conductor) → Solicitudes.
+///  - acceptance_undone (conductor) → la solicitud.
+///  - trip_cancelled por no_driver_timeout (pasajero) → seguimiento de ese
+///    viaje, que muestra "Nadie aceptó tu pedido…" con el botón para volver
+///    a pedirlo.
+String? _defaultRouteFor(String? pushType, String? tripId, String? reasonCode) {
+  final hasTrip = tripId != null && tripId.isNotEmpty;
+  switch (pushType) {
+    case 'offer_not_chosen':
+    case 'confirm_expired':
+      return '/driver/requests';
+    case 'acceptance_undone':
+      return hasTrip ? '/driver/incoming/$tripId' : '/driver/requests';
+    case 'trip_cancelled':
+      return reasonCode == 'no_driver_timeout' ? '/passenger/tracking' : null;
+    default:
+      return null;
+  }
 }
 
 /// true si la ruta tiene una pantalla registrada en el router.

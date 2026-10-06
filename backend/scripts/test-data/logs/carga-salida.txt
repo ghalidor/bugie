@@ -1,0 +1,41 @@
+Creando 210 conductores y 60 pasajeros de carga en BD (sin correos)...
+Cuentas: 210 conductores, 60 pasajeros. Iniciando sesion...
+Carga: 60 parejas en viaje continuo, 150 conductores conectados sin viaje, 15 min, maximo 600 viajes.
+  t+30s viajes=5 fallidos=0 peticiones=2213 p95=122ms errores=0
+  t+60s viajes=61 fallidos=0 peticiones=4250 p95=119ms errores=0
+  t+90s viajes=118 fallidos=0 peticiones=6358 p95=115ms errores=0
+  t+120s viajes=165 fallidos=0 peticiones=8410 p95=28ms errores=0
+  t+150s viajes=220 fallidos=0 peticiones=10437 p95=18ms errores=0
+  t+180s viajes=273 fallidos=0 peticiones=12471 p95=14ms errores=0
+  t+210s viajes=322 fallidos=0 peticiones=14540 p95=12ms errores=0
+  t+240s viajes=368 fallidos=0 peticiones=16572 p95=12ms errores=0
+  t+270s viajes=427 fallidos=0 peticiones=18623 p95=11ms errores=0
+  t+300s viajes=479 fallidos=0 peticiones=20692 p95=11ms errores=0
+  t+330s viajes=534 fallidos=0 peticiones=22790 p95=11ms errores=0
+  t+360s viajes=590 fallidos=0 peticiones=24860 p95=10ms errores=0
+  t+390s viajes=635 fallidos=0 peticiones=25998 p95=10ms errores=0
+  t+420s viajes=650 fallidos=0 peticiones=26230 p95=10ms errores=0
+
+== Resultado
+viajes completados=650 fallidos=0 duracion=420s
+┌─────────┬───────────────────────────────────┬───────┬─────┬──────┬──────┬─────────┐
+│ (index) │ endpoint                          │ n     │ p50 │ p95  │ max  │ errores │
+├─────────┼───────────────────────────────────┼───────┼─────┼──────┼──────┼─────────┤
+│ 0       │ 'drivers/location/batch'          │ 20105 │ 2   │ 6    │ 2060 │ '{}'    │
+│ 1       │ 'trips (crear)'                   │ 650   │ 4   │ 205  │ 4083 │ '{}'    │
+│ 2       │ 'trips/arrived'                   │ 650   │ 6   │ 16   │ 3853 │ '{}'    │
+│ 3       │ 'trips/start'                     │ 650   │ 6   │ 14   │ 1844 │ '{}'    │
+│ 4       │ 'trips/passenger-location'        │ 650   │ 2   │ 4    │ 2056 │ '{}'    │
+│ 5       │ 'trips/complete'                  │ 650   │ 11  │ 1010 │ 4123 │ '{}'    │
+│ 6       │ 'trips/ratings'                   │ 444   │ 4   │ 1133 │ 3111 │ '{}'    │
+│ 7       │ 'trips/driver-accept'             │ 390   │ 6   │ 1570 │ 2556 │ '{}'    │
+│ 8       │ 'trips/proposals'                 │ 390   │ 4   │ 48   │ 1767 │ '{}'    │
+│ 9       │ 'trips/confirm-driver-acceptance' │ 390   │ 6   │ 18   │ 365  │ '{}'    │
+│ 10      │ 'auth/login'                      │ 271   │ 118 │ 123  │ 161  │ '{}'    │
+│ 11      │ 'trips/propose'                   │ 260   │ 6   │ 1829 │ 2557 │ '{}'    │
+│ 12      │ 'trips/accept-proposal'           │ 260   │ 2   │ 12   │ 270  │ '{}'    │
+│ 13      │ 'trips/confirm-acceptance'        │ 260   │ 6   │ 31   │ 498  │ '{}'    │
+│ 14      │ 'drivers/me'                      │ 210   │ 3   │ 4    │ 2052 │ '{}'    │
+└─────────┴───────────────────────────────────┴───────┴─────┴──────┴──────┴─────────┘
+GPS en BD: 19924 · viajes totales: 720
+exit 0

@@ -25,14 +25,84 @@ public interface ITripNotificationService
     /// → Push al CONDUCTOR.
     /// </summary>
     Task NotifyDriverPassengerAcceptedAsync(
-        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride);
+        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride,
+        DateTime? confirmBeforeUtc = null);
 
     /// <summary>
-    /// El conductor confirmó la aceptación. Viaje en curso.
+    /// El viaje quedó asignado a un conductor (confirmó la oferta aceptada o
+    /// aceptó la contraoferta). Inmediato: "Conductor en camino".
+    /// Programado: "Conductor asignado para {fecha hora}".
     /// → Push al PASAJERO.
     /// </summary>
     Task NotifyPassengerDriverConfirmedAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride,
+        DateTime? scheduledAtUtc = null);
+
+    /// <summary>
+    /// El pasajero confirmó la aceptación a tarifa del conductor: viaje asignado.
+    /// → Push al CONDUCTOR (type = driver_chosen).
+    /// </summary>
+    Task NotifyDriverChosenAsync(
+        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride,
+        DateTime? scheduledAtUtc = null);
+
+    /// <summary>
+    /// El pasajero eligió otra oferta y la oferta de este conductor (que el
+    /// pasajero había aceptado) se cerró.
+    /// → Push al CONDUCTOR (type = offer_not_chosen).
+    /// </summary>
+    Task NotifyDriverNotChosenAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// El pasajero deshizo su aceptación: la oferta vuelve a pendiente.
+    /// → Push al CONDUCTOR (type = acceptance_undone).
+    /// </summary>
+    Task NotifyDriverAcceptanceUndoneAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// El conductor no confirmó a tiempo la oferta que aceptó el pasajero.
+    /// → Push al PASAJERO (type = driver_no_confirm).
+    /// </summary>
+    Task NotifyPassengerDriverNoConfirmAsync(
         Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// Mismo caso, aviso al conductor que perdió el viaje.
+    /// → Push al CONDUCTOR (type = confirm_expired).
+    /// </summary>
+    Task NotifyDriverConfirmExpiredAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// El conductor que el pasajero había aceptado tomó otro viaje (driver_busy).
+    /// → Push al PASAJERO (type = offer_driver_busy).
+    /// </summary>
+    Task NotifyPassengerChosenDriverBusyAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// El conductor retiró su oferta (declinó el viaje). No es una cancelación.
+    /// → Push al PASAJERO (type = offer_withdrawn).
+    /// </summary>
+    Task NotifyPassengerOfferWithdrawnAsync(
+        Guid passengerUserId, Guid tripId, Guid driverUserId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// Bugie canceló el viaje inmediato porque nadie lo aceptó a tiempo.
+    /// → Push al PASAJERO (type = trip_cancelled, cancelled_by = system,
+    /// reason_code = no_driver_timeout).
+    /// </summary>
+    Task NotifyPassengerNoDriverFoundAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride);
+
+    /// <summary>
+    /// El conductor canceló un programado aceptado: el viaje vuelve a buscar conductor.
+    /// → Push al PASAJERO (type = trip_reopened).
+    /// </summary>
+    Task NotifyPassengerDriverCancelledReopenedAsync(
+        Guid passengerUserId, Guid tripId, DateTime? scheduledAtUtc, ServiceType service = ServiceType.Ride);
 
     /// <summary>
     /// El pasajero envió una contrapropuesta a un conductor específico.
