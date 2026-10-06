@@ -206,11 +206,17 @@ class TripsRepository {
   /// PUT /api/trips/{id}/cancel
   /// PUT /api/trips/{id}/cancel — lo usa el pasajero y el conductor.
   /// El backend registra quién canceló; [reason] es opcional.
-  Future<void> cancel(String tripId, {String? reason}) async {
-    await _api.put(
+  /// Devuelve el viaje resultante (ej. el conductor que cancela un
+  /// programado aceptado antes de su hora recibe el viaje REABIERTO:
+  /// status 1 y sin conductor). null si el backend no manda cuerpo.
+  Future<Trip?> cancel(String tripId, {String? reason}) async {
+    final json = await _api.put(
       '${ApiConfig.trips}/trips/$tripId/cancel',
       body: reason == null || reason.trim().isEmpty ? null : {'reason': reason.trim()},
     );
+    return json is Map<String, dynamic> && json['id'] != null
+        ? Trip.fromJson(json)
+        : null;
   }
 
   /// PUT /api/trips/passenger-location
@@ -338,10 +344,17 @@ class TripsRepository {
     return list.map((t) => Trip.fromJson(t as Map<String, dynamic>)).toList();
   }
 
-  /// PUT /api/trips/{id}/accept
-  Future<Trip> accept(String tripId) async {
-    final json = await _api.put('${ApiConfig.trips}/trips/$tripId/accept');
-    return Trip.fromJson(json as Map<String, dynamic>);
+  /// POST /api/trips/{id}/accept-counter/{proposalId}
+  ///
+  /// El CONDUCTOR acepta la contraoferta del pasajero a ESE monto. El viaje
+  /// queda asignado directo (sin paso de confirmación del pasajero).
+  /// El backend envía { tripDto, otherProposalsRejected }.
+  Future<Trip> acceptCounter(String tripId, String proposalId) async {
+    final json = await _api.post(
+      '${ApiConfig.trips}/trips/$tripId/accept-counter/$proposalId',
+    );
+    final m = json as Map<String, dynamic>;
+    return Trip.fromJson(m['tripDto'] as Map<String, dynamic>);
   }
 
   /// POST /api/trips/{id}/driver-accept

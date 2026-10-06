@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API, apiFetch } from '../../../state/api';
 import { useMonitorHub, SosEvent } from '../../../hooks/useMonitorHub';
 import { LivePassenger, OnlineDriver, RouteDeviation, SosAlert, VehicleBulk } from './types';
+import { isTrailStatus, useLiveTrails } from './useLiveTrails';
+
+/** Mínimo entre recargas disparadas por un GPS de un viaje que aún no está en la lista. */
+const UNKNOWN_TRIP_RELOAD_MS = 5000;
 
 interface SystemSetting { settingKey: string; value: string; }
 
@@ -14,8 +18,9 @@ interface Options {
 
 /**
  * Datos del monitoreo en vivo: conductores en línea, SOS, viajes activos,
- * vehículos y alertas de desvío. Carga por API + polling de respaldo (30 s)
- * y actualiza en tiempo real con SignalR (useMonitorHub).
+ * vehículos, alertas de desvío y recorridos en vivo por viaje (useLiveTrails).
+ * Carga por API + polling de respaldo (30 s) y actualiza en tiempo real con
+ * SignalR (useMonitorHub).
  */
 export function useLiveMonitor({ onNewSos, onNewDeviation }: Options = {}) {
   const [drivers,       setDrivers]       = useState<OnlineDriver[]>([]);
@@ -35,6 +40,10 @@ export function useLiveMonitor({ onNewSos, onNewDeviation }: Options = {}) {
   const passengersRef = useRef(passengers);
   driversRef.current    = drivers;
   passengersRef.current = passengers;
+  const lastUnknownTripReload = useRef(0);
+
+  // Trazo recorrido por cada viaje con conductor (grabado + puntos del hub).
+  const trails = useLiveTrails(passengers);
 
   // ── Setting de desvío (1 llamada al montar) ────────────────────────
   useEffect(() => {
@@ -100,6 +109,19 @@ export function useLiveMonitor({ onNewSos, onNewDeviation }: Options = {}) {
       setDrivers(prev => prev.map(d => d.userId === e.userId
         ? { ...d, currentLat: e.lat, currentLng: e.lng, hasActiveTrip: e.hasActiveTrip }
         : d));
+
+      // Viaje del conductor: el que manda el hub (tripId) o, si no viene,
+      // el viaje activo de la lista con ese conductor.
+      const trip = passengersRef.current.find(p => e.tripId ? p.tripId === e.tripId : (p.driverId === e.userId && isTrailStatus(p.status)));
+      if (trip) {
+        // Posición del conductor dentro del viaje (la usa el detalle en vivo).
+        setPassengers(prev => prev.map(p => p.tripId === trip.tripId ? { ...p, driverLat: e.lat, driverLng: e.lng } : p));
+        if (isTrailStatus(trip.status)) trails.appendPoint(trip.tripId, e.lat, e.lng, e.at);
+      } else if (e.tripId && Date.now() - lastUnknownTripReload.current > UNKNOWN_TRIP_RELOAD_MS) {
+        // Viaje recién aceptado que la lista aún no tiene: traerlo ya.
+        lastUnknownTripReload.current = Date.now();
+        load();
+      }
     },
 
     onPassengerLocation: e => {
@@ -148,6 +170,8 @@ export function useLiveMonitor({ onNewSos, onNewDeviation }: Options = {}) {
 
   return {
     drivers, alerts, passengers, vehicleByUser, deviations,
+    /** Recorridos en vivo por tripId (viajes con conductor asignado). */
+    trails: trails.byTrip,
     loading, refreshing, lastUpdate, autoRefresh, setAutoRefresh, deviationEnabled,
     deviatedByUserId, sosUserIds, sosDriverUserIds,
     load, removeDeviation,

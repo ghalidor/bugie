@@ -50,6 +50,8 @@ const kmFromKm = (v: number) => `${v.toLocaleString('es-PE', { minimumFractionDi
 interface LegendProps {
   planned: PlannedRoute | null;
   path: TripPath | null;
+  /** Recorrido ya resumido (p. ej. el trazo en vivo del Monitoreo); si viene, se usa en lugar de `path`. */
+  real?: { distanceKm: number; points: number } | null;
   /** Mientras carga se muestra "Cargando…". */
   loadingPlanned?: boolean;
   loadingPath?: boolean;
@@ -60,9 +62,10 @@ interface LegendProps {
 }
 
 /** Leyenda bajo el mapa: muestra de color + nombre + distancia (o estado vacío). */
-export function RouteLegend({ planned, path, loadingPlanned, loadingPath, compact, realLabel = 'Recorrido real' }: LegendProps) {
+export function RouteLegend({ planned, path, real, loadingPlanned, loadingPath, compact, realLabel = 'Recorrido real' }: LegendProps) {
   const hasPlanned = validLeg(planned?.trip);
-  const hasReal = !!path && path.path.length >= 2;
+  const summary = real ?? (path ? { distanceKm: path.distanceKm, points: path.path.length } : null);
+  const hasReal = !!summary && summary.points >= 2;
   const hasPickup = validLeg(planned?.pickup);
   const straight = hasPlanned && planned!.trip!.source === 'straight';
 
@@ -80,7 +83,7 @@ export function RouteLegend({ planned, path, loadingPlanned, loadingPath, compac
         <span className="sw solid" style={{ color: ROUTE_COLORS.real }} aria-hidden="true" />
         <span className="t">
           {loadingPath ? `${realLabel} · cargando…`
-            : hasReal ? <>{realLabel} · <strong>{kmFromKm(path!.distanceKm)}</strong></>
+            : hasReal ? <>{realLabel} · <strong>{kmFromKm(summary!.distanceKm)}</strong></>
             : `${realLabel} · sin recorrido registrado`}
         </span>
       </li>

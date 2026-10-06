@@ -9,10 +9,17 @@ import FromBadge from '../../components/FromBadge';
 import TripPhotos from '../../components/TripPhotos';
 import { API, apiFetch, ApiError } from '../../state/api';
 import {
-  CountUp, EmptyState, FlashOnChange, IconButton, InfoList, Modal, Notice, Page, PageLoading, SectionCard, Skeleton, StatusBadge, Tone,
+  CountUp, EmptyState, FlashOnChange, InfoList, Modal, Notice, Page, PageLoading, SectionCard, Skeleton, StatusBadge, Tone,
   useConfirm, useFlip, usePresenceList, useToast,
 } from '../../components/ui';
 import { money } from '../../components/tripFormat';
+import { fareRange, fareRangeError, fareRangeHint, usePlatformConfig } from '../../hooks/usePlatformConfig';
+import { useTripsHub } from '../../hooks/useTripsHub';
+
+// Sondeo de respaldo: rápido sin tiempo real; lento cuando el hub está conectado
+// y dentro del grupo del viaje (los cambios llegan por SignalR).
+const POLL_FAST_MS = 3000;
+const POLL_SLOW_MS = 30000;
 
 interface Waypoint {
   id: string; address: string;
@@ -35,7 +42,13 @@ interface Proposal {
   proposedByRole?: 'driver' | 'passenger';
   // Quién la rechazó (si Status == 'rejected'): 'driver' = el conductor declinó
   rejectedBy?: 'passenger' | 'driver' | null;
+  // Solo en 'accepted_by_passenger': hasta cuándo puede confirmar el conductor
+  confirmExpiresAt?: string | null;
 }
+
+// Estados de propuesta que se muestran. rejected / superseded / cancelled
+// desaparecen de la lista.
+const OPEN_PROPOSAL = ['pending', 'driver_accepted', 'accepted_by_passenger'];
 
 interface ProposalHistoryEntry {
   id: string; fare: number;
@@ -88,6 +101,27 @@ interface Trip {
   scheduledActive?: boolean;
   // El conductor no llegó (15 min después de la hora): cancelar o republicar
   driverLate?: boolean;
+
+  // Tarifa que pidió el pasajero al crear el viaje (base del rango para contraofertar)
+  suggestedFare?: number | null;
+  // Mientras busca conductor: cuándo vence la solicitud y por qué regla
+  // ('no_driver_timeout' = Bugie lo cancela si nadie acepta).
+  expiresAt?: string | null;
+  expiresReason?: string | null;
+}
+
+/** Milisegundos de una fecha de la API (hora de Perú sin zona = UTC-5). */
+function peruMs(iso: string): number {
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(iso)) return Date.parse(iso);
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(iso);
+  if (!m) return Date.parse(iso);
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + 5, +m[5], +(m[6] ?? 0));
+}
+
+/** "mm:ss" del tiempo que falta (nunca negativo). */
+function mmss(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
 /** "sáb 04 oct, 10:30" de una fecha de la API (hora de Perú sin zona). */
@@ -165,8 +199,59 @@ export default function PassengerTracking() {
   const [arrivedOpen, setArrivedOpen] = useState(false);
   const arrivedShownFor = useRef<string | null>(null);
   // El conductor (o Bugie) cancelo el viaje: aviso con el motivo
-  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null; delivery: boolean } | null>(null);
+  // noDriver: Bugie lo canceló porque nadie aceptó a tiempo (no_driver_timeout)
+  const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null; delivery: boolean; noDriver: boolean } | null>(null);
   const lastTripId = useRef<string | null>(null);
+  // Regla de vencimiento que tenía el viaje en el último sondeo
+  const lastExpiresReason = useRef<string | null>(null);
+  // Oferta que el pasajero aceptó (esperando al conductor) en el último sondeo
+  const waitingRef = useRef<{ id: string; expiresMs: number | null } | null>(null);
+  // Rango de monto para contraofertar (settings públicos)
+  const fareCfg = usePlatformConfig();
+  // Acción de negociación en curso: bloquea los demás botones (anti doble clic)
+  const [busy, setBusy] = useState<{ id: string; action: string } | null>(null);
+  const busyRef = useRef(false);
+  // Recarga inmediata del viaje y las ofertas (la misma del sondeo)
+  const loadRef = useRef<() => void>(() => {});
+
+  // Tiempo real (hub /hubs/trips): cambios del viaje y de las ofertas,
+  // posición del conductor y avisos de este viaje. Recarga con la misma
+  // función del sondeo (idempotente); la posición se aplica directo al mapa.
+  const hub = useTripsHub({
+    onTripChanged:      () => loadRef.current(),
+    onProposalsChanged: () => loadRef.current(),
+    onReconnected:      () => loadRef.current(),
+    onUserNotification: n => {
+      const id = n.data.trip_id;
+      if (id && (lastTripId.current == null || id === lastTripId.current)) loadRef.current();
+    },
+    onDriverLocation: e => {
+      setTrip(prev => (prev && prev.id === e.tripId
+        ? { ...prev, driverCurrentLat: e.lat, driverCurrentLng: e.lng }
+        : prev));
+    },
+  });
+  // Viaje al que la conexión ya entró (JoinTrip aceptado). Si el servidor lo
+  // rechaza o el hub está caído, se mantiene el sondeo rápido.
+  const [joinedTripId, setJoinedTripId] = useState<string | null>(null);
+  const tripId = trip?.id ?? null;
+  useEffect(() => {
+    if (!hub.connected || !tripId) { setJoinedTripId(null); return; }
+    let active = true;
+    hub.joinTrip(tripId).then(ok => { if (active) setJoinedTripId(ok ? tripId : null); });
+    return () => {
+      active = false;
+      setJoinedTripId(null);
+      hub.leaveTrip(tripId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hub.connected, tripId]);
+  // Sin viaje basta con estar conectado (TripChanged llega por el grupo del usuario).
+  const hubLive = hub.connected && (tripId == null || joinedTripId === tripId);
+  const pollMs  = hubLive ? POLL_SLOW_MS : POLL_FAST_MS;
+  // Reloj para las cuentas regresivas
+  const [now, setNow] = useState(() => Date.now());
+  const expiredFired = useRef<Set<string>>(new Set());
   const [cuponAbierto, setCuponAbierto] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -186,17 +271,12 @@ export default function PassengerTracking() {
     return () => clearInterval(t);
   }, []);
 
-  // Estado del input de contrapropuesta por cada propuesta (key = proposalId)
+  // Estado del input de contraoferta por cada propuesta (key = proposalId)
   const [counterFare,    setCounterFare]    = useState<Record<string, string>>({});
-  const [counteringId,   setCounteringId]   = useState<string | null>(null);  // proposalId al que le estoy contraproponiendo
-  const [counterSending, setCounterSending] = useState(false);
+  const [counteringId,   setCounteringId]   = useState<string | null>(null);  // proposalId al que le estoy contraofertando
 
-  // IDs de propuestas que el usuario ocultó manualmente (con la X).
-  // No se persiste — al recargar la pantalla, vuelven a aparecer si siguen rejected.
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-
-  // Propuestas visibles (sin las ocultadas a mano), con entrada/salida animada.
-  const visible     = proposals.filter(p => !hiddenIds.has(p.id));
+  // Propuestas vigentes, con entrada/salida animada.
+  const visible     = proposals.filter(p => OPEN_PROPOSAL.includes(p.status));
   const offerEntries = usePresenceList(visible, p => p.id);
   const offersRef   = useRef<HTMLDivElement>(null);
   useFlip(offersRef, offerEntries);
@@ -216,9 +296,15 @@ export default function PassengerTracking() {
             lastTripId.current = null;
             const t = await apiFetch<Trip>(`${API.trips}/trips/${gone}`).catch(() => null);
             if (t?.status === 5 && t.cancelledBy && t.cancelledBy !== 'passenger')
-              setCancelledInfo({ by: t.cancelledBy, reason: t.cancelReason ?? null, delivery: t.serviceType === 1 });
+              setCancelledInfo({
+                by: t.cancelledBy, reason: t.cancelReason ?? null, delivery: t.serviceType === 1,
+                noDriver: t.cancelledBy === 'system' && lastExpiresReason.current === 'no_driver_timeout',
+              });
           }
-          if (d) lastTripId.current = d.id;
+          if (d) {
+            lastTripId.current = d.id;
+            lastExpiresReason.current = d.expiresReason ?? null;
+          }
           setTrip(d);
           setError(null);
           if (d && d.status === 2 && d.driverArrivedAt && arrivedShownFor.current !== d.id) {
@@ -227,10 +313,19 @@ export default function PassengerTracking() {
           }
           if (d && (d.status === 1 || d.status === 7)) {
             try {
-              const props = await apiFetch<Proposal[]>(`${API.trips}/trips/${d.id}/proposals`);
-              setProposals(props ?? []);
+              const props = (await apiFetch<Proposal[]>(`${API.trips}/trips/${d.id}/proposals`)) ?? [];
+              // La oferta que aceptó venció sin que el conductor confirmara
+              const nowWaiting = props.find(p => p.status === 'accepted_by_passenger');
+              const prev = waitingRef.current;
+              if (prev && !nowWaiting && !d.driverId && prev.expiresMs != null && Date.now() >= prev.expiresMs - 2000)
+                toast.warning('El conductor no confirmó; elige otra oferta');
+              waitingRef.current = nowWaiting
+                ? { id: nowWaiting.id, expiresMs: nowWaiting.confirmExpiresAt ? peruMs(nowWaiting.confirmExpiresAt) : null }
+                : null;
+              setProposals(props);
             } catch (_) { setProposals([]); }
           } else {
+            waitingRef.current = null;
             setProposals([]);
           }
           // Sin viaje: mostrar los programados que tenga
@@ -239,71 +334,122 @@ export default function PassengerTracking() {
             setScheduled(list ?? []);
           }
         })
-        .catch(() => setError('No se pudo cargar el seguimiento. Reintentamos cada 3 segundos.'))
+        .catch(() => setError(`No se pudo cargar el seguimiento. Reintentamos cada ${Math.round(pollMs / 1000)} segundos.`))
         .finally(() => setLoading(false));
+    loadRef.current = load;
     load();
-    const t = setInterval(load, 3000);
+    const t = setInterval(load, pollMs);
     return () => clearInterval(t);
-  }, [tripParam]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripParam, pollMs]);
+
+  // Cuentas regresivas: hasta que Bugie cancela el pedido si nadie acepta
+  // (no_driver_timeout) y hasta que el conductor debe confirmar la oferta aceptada.
+  const deadlines = [
+    ...(trip?.expiresReason === 'no_driver_timeout' && trip.expiresAt ? [trip.expiresAt] : []),
+    ...proposals.filter(p => p.status === 'accepted_by_passenger' && p.confirmExpiresAt).map(p => p.confirmExpiresAt!),
+  ];
+  const hasDeadline = deadlines.length > 0;
+  useEffect(() => {
+    if (!hasDeadline) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [hasDeadline]);
+  // Al llegar a 0 se recarga (una vez por plazo): el backend dice qué pasó.
+  useEffect(() => {
+    for (const d of deadlines) {
+      if (peruMs(d) <= now && !expiredFired.current.has(d)) {
+        expiredFired.current.add(d);
+        loadRef.current();
+      }
+    }
+  });
 
   function fail(err: unknown, fallback: string) {
     toast.error(err instanceof ApiError ? err.message : fallback);
   }
 
-  async function acceptProposal(proposalId: string) {
+  /**
+   * Ejecuta una acción de negociación: una sola a la vez (anti doble clic).
+   * Si falla (409/400…) muestra el error del backend tal cual; siempre
+   * recarga el viaje y las ofertas al terminar.
+   */
+  async function runAction(id: string, action: string, fn: () => Promise<void>, fallback: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy({ id, action });
+    try { await fn(); }
+    catch (err) { fail(err, fallback); }
+    finally {
+      busyRef.current = false;
+      setBusy(null);
+      loadRef.current();
+    }
+  }
+
+  /** Acepta la oferta de un conductor: queda esperando que él confirme. */
+  function acceptProposal(proposalId: string) {
     if (!trip) return;
-    try {
-      await apiFetch(`${API.trips}/trips/${trip.id}/accept-proposal/${proposalId}`, { method: 'PUT' });
-      // FLUJO NUEVO: aceptar una propuesta ya NO asigna conductor automáticamente.
-      // Solo marca la propuesta como 'accepted_by_passenger' en BD; el viaje
-      // sigue en Pending/Negotiating hasta que el conductor confirme.
-      // El próximo poll (3s) traerá el nuevo estado y aparecerá el aviso.
-      toast.info('Aceptaste la propuesta. Esperamos la confirmación del conductor.');
-    } catch (err) { fail(err, 'Error al aceptar propuesta.'); }
+    const tripId = trip.id;
+    runAction(proposalId, 'accept', async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/accept-proposal/${proposalId}`, { method: 'PUT' });
+      toast.info('Aceptaste la oferta. Esperamos la confirmación del conductor.');
+    }, 'Error al aceptar la oferta.');
+  }
+
+  /** Elige a un conductor que aceptó el precio del pasajero: se asigna el viaje. */
+  function chooseDriver(proposalId: string) {
+    if (!trip) return;
+    const tripId = trip.id;
+    runAction(proposalId, 'choose', async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/confirm-driver-acceptance/${proposalId}`, { method: 'PUT' });
+      waitingRef.current = null; // la que esperaba confirmación se cerró
+    }, 'Error al elegir al conductor.');
   }
 
   /**
-   * Deshace la aceptación. La propuesta vuelve a 'pending' y se guarda
+   * Deshace la aceptación. La oferta vuelve a 'pending' y se guarda
    * un registro inmutable en BD. El pasajero queda libre para aceptar otra.
    * Pide confirmación antes (es un cambio auditado).
    */
   async function cancelAcceptance(proposalId: string) {
-    if (!trip) return;
+    if (!trip || busyRef.current) return;
+    const tripId = trip.id;
     const ok = await confirm({
-      title: '¿Cambiar de opinión?',
-      message: 'La propuesta volverá a estar pendiente y podrás aceptar otra. El conductor todavía podría confirmar si lo hace antes que aceptes a otro.',
-      confirmText: 'Sí, cambiar de opinión',
+      title: '¿Deshacer la aceptación?',
+      message: 'La oferta volverá a estar pendiente y podrás elegir otra.',
+      confirmText: 'Sí, deshacer',
       cancelText: 'Seguir esperando',
       tone: 'warning',
     });
     if (!ok) return;
-    try {
-      await apiFetch(`${API.trips}/trips/${trip.id}/cancel-acceptance/${proposalId}`, { method: 'PUT' });
-    } catch (err) { fail(err, 'No se pudo cambiar de opinión.'); }
+    runAction(proposalId, 'undo', async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/cancel-acceptance/${proposalId}`, { method: 'PUT' });
+      waitingRef.current = null;
+    }, 'No se pudo deshacer la aceptación.');
   }
 
   /**
-   * Rechaza UNA propuesta específica (no todas).
+   * Rechaza UNA oferta (o retira la contraoferta propia).
    * La marca como 'rejected' en BD. El conductor ya no la verá activa.
    */
-  async function rejectOne(proposalId: string) {
+  function rejectOne(proposalId: string, action: 'reject' | 'withdraw' = 'reject') {
     if (!trip) return;
-    try {
-      await apiFetch(
-        `${API.trips}/trips/${trip.id}/proposals/${proposalId}/reject`,
-        { method: 'PUT' });
+    const tripId = trip.id;
+    runAction(proposalId, action, async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/proposals/${proposalId}/reject`, { method: 'PUT' });
       setProposals(prev => prev.filter(p => p.id !== proposalId));
-    } catch (err) {
-      fail(err, 'Error al rechazar.');
-    }
+    }, action === 'withdraw' ? 'Error al retirar la contraoferta.' : 'Error al rechazar.');
   }
 
   /**
-   * Rechaza TODAS las propuestas pending del viaje en una sola llamada.
-   * Cada conductor verá "el pasajero rechazó tu propuesta".
+   * Rechaza TODAS las ofertas pendientes (y las aceptaciones a tu precio) en
+   * una sola llamada. Cada conductor verá "el pasajero rechazó tu propuesta".
    */
   async function rejectAllProposals() {
-    if (!trip) return;
+    if (!trip || busyRef.current) return;
+    const tripId = trip.id;
     const ok = await confirm({
       title: '¿Rechazar todas las propuestas?',
       message: 'Los conductores recibirán el aviso. Podrás seguir recibiendo propuestas nuevas.',
@@ -311,39 +457,27 @@ export default function PassengerTracking() {
       tone: 'danger',
     });
     if (!ok) return;
-    try {
-      await apiFetch(
-        `${API.trips}/trips/${trip.id}/proposals/reject-all`,
-        { method: 'PUT' });
-      setProposals(prev => prev.map(p =>
-        p.status === 'pending'
-          ? { ...p, status: 'rejected', rejectedBy: 'passenger' }
-          : p));
-    } catch (err) {
-      fail(err, 'Error al rechazar todas.');
-    }
+    runAction('all', 'rejectAll', async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/proposals/reject-all`, { method: 'PUT' });
+      setProposals(prev => prev.filter(p => p.status === 'accepted_by_passenger'));
+    }, 'Error al rechazar todas.');
   }
 
   /**
-   * Envía una contrapropuesta al conductor con un monto distinto.
-   * El conductor la verá en su pantalla y podrá aceptar/rechazar/contraproponer.
+   * Envía (o cambia) la contraoferta a un conductor. El monto ya se validó
+   * con el rango; el backend lo vuelve a validar.
    */
-  async function counterPropose(driverId: string, fare: number) {
+  function counterPropose(proposalId: string, driverId: string, fare: number) {
     if (!trip) return;
-    if (fare <= 0) {
-      toast.warning('El monto debe ser mayor a 0.');
-      return;
-    }
-    try {
-      await apiFetch(`${API.trips}/trips/${trip.id}/counter`, {
+    const tripId = trip.id;
+    runAction(proposalId, 'counter', async () => {
+      await apiFetch(`${API.trips}/trips/${tripId}/counter`, {
         method: 'POST',
         body: JSON.stringify({ driverId, fare }),
       });
-      // La nueva propuesta llegará en el próximo poll (intervalo 3s)
-      toast.success('Contrapropuesta enviada.');
-    } catch (err) {
-      fail(err, 'Error al enviar contrapropuesta.');
-    }
+      setCounteringId(null);
+      toast.success('Contraoferta enviada.');
+    }, 'Error al enviar la contraoferta.');
   }
 
   async function cancel() {
@@ -468,7 +602,7 @@ export default function PassengerTracking() {
             <button type="button" className="btn btn-bugie-outline" onClick={() => setCancelledInfo(null)}>Cerrar</button>
             <button type="button" className="btn btn-bugie" data-autofocus
                     onClick={() => { setCancelledInfo(null); navigate('/app/pasajero/solicitar'); }}>
-              {cancelledInfo.delivery ? 'Pedir otro envío' : 'Pedir otro viaje'}
+              {cancelledInfo.noDriver ? 'Volver a pedir' : cancelledInfo.delivery ? 'Pedir otro envío' : 'Pedir otro viaje'}
             </button>
           </>
         )}
@@ -485,8 +619,14 @@ export default function PassengerTracking() {
                 ? `Tu conductor canceló ${cancelledInfo.delivery ? 'el envío' : 'el viaje'}`
                 : `Bugie canceló ${cancelledInfo.delivery ? 'tu envío' : 'tu viaje'}`}
             </h2>
-            {cancelledInfo.reason && <p>Motivo: {cancelledInfo.reason}</p>}
-            <p>Puedes pedir {cancelledInfo.delivery ? 'otro envío' : 'otro viaje'} cuando quieras.</p>
+            {cancelledInfo.noDriver ? (
+              <p>Nadie aceptó tu pedido. Puedes volver a pedirlo.</p>
+            ) : (
+              <>
+                {cancelledInfo.reason && <p>Motivo: {cancelledInfo.reason}</p>}
+                <p>Puedes pedir {cancelledInfo.delivery ? 'otro envío' : 'otro viaje'} cuando quieras.</p>
+              </>
+            )}
           </div>
         )}
       </Modal>
@@ -513,10 +653,21 @@ export default function PassengerTracking() {
     ? (trip.fareBeforeDiscount ?? trip.estimatedFare) - trip.discountAmount
     : trip.estimatedFare;
 
-  // ¿Ya aceptó una? Entonces se bloquean las demás y se muestra el aviso.
-  const waiting    = visible.find(p => p.status === 'accepted_by_passenger');
-  const hasWaiting = !!waiting;
-  const pendingFromDrivers = visible.filter(p => p.status === 'pending' && p.proposedByRole !== 'passenger').length;
+  // ¿Ya aceptó una? Entonces no puede aceptar otra oferta (sí elegir a quien aceptó su precio).
+  const hasWaiting = visible.some(p => p.status === 'accepted_by_passenger');
+  const rejectable = visible.filter(p =>
+    (p.status === 'pending' && p.proposedByRole !== 'passenger') || p.status === 'driver_accepted').length;
+  const anyBusy    = busy !== null;
+  // Rango para contraofertar: mínimo base_fare; máximo tarifa pedida × fare_max_multiplier
+  const range      = fareRange(trip.suggestedFare ?? trip.estimatedFare, fareCfg);
+  // Si nadie acepta, Bugie cancela el pedido a esta hora
+  const noDriverMs = trip.expiresReason === 'no_driver_timeout' && trip.expiresAt && !trip.driverId
+    && (trip.status === 1 || trip.status === 7)
+    ? peruMs(trip.expiresAt) - now : null;
+  /** Rueda giratoria si esta es la acción en curso; si no, el icono. */
+  const icon = (id: string, action: string, fa: string) => busy?.id === id && busy.action === action
+    ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+    : <i className={`fa-solid ${fa}`} aria-hidden="true" />;
 
   return (
     <Page
@@ -571,19 +722,9 @@ export default function PassengerTracking() {
         </Notice>
       )}
 
-      {hasWaiting && (
-        <Notice
-          tone="warn"
-          icon="fa-hourglass-half"
-          title="Esperando confirmación del conductor"
-          action={
-            <button type="button" className="btn btn-sm btn-outline-warning" onClick={() => cancelAcceptance(waiting!.id)}>
-              <i className="fa-solid fa-rotate-left" aria-hidden="true" />Cambiar de opinión
-            </button>
-          }
-        >
-          Aceptaste a <strong>{waiting!.driverName}</strong>. En cuanto confirme, empieza el viaje.
-          Si tarda demasiado, puedes cambiar de opinión.
+      {noDriverMs != null && (
+        <Notice tone="warn" icon="fa-clock">
+          Si nadie acepta, tu pedido se cancelará en {mmss(noDriverMs)}
         </Notice>
       )}
 
@@ -669,40 +810,61 @@ export default function PassengerTracking() {
             </div>
           </SectionCard>
 
-          {/* Propuestas de conductores */}
+          {/* Ofertas de conductores */}
           {offerEntries.length > 0 && (
             <SectionCard
               title={`${Math.max(visible.length, 1)} conductor${visible.length > 1 ? 'es proponen' : ' propone'} una tarifa`}
               icon="fa-tag"
-              description="Acepta, contrapropón o rechaza. Se actualiza solo."
-              footer={pendingFromDrivers > 1 && (
+              description="Acepta, contraoferta o rechaza. Se actualiza solo."
+              footer={rejectable > 1 && (
                 <div className="text-center">
-                  <button type="button" className="btn btn-sm btn-link text-danger" onClick={rejectAllProposals}>
-                    <i className="fa-solid fa-xmark" aria-hidden="true" />Rechazar todas las propuestas
+                  <button type="button" className="btn btn-sm btn-link text-danger" onClick={rejectAllProposals} disabled={anyBusy}>
+                    {icon('all', 'rejectAll', 'fa-xmark')}Rechazar todas las propuestas
                   </button>
                 </div>
               )}
             >
               <div className="bx-stack-sm" ref={offersRef}>
                 {offerEntries.map(({ item: p, state: anim }) => {
-                  const isMine     = p.proposedByRole === 'passenger';
-                  const isOpen     = counteringId === p.id;
-                  // Declinada por el conductor
-                  const isDeclined = p.status === 'rejected' && p.rejectedBy === 'driver';
-                  // La propuesta que el pasajero ya aceptó (esperando confirmación): sin botones.
-                  const isAcceptedByMe = p.status === 'accepted_by_passenger';
-                  const cls = isAcceptedByMe ? 'is-chosen' : isDeclined ? 'is-declined' : isMine ? 'is-mine' : '';
+                  // Qué es esta tarjeta:
+                  //   offer          oferta del conductor (pending)
+                  //   mine           mi contraoferta (pending, proposedByRole passenger)
+                  //   driverAccepted el conductor aceptó mi precio (driver_accepted)
+                  //   waiting        acepté su oferta y espero que confirme (accepted_by_passenger)
+                  const kind = p.status === 'accepted_by_passenger' ? 'waiting'
+                    : p.status === 'driver_accepted' ? 'driverAccepted'
+                    : p.proposedByRole === 'passenger' ? 'mine' : 'offer';
+                  const isOpen = counteringId === p.id;
+                  const fare   = `S/ ${p.fare.toFixed(2)}`;
+                  const statusText = kind === 'offer' ? `Ofrece ${fare}`
+                    : kind === 'mine' ? `Tu contraoferta ${fare} · esperando al conductor`
+                    : kind === 'driverAccepted' ? `Aceptó tu precio ${fare}`
+                    : null;
+                  const confirmLeft = kind === 'waiting' && p.confirmExpiresAt ? peruMs(p.confirmExpiresAt) - now : null;
+                  const cls = kind === 'waiting' ? 'is-chosen' : kind === 'mine' ? 'is-mine' : '';
                   // Animación: nueva entra con slide + resaltado; la que se va sale colapsando.
                   const animCls = anim === 'enter' ? 'is-entering' : anim === 'exit' ? 'is-leaving' : '';
+                  // Validación del monto de la contraoferta (mismo rango y textos que el backend)
+                  const counterRaw   = counterFare[p.id] ?? '';
+                  const counterNum   = parseFloat(counterRaw);
+                  const counterError = !isOpen || counterRaw === '' ? null
+                    : isNaN(counterNum) || counterNum <= 0 ? 'Ingresa un monto válido.'
+                    : fareRangeError(counterNum, range);
+                  const openCounter = () => {
+                    setCounteringId(p.id);
+                    setCounterFare(prev => ({ ...prev, [p.id]: p.fare.toFixed(2) }));
+                  };
                   return (
                     <article key={p.id} data-flip-key={p.id} className={`bx-offer ${cls} ${animCls}`}
                              aria-hidden={anim === 'exit' || undefined}>
-                      {isAcceptedByMe && (
-                        <StatusBadge tone="warn" icon="fa-hourglass-half">Esperando confirmación del conductor</StatusBadge>
+                      {kind === 'waiting' && (
+                        <StatusBadge tone="warn" icon="fa-hourglass-half">
+                          Esperando que {p.driverName} confirme{confirmLeft != null && ` · ${mmss(confirmLeft)}`}
+                        </StatusBadge>
                       )}
 
                       <div className="bx-offer-head">
-                        <span className={`bx-list-icon bx-tone-${isDeclined ? 'bad' : isMine ? 'warn' : 'primary'}`} aria-hidden="true">
+                        <span className={`bx-list-icon bx-tone-${kind === 'mine' ? 'warn' : kind === 'driverAccepted' ? 'ok' : 'primary'}`} aria-hidden="true">
                           <i className="fa-solid fa-car-side" />
                         </span>
                         <div className="bx-offer-who">
@@ -715,18 +877,17 @@ export default function PassengerTracking() {
                           )}
                           <div className="s">
                             {timeAgo(p.createdAt)}
-                            {isMine && !isDeclined && <span className="bx-text-warn"> · Tu contrapropuesta, esperando respuesta</span>}
-                            {isDeclined && (
-                              <span className="bx-text-bad fw-semibold"> · <i className="fa-solid fa-ban" aria-hidden="true" /> El conductor declinó</span>
+                            {statusText && (
+                              <span className={kind === 'mine' ? 'bx-text-warn' : kind === 'driverAccepted' ? 'bx-text-ok fw-semibold' : undefined}> · {statusText}</span>
                             )}
                           </div>
                         </div>
                         <div className="bx-offer-price">
                           {/* Destello al cambiar el monto: verde si baja (bueno para el pasajero), ámbar si sube */}
                           <FlashOnChange value={p.fare} good={(a, b) => b < a}>
-                            <div className="v">S/ {p.fare.toFixed(2)}</div>
+                            <div className="v">{fare}</div>
                           </FlashOnChange>
-                          {p.trend !== 'new' && !isDeclined && (
+                          {p.trend !== 'new' && kind === 'offer' && (
                             <div className={`t ${p.trend}`}>
                               <i className={`fa-solid ${p.trend === 'down' ? 'fa-arrow-down' : 'fa-arrow-up'} me-1`} aria-hidden="true" />
                               {p.trend === 'down' ? 'Bajó' : 'Subió'}
@@ -734,82 +895,106 @@ export default function PassengerTracking() {
                             </div>
                           )}
                         </div>
-                        {isDeclined && (
-                          <IconButton icon="fa-xmark" label="Ocultar esta propuesta" size="sm" variant="ghost"
-                                      onClick={() => setHiddenIds(prev => new Set(prev).add(p.id))} />
-                        )}
                       </div>
 
-                      {/* Acciones: no si está declinada, si es mi contrapropuesta, si está
-                          abierto el campo o si es la que YA acepté. */}
-                      {!isMine && !isOpen && !isDeclined && !isAcceptedByMe && (
+                      {/* Acciones según el estado (no con el campo de contraoferta abierto). */}
+                      {!isOpen && (
                         <div className="bx-offer-actions">
                           <button type="button" className="btn btn-sm btn-bugie-outline bx-icon-only"
                                   title="Ver propuestas anteriores" aria-label={`Ver propuestas anteriores de ${p.driverName}`}
                                   onClick={() => openHistory(p.driverId, p.driverName)}>
                             <i className="fa-solid fa-clock-rotate-left" aria-hidden="true" />
                           </button>
-                          <button type="button" className="btn btn-sm btn-outline-danger"
-                                  disabled={hasWaiting} onClick={() => rejectOne(p.id)}>
-                            <i className="fa-solid fa-xmark" aria-hidden="true" />Rechazar
-                          </button>
-                          <button type="button" className="btn btn-sm btn-bugie-outline"
-                                  disabled={hasWaiting}
-                                  onClick={() => {
-                                    setCounteringId(p.id);
-                                    setCounterFare(prev => ({ ...prev, [p.id]: p.fare.toFixed(2) }));
-                                  }}>
-                            <i className="fa-solid fa-arrow-right-arrow-left" aria-hidden="true" />Contraproponer
-                          </button>
-                          <button type="button" className="btn btn-sm btn-success"
-                                  disabled={hasWaiting}
-                                  title={hasWaiting ? 'Ya aceptaste otra propuesta. Espera la confirmación del conductor.' : undefined}
-                                  onClick={() => acceptProposal(p.id)}>
-                            <i className="fa-solid fa-check" aria-hidden="true" />
-                            {hasWaiting ? 'Esperando otro conductor' : `Aceptar S/ ${p.fare.toFixed(2)}`}
-                          </button>
+
+                          {(kind === 'offer' || kind === 'driverAccepted') && (
+                            <>
+                              <button type="button" className="btn btn-sm btn-outline-danger"
+                                      disabled={anyBusy} onClick={() => rejectOne(p.id)}>
+                                {icon(p.id, 'reject', 'fa-xmark')}Rechazar
+                              </button>
+                              <button type="button" className="btn btn-sm btn-bugie-outline"
+                                      disabled={anyBusy} onClick={openCounter}>
+                                <i className="fa-solid fa-arrow-right-arrow-left" aria-hidden="true" />Contraofertar
+                              </button>
+                            </>
+                          )}
+
+                          {kind === 'offer' && (
+                            <button type="button" className="btn btn-sm btn-success"
+                                    disabled={anyBusy || hasWaiting}
+                                    title={hasWaiting ? 'Ya aceptaste otra oferta. Deshaz esa aceptación para aceptar esta.' : undefined}
+                                    onClick={() => acceptProposal(p.id)}>
+                              {icon(p.id, 'accept', 'fa-check')}Aceptar
+                            </button>
+                          )}
+
+                          {kind === 'driverAccepted' && (
+                            <button type="button" className="btn btn-sm btn-success"
+                                    disabled={anyBusy} onClick={() => chooseDriver(p.id)}>
+                              {icon(p.id, 'choose', 'fa-check')}Elegir a este conductor
+                            </button>
+                          )}
+
+                          {kind === 'mine' && (
+                            <>
+                              <button type="button" className="btn btn-sm btn-outline-danger"
+                                      disabled={anyBusy} onClick={() => rejectOne(p.id, 'withdraw')}>
+                                {icon(p.id, 'withdraw', 'fa-xmark')}Retirarla
+                              </button>
+                              <button type="button" className="btn btn-sm btn-bugie-outline"
+                                      disabled={anyBusy} onClick={openCounter}>
+                                <i className="fa-solid fa-pen" aria-hidden="true" />Cambiar contraoferta
+                              </button>
+                            </>
+                          )}
+
+                          {kind === 'waiting' && (
+                            <button type="button" className="btn btn-sm btn-outline-warning"
+                                    disabled={anyBusy} onClick={() => cancelAcceptance(p.id)}>
+                              {icon(p.id, 'undo', 'fa-rotate-left')}Deshacer
+                            </button>
+                          )}
                         </div>
                       )}
 
-                      {/* Contrapropuesta */}
+                      {/* Contraoferta */}
                       {isOpen && (
                         <form
                           className="bx-box"
-                          onSubmit={async e => {
+                          noValidate
+                          onSubmit={e => {
                             e.preventDefault();
-                            const fare = parseFloat(counterFare[p.id] ?? '0');
-                            if (isNaN(fare) || fare <= 0) {
+                            if (counterRaw === '' || isNaN(counterNum) || counterNum <= 0) {
                               toast.warning('Ingresa un monto válido.');
                               return;
                             }
-                            setCounterSending(true);
-                            await counterPropose(p.driverId, fare);
-                            setCounterSending(false);
-                            setCounteringId(null);
+                            if (counterError) { toast.warning(counterError); return; }
+                            counterPropose(p.id, p.driverId, counterNum);
                           }}
                         >
-                          <label className="bx-field-label mb-1" htmlFor={`counter-${p.id}`}>Tu monto propuesto</label>
-                          <div className="input-group">
+                          <label className="bx-field-label mb-1" htmlFor={`counter-${p.id}`}>Tu contraoferta</label>
+                          <div className="input-group has-validation">
                             <span className="input-group-text">S/</span>
                             <input
                               id={`counter-${p.id}`}
-                              type="number" min={1} step={0.5} inputMode="decimal"
-                              className="form-control"
-                              value={counterFare[p.id] ?? ''}
+                              type="number" min={range.min} max={range.max} step={0.5} inputMode="decimal"
+                              className={`form-control ${counterError ? 'is-invalid' : ''}`}
+                              value={counterRaw}
                               onChange={e => setCounterFare(prev => ({ ...prev, [p.id]: e.target.value }))}
-                              disabled={counterSending}
+                              disabled={anyBusy}
+                              aria-describedby={`counter-help-${p.id}`}
                               autoFocus
                             />
+                            {counterError && <div className="invalid-feedback">{counterError}</div>}
                           </div>
+                          <div id={`counter-help-${p.id}`} className="form-text">{fareRangeHint(range)}</div>
                           <div className="bx-actions end mt-2">
-                            <button type="button" className="btn btn-sm btn-bugie-outline" disabled={counterSending}
+                            <button type="button" className="btn btn-sm btn-bugie-outline" disabled={anyBusy}
                                     onClick={() => setCounteringId(null)}>
                               Cancelar
                             </button>
-                            <button type="submit" className="btn btn-sm btn-bugie" disabled={counterSending}>
-                              {counterSending
-                                ? <span className="spinner-border spinner-border-sm" aria-hidden="true" />
-                                : <i className="fa-solid fa-paper-plane" aria-hidden="true" />}
+                            <button type="submit" className="btn btn-sm btn-bugie" disabled={anyBusy || !!counterError || counterRaw === ''}>
+                              {icon(p.id, 'counter', 'fa-paper-plane')}
                               Enviar
                             </button>
                           </div>

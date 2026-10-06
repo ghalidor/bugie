@@ -96,10 +96,72 @@ class AdminSettingsService {
     );
   }
 
+  /// Reglas de monto de la negociación (Admin > Configuración):
+  /// base_fare (mínimo) y fare_max_multiplier (máximo = tarifa pedida × esto).
+  /// Mismos criterios que el backend (Trips: NegotiationRules).
+  Future<FareRules> getFareRules() async {
+    final base = await getDouble('base_fare', fallback: 0);
+    final mult = await getDouble('fare_max_multiplier', fallback: 3);
+    return FareRules(
+      minFare: base > 0 ? base : null,
+      maxMultiplier: mult >= 1 ? mult : 3,
+    );
+  }
+
   /// Invalida el cache. Útil tras un cambio manual del admin si fuera el
   /// caso, o si necesitas forzar refresco.
   void invalidate() {
     _cache = null;
     _cacheAt = null;
+  }
+}
+
+/// Reglas de monto para pedir, ofertar y contraofertar (igual que el backend
+/// y la web): mínimo = base_fare; máximo = tarifa pedida × fare_max_multiplier.
+class FareRules {
+  /// Tarifa base del admin. null si no la configuró (no se exige mínimo).
+  final double? minFare;
+  final double maxMultiplier;
+
+  const FareRules({this.minFare, this.maxMultiplier = 3});
+
+  static String _soles(double v) => 'S/ ${v.toStringAsFixed(2)}';
+
+  /// Rango permitido para ofertar/contraofertar en un viaje cuya tarifa
+  /// pedida es [suggestedFare]. El máximo nunca es menor que el mínimo.
+  ({double min, double max}) range(double suggestedFare) {
+    final min = minFare ?? 0.01;
+    final max = (suggestedFare * maxMultiplier * 100).round() / 100;
+    return (min: min, max: max < min ? min : max);
+  }
+
+  /// "Entre S/ X y S/ Y" (se muestra junto al campo del monto).
+  String rangeHint(double suggestedFare) {
+    final r = range(suggestedFare);
+    return 'Entre ${_soles(r.min)} y ${_soles(r.max)}';
+  }
+
+  /// Mensaje si el monto está fuera del rango (mismo texto que el backend);
+  /// null si es válido.
+  String? rangeError(double amount, double suggestedFare) {
+    final r = range(suggestedFare);
+    return amount < r.min || amount > r.max
+        ? 'El monto debe estar entre ${_soles(r.min)} y ${_soles(r.max)}.'
+        : null;
+  }
+
+  /// Al crear un viaje o envío solo aplica el mínimo (mismo texto que el backend).
+  String? createError(double amount) =>
+      minFare != null && amount < minFare!
+          ? 'El monto debe ser al menos ${_soles(minFare!)}.'
+          : null;
+
+  /// Texto cuando el monto escrito no es un número mayor que 0.
+  static const invalidAmount = 'Ingresa un monto válido.';
+
+  /// Lee el monto escrito (acepta coma decimal). null si no es un número > 0.
+  static double? parse(String raw) {
+    final v = double.tryParse(raw.replaceAll(',', '.').trim());
+    return v == null || v <= 0 ? null : v;
   }
 }

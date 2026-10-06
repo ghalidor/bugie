@@ -32,14 +32,15 @@ public class TripsNotifyClient : ITripsNotifyClient
     }
 
     public async Task NotifyDriverLocationAsync(Guid userId, double lat, double lng,
-                                                  bool hasActiveTrip, CancellationToken ct = default)
+                                                  bool hasActiveTrip, double? speedKmh = null, double? heading = null,
+                                                  CancellationToken ct = default)
     {
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post,
                 "api/internal/notify/driver-location");
             req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
-            req.Content = JsonContent.Create(new { userId, lat, lng, hasActiveTrip });
+            req.Content = JsonContent.Create(new { userId, lat, lng, hasActiveTrip, speedKmh, heading });
 
             // Timeout corto: si Trips no responde en 3s, asumimos que está
             // caído y seguimos. No queremos bloquear la respuesta al conductor

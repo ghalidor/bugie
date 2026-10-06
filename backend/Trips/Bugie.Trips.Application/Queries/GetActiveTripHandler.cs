@@ -1,6 +1,7 @@
 using MediatR;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
@@ -12,13 +13,15 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
     private readonly ITripRepository _trips;
     private readonly IDriversClient _drivers;
     private readonly IAuthClient _auth;
+    private readonly ILandingClient _landing;
 
     public GetActiveTripHandler(
-        ITripRepository trips, IDriversClient drivers, IAuthClient auth)
+        ITripRepository trips, IDriversClient drivers, IAuthClient auth, ILandingClient landing)
     {
         _trips = trips;
         _drivers = drivers;
         _auth = auth;
+        _landing = landing;
     }
 
     public async Task<TripDto?> Handle(GetActiveTripQuery q, CancellationToken ct)
@@ -74,7 +77,7 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
         var pax = (await _auth.GetUsersByIdsAsync(new[] { trip.PassengerId }, ct))
             .GetValueOrDefault(trip.PassengerId);
 
-        return CreateTripHandler.ToDto(trip, waypointDtos, driverLoc,
+        var dto = CreateTripHandler.ToDto(trip, waypointDtos, driverLoc,
             passengerName: pax?.FullName,
             passengerPhotoUrl: pax?.ProfilePhotoUrl,
             driverName: driverName,
@@ -85,5 +88,19 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
             vehicleModel: vehicleModel,
             vehicleColor: vehicleColor,
             vehiclePhotoUrl: vehiclePhotoUrl);
+
+        // Pasajero buscando conductor: hasta cuando sigue la busqueda
+        // (mismas reglas que ProposalExpirationService / ScheduledTripReminderService).
+        if(trip.PassengerId == q.UserId && trip.DriverId is null &&
+           (trip.Status == TripStatus.Pending || trip.Status == TripStatus.Negotiating))
+        {
+            if(trip.ScheduledAt.HasValue)
+                return dto with { ExpiresAt = trip.ScheduledAt.Value, ExpiresReason = "scheduled_time" };
+            var rules = await NegotiationRules.LoadAsync(_landing, ct);
+            var at = rules.NoDriverDeadline(trip);
+            if(at.HasValue)
+                return dto with { ExpiresAt = at.Value, ExpiresReason = "no_driver_timeout" };
+        }
+        return dto;
     }
 }

@@ -27,10 +27,14 @@ public interface IAdminNotifier
     /// <summary>
     /// Empuja la nueva posición GPS de un conductor a TODOS los admins
     /// conectados al monitoreo. Reemplaza la necesidad de poll para esta
-    /// actualización puntual. El admin recibe {userId, lat, lng, hasActiveTrip}.
+    /// actualización puntual. El admin recibe {userId, lat, lng, hasActiveTrip,
+    /// tripId, heading, speedKmh, at}. tripId/heading/speedKmh son opcionales:
+    /// con tripId el monitoreo agrega el punto al recorrido en vivo de ese viaje.
     /// </summary>
     Task NotifyDriverLocationAsync(Guid driverUserId, double lat, double lng,
-                                    bool hasActiveTrip, CancellationToken ct = default);
+                                    bool hasActiveTrip, Guid? tripId = null,
+                                    double? heading = null, double? speedKmh = null,
+                                    CancellationToken ct = default);
 
     /// <summary>
     /// Empuja la nueva posición GPS de un pasajero (durante viaje) a los

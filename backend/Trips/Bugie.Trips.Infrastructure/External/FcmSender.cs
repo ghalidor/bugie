@@ -36,17 +36,20 @@ public class FcmSender : IFcmSender
     private readonly ILogger<FcmSender> _log;
     private readonly IAuthClient _auth;
     private readonly IUserNotificationRepository _inbox;
+    private readonly ITripRealtimeNotifier _realtime;
     private readonly bool _ready;
 
     public FcmSender(
         ILogger<FcmSender> log,
         IAuthClient auth,
         IUserNotificationRepository inbox,
+        ITripRealtimeNotifier realtime,
         IConfiguration cfg)
     {
         _log = log;
         _auth = auth;
         _inbox = inbox;
+        _realtime = realtime;
 
         // Inicialización idempotente: FirebaseApp.DefaultInstance es global,
         // si ya está creado no lo creamos otra vez.
@@ -90,6 +93,10 @@ public class FcmSender : IFcmSender
         // 0. Bandeja: se guarda SIEMPRE (aunque FCM no esté listo o el usuario
         //    no tenga tokens), así la app muestra el aviso en "Notificaciones".
         var notificationIds = await SaveToInboxAsync(ids, message);
+
+        // 0b. Espejo por SignalR ("UserNotification" en /hubs/trips): la web no tiene
+        //     FCM y así recibe los mismos avisos. Sale aunque Firebase no esté listo.
+        await MirrorToRealtimeAsync(ids, message, notificationIds);
 
         if(!_ready)
         {
@@ -239,6 +246,29 @@ public class FcmSender : IFcmSender
         if(notificationId.HasValue)
             data["notification_id"] = notificationId.Value.ToString();
         return data;
+    }
+
+    /// <summary>
+    /// Emite el aviso por SignalR a cada usuario con el mismo data del push (incluido
+    /// notification_id de su fila en la bandeja). Nunca lanza.
+    /// </summary>
+    private async Task MirrorToRealtimeAsync(
+        List<Guid> ids, FcmPushMessage m, Dictionary<Guid, Guid> notificationIds)
+    {
+        try
+        {
+            string? type = null;
+            m.ExtraData?.TryGetValue("type", out type);
+            foreach(var userId in ids)
+            {
+                var data = BuildData(m, notificationIds.TryGetValue(userId, out var nid) ? nid : null);
+                await _realtime.UserNotificationAsync(userId, type, m.Title, m.Body ?? "", data, CancellationToken.None);
+            }
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo espejar el aviso por SignalR (no crítico).");
+        }
     }
 
     /// <summary>

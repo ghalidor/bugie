@@ -34,15 +34,34 @@ public static class DriverAccess
         if(!controller.User.IsInRole("driver"))
             return controller.StatusCode(403, new { error = NotDriverMessage });
 
+        var message = await ApprovedStatusMessageAsync(drivers, userId, ct);
+        return message is null ? null : controller.Conflict(new { error = message });
+    }
+
+    /// <summary>
+    /// Misma regla que <see cref="EnsureApprovedDriverAsync"/> pero devolviendo solo el
+    /// mensaje (null = conductor aprobado). Para contextos sin ControllerBase, como el
+    /// hub SignalR (TripsHub.JoinDriverRequests).
+    /// </summary>
+    public static async Task<string?> ApprovedDriverMessageAsync(
+        System.Security.Claims.ClaimsPrincipal user, IDriversClient drivers, Guid userId, CancellationToken ct)
+    {
+        if(!user.IsInRole("driver")) return NotDriverMessage;
+        return await ApprovedStatusMessageAsync(drivers, userId, ct);
+    }
+
+    /// <summary>Mensaje segun el estado del perfil en Drivers; null si esta aprobado.</summary>
+    private static async Task<string?> ApprovedStatusMessageAsync(
+        IDriversClient drivers, Guid userId, CancellationToken ct)
+    {
         var status = await drivers.GetDriverStatusByUserIdAsync(userId, ct);
-        var message = status?.Status switch
+        return status?.Status switch
         {
             StatusApproved  => null,
             StatusSuspended => SuspendedMessage,
             StatusRejected  => RejectedMessage,
             _               => NotApprovedMessage,
         };
-        return message is null ? null : controller.Conflict(new { error = message });
     }
 }
 

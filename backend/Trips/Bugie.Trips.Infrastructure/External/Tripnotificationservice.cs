@@ -49,23 +49,170 @@ public class TripNotificationService : ITripNotificationService
 
     // ── EVENTO: pasajero aceptó propuesta del conductor ──────────────────
     public Task NotifyDriverPassengerAcceptedAsync(
-        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride) =>
-        SafeSend(driverUserId, new FcmPushMessage(
+        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride,
+        DateTime? confirmBeforeUtc = null)
+    {
+        var data = Data("accepted", tripId, service, "passenger", "proposal_accepted");
+        var until = "";
+        if(confirmBeforeUtc.HasValue)
+        {
+            until = $" Confirma antes de las {Peru(confirmBeforeUtc.Value, "HH:mm")}.";
+            data["expires_at"] = Peru(confirmBeforeUtc.Value, "yyyy-MM-ddTHH:mm:ss");
+        }
+        return SafeSend(driverUserId, new FcmPushMessage(
             Title: IsDelivery(service) ? "¡El cliente aceptó tu oferta de envío!" : "¡El pasajero aceptó!",
-            Body: $"Confirma el {Noun(service)} a S/ {fare:0.00} para empezar.",
+            Body: $"Confirma el {Noun(service)} a S/ {fare:0.00} para empezar.{until}",
             Route: $"/driver/incoming/{tripId}",
-            ExtraData: Data("accepted", tripId, service, "passenger")));
+            ExtraData: data));
+    }
 
-    // ── EVENTO: conductor confirmó aceptación, viaje en curso ─────────────
+    // ── EVENTO: viaje asignado (el conductor confirmó o aceptó la contraoferta) ──
+    // Inmediato: "Conductor en camino". Programado: "Conductor asignado para {fecha hora}".
     public Task NotifyPassengerDriverConfirmedAsync(
-        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
-        SafeSend(passengerUserId, new FcmPushMessage(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride,
+        DateTime? scheduledAtUtc = null)
+    {
+        if(scheduledAtUtc.HasValue)
+        {
+            var when = Peru(scheduledAtUtc.Value, "dd/MM HH:mm");
+            return SafeSend(passengerUserId, new FcmPushMessage(
+                Title: "Conductor asignado",
+                Body: $"Conductor asignado para tu {Noun(service)} programado del {when}.",
+                Route: "/passenger/tracking",
+                ExtraData: Data("accepted", tripId, service, "driver", "driver_assigned")));
+        }
+        return SafeSend(passengerUserId, new FcmPushMessage(
             Title: "Conductor en camino",
             Body: IsDelivery(service)
                 ? "Tu conductor confirmó el envío y va a recoger el paquete."
                 : "Tu conductor confirmó el viaje y va hacia tu ubicación.",
             Route: "/passenger/tracking",
-            ExtraData: Data("accepted", tripId, service, "driver")));
+            ExtraData: Data("accepted", tripId, service, "driver", "driver_assigned")));
+    }
+
+    // ── EVENTO: el pasajero eligió a este conductor (confirmó su aceptación) ──
+    public Task NotifyDriverChosenAsync(
+        Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride,
+        DateTime? scheduledAtUtc = null)
+    {
+        var who = IsDelivery(service) ? "El cliente" : "El pasajero";
+        string body;
+        if(scheduledAtUtc.HasValue)
+            body = $"Tienes un {Noun(service)} programado el {Peru(scheduledAtUtc.Value, "dd/MM HH:mm")} (S/ {fare:0.00}).";
+        else
+            body = IsDelivery(service)
+                ? $"{who} te eligió. Ve a recoger el paquete (S/ {fare:0.00})."
+                : $"{who} te eligió. Ve al punto de recojo (S/ {fare:0.00}).";
+        return SafeSend(driverUserId, new FcmPushMessage(
+            Title: "¡Te eligieron!",
+            Body: body,
+            Route: scheduledAtUtc.HasValue ? "/driver/scheduled" : "/driver/trip-in-progress",
+            ExtraData: Data("accepted", tripId, service, "passenger", "driver_chosen")));
+    }
+
+    // ── EVENTO: el pasajero eligió otra oferta (la de este conductor estaba aceptada) ──
+    public Task NotifyDriverNotChosenAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(driverUserId, new FcmPushMessage(
+            Title: "El pasajero eligió otra oferta",
+            Body: IsDelivery(service)
+                ? "El cliente eligió a otro conductor para su envío."
+                : "El pasajero eligió a otro conductor para su viaje.",
+            Route: null,
+            ExtraData: Data("proposal", tripId, service, "passenger", "offer_not_chosen")));
+
+    // ── EVENTO: el pasajero deshizo su aceptación ─────────────────────────
+    public Task NotifyDriverAcceptanceUndoneAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(driverUserId, new FcmPushMessage(
+            Title: "El pasajero deshizo su aceptación",
+            Body: $"El {(IsDelivery(service) ? "cliente" : "pasajero")} ya no espera tu confirmación. " +
+                  "Tu oferta sigue vigente por si vuelve a elegirla.",
+            Route: null,
+            ExtraData: Data("proposal", tripId, service, "passenger", "acceptance_undone")));
+
+    // ── EVENTO: el conductor no confirmó a tiempo (aviso al pasajero) ─────
+    public Task NotifyPassengerDriverNoConfirmAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(passengerUserId, new FcmPushMessage(
+            Title: "El conductor no confirmó",
+            Body: "El conductor no confirmó; elige otra oferta.",
+            Route: "/passenger/tracking",
+            ExtraData: Data("proposal", tripId, service, "bugie", "driver_no_confirm")));
+
+    // ── EVENTO: el conductor no confirmó a tiempo (aviso al conductor) ────
+    public Task NotifyDriverConfirmExpiredAsync(
+        Guid driverUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(driverUserId, new FcmPushMessage(
+            Title: "Se venció tu confirmación",
+            Body: $"No confirmaste a tiempo el {Noun(service)}. El {(IsDelivery(service) ? "cliente" : "pasajero")} puede elegir otra oferta.",
+            Route: null,
+            ExtraData: Data("proposal", tripId, service, "bugie", "confirm_expired")));
+
+    // ── EVENTO: el conductor elegido tomó otro viaje (driver_busy) ────────
+    public Task NotifyPassengerChosenDriverBusyAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(passengerUserId, new FcmPushMessage(
+            Title: "El conductor ya no está disponible",
+            Body: "El conductor que elegiste tomó otro viaje. Elige otra oferta.",
+            Route: "/passenger/tracking",
+            ExtraData: Data("proposal", tripId, service, "bugie", "offer_driver_busy")));
+
+    // ── EVENTO: el conductor retiró su oferta (declinó) ───────────────────
+    public async Task NotifyPassengerOfferWithdrawnAsync(
+        Guid passengerUserId, Guid tripId, Guid driverUserId, ServiceType service = ServiceType.Ride)
+    {
+        string name = "El conductor";
+        try
+        {
+            var users = await _auth.GetUsersByIdsAsync(new[] { driverUserId }, CancellationToken.None);
+            var full = users.GetValueOrDefault(driverUserId)?.FullName;
+            if(!string.IsNullOrWhiteSpace(full)) name = $"El conductor {full}";
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"TripNotificationService name error: {ex.Message}");
+        }
+        await SafeSend(passengerUserId, new FcmPushMessage(
+            Title: "Oferta retirada",
+            Body: $"{name} retiró su oferta.",
+            Route: "/passenger/tracking",
+            ExtraData: new Dictionary<string, string>(
+                Data("proposal", tripId, service, "driver", "offer_withdrawn"))
+            {
+                ["driver_id"] = driverUserId.ToString(),
+            }));
+    }
+
+    // ── EVENTO: viaje inmediato que nadie tomó (cancelado por Bugie) ──────
+    public Task NotifyPassengerNoDriverFoundAsync(
+        Guid passengerUserId, Guid tripId, ServiceType service = ServiceType.Ride) =>
+        SafeSend(passengerUserId, new FcmPushMessage(
+            Title: IsDelivery(service) ? "Envío cancelado" : "Viaje cancelado",
+            Body: "Nadie aceptó tu pedido. Puedes volver a pedirlo.",
+            Route: null,
+            ExtraData: new Dictionary<string, string>(Data("trip", tripId, service, "bugie", "trip_cancelled"))
+            {
+                ["cancelled_by"] = "system",
+                ["reason_code"]  = "no_driver_timeout",
+            }));
+
+    // ── EVENTO: el conductor canceló el programado; se busca otro ─────────
+    public Task NotifyPassengerDriverCancelledReopenedAsync(
+        Guid passengerUserId, Guid tripId, DateTime? scheduledAtUtc, ServiceType service = ServiceType.Ride)
+    {
+        var when = scheduledAtUtc.HasValue ? $" del {Peru(scheduledAtUtc.Value, "dd/MM HH:mm")}" : "";
+        return SafeSend(passengerUserId, new FcmPushMessage(
+            Title: "Tu conductor canceló",
+            Body: $"Tu conductor canceló; buscamos otro para tu {Noun(service)} programado{when}.",
+            Route: "/passenger/tracking",
+            ExtraData: Data("trip", tripId, service, "driver", "trip_reopened")));
+    }
+
+    private static string Peru(DateTime utc, string format) =>
+        Bugie.Trips.Domain.Common.BugieTime.ToPeru(
+            utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))
+        .ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
     // ── EVENTO: pasajero envió contrapropuesta al conductor ──────────────
     public Task NotifyDriverPassengerCounterAsync(

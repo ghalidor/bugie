@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Application.DTOs;
 using Bugie.Trips.Application.Options;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
 
@@ -17,7 +18,6 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
     private readonly IAuthClient _auth;
     private readonly ITripPhotoRepository _photos;
     private readonly TripFilteringOptions _options;
-    private readonly ProposalExpirationWindowOptions _expiration;
 
     public GetPendingTripsHandler(
         ITripRepository trips,
@@ -26,8 +26,7 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         ILandingClient landing,
         IAuthClient auth,
         ITripPhotoRepository photos,
-        IOptions<TripFilteringOptions> options,
-        IOptions<ProposalExpirationWindowOptions> expiration)
+        IOptions<TripFilteringOptions> options)
     {
         _trips = trips;
         _proposals = proposals;
@@ -36,7 +35,6 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         _auth = auth;
         _photos = photos;
         _options = options.Value;
-        _expiration = expiration.Value;
     }
 
     public async Task<List<TripDto>> Handle(GetPendingTripsQuery q, CancellationToken ct)
@@ -107,6 +105,9 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
         var passengerIds = visible.Select(t => t.PassengerId).Distinct().ToList();
         var passengers = await _auth.GetUsersByIdsAsync(passengerIds, ct);
 
+        // Plazos de la negociacion (Admin > Configuracion).
+        var rules = await NegotiationRules.LoadAsync(_landing, ct);
+
         // 5. Adjuntar waypoints y mapear a DTO
         var result = new List<TripDto>();
         foreach(var trip in visible)
@@ -141,14 +142,24 @@ public class GetPendingTripsHandler : IRequestHandler<GetPendingTripsQuery, List
                     .FirstOrDefault(h => h.ProposedByRole == "passenger")?.Fare;
 
                 // Regla real (ProposalExpirationService): la propuesta aceptada por
-                // el pasajero vence CreatedAt + ExpireAfterMinutes si el conductor
-                // no la confirma.
+                // el pasajero vence si el conductor no la confirma a tiempo
+                // (NegotiationSettings.ConfirmDeadline).
                 var waiting = history.FirstOrDefault(h => h.Status == "accepted_by_passenger");
                 if(waiting is not null)
                 {
-                    expiresAt = AsUtc(waiting.CreatedAt).AddMinutes(_expiration.ExpireAfterMinutes);
+                    expiresAt = rules.ConfirmDeadline(trip, waiting);
                     expiresReason = "proposal_confirm";
                 }
+            }
+
+            // Regla real (ProposalExpirationService): un viaje inmediato que nadie
+            // toma se cancela trip_no_driver_cancel_min despues de publicarse
+            // (no mientras espera la confirmacion de este conductor).
+            var noDriverAt = rules.NoDriverDeadline(trip);
+            if(noDriverAt.HasValue && expiresReason != "proposal_confirm")
+            {
+                expiresAt = noDriverAt;
+                expiresReason = "no_driver_timeout";
             }
 
             // Regla real (ScheduledTripReminderService): un programado sin conductor

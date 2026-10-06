@@ -4,9 +4,14 @@
 -- seed.mjs crea todo en ~2 minutos. Este script:
 --   * pone cada viaje completado/cancelado en su propio momento, repartidos
 --     entre hace 25 dias y ayer, en horario de 07:00 a 22:00;
---   * a cada viaje le da una duracion realista (12 a 30 min) y mueve con el
+--   * a cada viaje le da una duracion coherente con su recorrido GPS
+--     (ida al origen + origen->destino a ~22 km/h, minimo 8 min) y mueve con el
 --     todo lo suyo: propuestas, recorrido GPS, pago, calificacion, incidente,
 --     SOS, fotos y puntos ganados;
+--   * reparte las horas de los puntos GPS (drivers.locationhistory) por
+--     distancia recorrida: la ida al origen entre la aceptacion y la llegada,
+--     y el viaje entre el inicio y el fin (seed.mjs los manda en segundos
+--     porque PUT /drivers/location no acepta hora);
 --   * intercala en orden lo demas (canjes, ajustes, sorteos, contacto,
 --     reclamaciones, estados del conductor, auditoria de cuentas, avisos);
 --   * deja el registro/activacion de usuarios en los dias previos;
@@ -37,7 +42,7 @@ BEGIN;
 
 -- ---------------------------------------------------------------- 1) anclas
 -- Viajes que se mueven, en orden, con su fecha destino.
-CREATE TEMP TABLE a ON COMMIT DROP AS
+CREATE TEMP TABLE a0 ON COMMIT DROP AS
 WITH m AS (
   SELECT id, createdat AS c,
          row_number() OVER (ORDER BY createdat) AS k,
@@ -53,9 +58,46 @@ WITH m AS (
 SELECT id, k, c,
        -- hora de Peru (07:00-22:00) + 5 h = UTC
        dia + interval '12 hours' + ((j - 0.5) / cnt) * interval '15 hours'
-           + (((k * 53) % 181) - 90) * interval '1 minute'                  AS tgt,
-       (12 + (k * 7) % 19) * interval '1 minute'                           AS dur
+           + (((k * 53) % 181) - 90) * interval '1 minute'                  AS tgt
 FROM h;
+
+-- Recorrido GPS de cada viaje movido. Tramo 1 = ida del conductor al origen
+-- (puntos antes de startedat); tramo 2 = origen -> destino. Por punto: orden,
+-- distancia al anterior (km, haversine) y distancia acumulada del tramo.
+CREATE TEMP TABLE gps ON COMMIT DROP AS
+WITH l AS (
+  SELECT l.id, l.tripid, l.lat, l.lng, l.recordedat,
+         CASE WHEN t.startedat IS NULL OR l.recordedat < t.startedat THEN 1 ELSE 2 END AS leg
+  FROM drivers.locationhistory l JOIN trips.trips t ON t.id = l.tripid
+  WHERE l.tripid IN (SELECT id FROM a0)
+), s AS (
+  SELECT id, tripid, leg,
+         row_number() OVER w AS rn,
+         count(*)     OVER (PARTITION BY tripid, leg) AS cnt,
+         CASE WHEN lag(lat) OVER w IS NULL THEN 0
+              ELSE 2 * 6371 * asin(sqrt(least(1.0,
+                     power(sin(radians(lat - lag(lat) OVER w) / 2), 2)
+                   + cos(radians(lat)) * cos(radians(lag(lat) OVER w))
+                   * power(sin(radians(lng - lag(lng) OVER w) / 2), 2))))
+         END AS dkm
+  FROM l WINDOW w AS (PARTITION BY tripid, leg ORDER BY recordedat, id)
+)
+SELECT id, tripid, leg, rn, cnt, dkm,
+       sum(dkm) OVER (PARTITION BY tripid, leg ORDER BY rn) AS cum,
+       sum(dkm) OVER (PARTITION BY tripid, leg)             AS total
+FROM s;
+
+-- Duracion de cada viaje: ida al origen + 2 min de espera + viaje + 1 min, a
+-- ~22 km/h sobre el recorrido GPS; minimo 8 min. Sin GPS: 12 a 30 min.
+CREATE TEMP TABLE a ON COMMIT DROP AS
+SELECT a0.id, a0.k, a0.c, a0.tgt,
+       greatest(interval '8 minutes',
+         coalesce(
+           (SELECT (sum(CASE WHEN g.leg = 1 THEN g.dkm ELSE 0 END) / 22 * 60 + 2
+                  + sum(CASE WHEN g.leg = 2 THEN g.dkm ELSE 0 END) / 22 * 60 + 1) * interval '1 minute'
+              FROM gps g WHERE g.tripid = a0.id),
+           (12 + (a0.k * 7) % 19) * interval '1 minute')) AS dur
+FROM a0;
 
 -- Duracion original de cada viaje (hasta su ultimo evento GPS o fin).
 CREATE TEMP TABLE span ON COMMIT DROP AS
@@ -71,7 +113,9 @@ SELECT
   (SELECT min(createdat) FROM auth.users WHERE email <> 'admin@bugie.pe')           AS t0,   -- inicio del seed
   (SELECT min(c) FROM a)                                                             AS c1,   -- primer viaje
   (SELECT max(c) FROM a)                                                             AS cn,   -- ultimo viaje movido
-  (SELECT min(createdat) FROM trips.trips WHERE status NOT IN (4, 5))                AS k0,   -- viajes que se quedan
+  -- viajes que se quedan hoy (pendiente, negociando, en curso); los programados
+  -- de manana se crean a mitad del seed y no marcan el corte
+  (SELECT min(createdat) FROM trips.trips WHERE status NOT IN (4, 5) AND scheduledat IS NULL) AS k0,
   (SELECT min(tgt) FROM a)                                                           AS g1,
   (SELECT max(tgt) FROM a)                                                           AS gn,
   (now() AT TIME ZONE 'utc') - interval '30 days'                                 AS r0,
@@ -134,7 +178,9 @@ UPDATE rewards.pointsprofiles     SET pointsexpirydate = pointsexpirydate + (pg_
 -- ---------------------------------------------------------------- 3) eventos de cada viaje
 UPDATE trips.tripphotos x SET createdat = (pg_temp.ft(x.tripid, (x.createdat AT TIME ZONE 'UTC')::timestamp)) AT TIME ZONE 'UTC'
  WHERE x.tripid IN (SELECT id FROM a);
-UPDATE trips.tripproposals SET createdat = pg_temp.ft(tripid, createdat) WHERE tripid IN (SELECT id FROM a);
+UPDATE trips.tripproposals SET createdat = pg_temp.ft(tripid, createdat),
+                               acceptedbypassengerat = pg_temp.ft(tripid, acceptedbypassengerat)
+ WHERE tripid IN (SELECT id FROM a);
 UPDATE trips.tripratings   SET createdat = pg_temp.ft(tripid, createdat) WHERE tripid IN (SELECT id FROM a);
 UPDATE trips.incidents     SET createdat = pg_temp.ft(tripid, createdat) WHERE tripid IN (SELECT id FROM a);
 UPDATE trips.sosalerts     SET createdat = pg_temp.ft(tripid, createdat), resolvedat = pg_temp.ft(tripid, resolvedat) WHERE tripid IN (SELECT id FROM a);
@@ -163,8 +209,32 @@ UPDATE trips.trips t SET
     passengerlocationat = pg_temp.ft(t.id, t.passengerlocationat),
     cancelledat         = pg_temp.ft(t.id, t.cancelledat),
     deliveryconfirmedat = pg_temp.ft(t.id, t.deliveryconfirmedat),
+    publishedat         = pg_temp.ft(t.id, t.publishedat),
     createdat           = pg_temp.ft(t.id, t.createdat)
  WHERE t.id IN (SELECT id FROM a);
+
+-- ---------------------------------------------------------------- 3b) horas del recorrido GPS
+-- Con las horas nuevas del viaje: la ida al origen va entre la aceptacion (+1 min)
+-- y la llegada al origen; el viaje entre el inicio (+30 s) y el fin (-30 s).
+-- Cada punto se ubica segun la distancia recorrida en su tramo (velocidad
+-- constante); si el tramo no tiene distancia, por orden.
+CREATE TEMP TABLE win ON COMMIT DROP AS
+SELECT t.id,
+       coalesce(t.acceptedat, t.createdat) + interval '1 minute'                                                     AS s1,
+       coalesce(t.driverarrivedat, t.startedat - interval '1 minute', t.cancelledat, t.completedat, a.tgt + a.dur)   AS e1,
+       t.startedat + interval '30 seconds'                                                                           AS s2,
+       coalesce(t.completedat, t.cancelledat, a.tgt + a.dur) - interval '30 seconds'                                 AS e2
+FROM trips.trips t JOIN a ON a.id = t.id;
+
+UPDATE drivers.locationhistory l
+   SET recordedat = CASE g.leg
+         WHEN 1 THEN w.s1 + greatest(w.e1 - w.s1, interval '1 minute')
+                          * (CASE WHEN g.total > 0 THEN g.cum / g.total ELSE (g.rn - 1)::float / greatest(g.cnt - 1, 1) END)
+         ELSE        w.s2 + greatest(w.e2 - w.s2, interval '1 minute')
+                          * (CASE WHEN g.total > 0 THEN g.cum / g.total ELSE (g.rn - 1)::float / greatest(g.cnt - 1, 1) END)
+       END
+  FROM gps g JOIN win w ON w.id = g.tripid
+ WHERE l.id = g.id;
 
 -- ---------------------------------------------------------------- 4) eventos sueltos
 UPDATE auth.users              SET createdat = pg_temp.f(createdat), termsacceptedat = pg_temp.f(termsacceptedat), deletedat = pg_temp.f(deletedat);
@@ -189,6 +259,8 @@ UPDATE trips.outboxevents      SET createdat = pg_temp.f(createdat), sentat = pg
 UPDATE rewards.pointstransactions SET createdat = pg_temp.f(createdat) WHERE referenceid IS NULL OR referenceid NOT IN (SELECT id FROM a);
 UPDATE rewards.pointsprofiles     SET createdat = pg_temp.f(createdat), updatedat = pg_temp.f(updatedat), lastactivitydate = pg_temp.f(lastactivitydate);
 UPDATE rewards.pointsadjustments  SET createdat = pg_temp.f(createdat);
+UPDATE rewards.levelbenefitclaims SET createdat = pg_temp.f(createdat);
+UPDATE rewards.levelbenefitnotices SET createdat = pg_temp.f(createdat);
 UPDATE rewards.milestoneawards    SET createdat = pg_temp.f(createdat);
 UPDATE rewards.promotions         SET createdat = pg_temp.f(createdat), updatedat = pg_temp.f(updatedat);
 UPDATE rewards.raffles            SET createdat = pg_temp.f(createdat), updatedat = pg_temp.f(updatedat), drawnat = pg_temp.f(drawnat);

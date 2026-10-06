@@ -12,6 +12,7 @@ import 'in_app_alert_service.dart';
 import 'notification_prefs.dart';
 import 'push_routes.dart';
 import 'request_alert_service.dart';
+import 'trips_hub_service.dart';
 
 /// Servicio centralizado de Firebase Cloud Messaging.
 ///
@@ -47,6 +48,30 @@ class TripCancelledEvent {
   final String? tripId;
   final DateTime at;
   TripCancelledEvent(this.tripId) : at = DateTime.now();
+}
+
+/// Cualquier push de un viaje (lleva data.trip_id): propuesta nueva,
+/// oferta aceptada/retirada/vencida, conductor asignado, viaje reabierto o
+/// cancelado... Las pantallas de negociación (seguimiento del pasajero,
+/// Solicitudes y detalle de la solicitud del conductor) lo escuchan para
+/// recargar si corresponde al viaje que muestran.
+class TripPushEvent {
+  /// data.type (null en avisos sin type, ej. propuesta nueva).
+  final String? type;
+  final String? tripId;
+  /// data completa del push (cancelled_by, reason_code, expires_at...).
+  final Map<String, dynamic> data;
+  /// true si el usuario TOCÓ la notificación (no solo llegó).
+  final bool opened;
+  final DateTime at;
+  TripPushEvent(this.type, this.tripId, this.data, {this.opened = false})
+      : at = DateTime.now();
+
+  /// Viaje inmediato que Bugie canceló porque nadie lo aceptó a tiempo.
+  bool get isNoDriverTimeout =>
+      type == 'trip_cancelled' &&
+      data['cancelled_by'] == 'system' &&
+      data['reason_code'] == 'no_driver_timeout';
 }
 
 /// Aviso de cuenta del conductor (type 'account'): aprobado, rechazado,
@@ -101,6 +126,18 @@ class FcmService {
 
   /// Ultimo aviso de llegada del conductor (lo escucha tracking_screen).
   static final ValueNotifier<DriverArrivedEvent?> driverArrived = ValueNotifier(null);
+
+  /// Ultimo push de un viaje (ver TripPushEvent).
+  static final ValueNotifier<TripPushEvent?> tripEvent = ValueNotifier(null);
+
+  /// Avisa a las pantallas abiertas que llegó (o se tocó) un push de viaje.
+  static void _emitTripEvent(RemoteMessage msg, {bool opened = false}) {
+    final tripId = (msg.data['trip_id'] ?? msg.data['tripId']) as String?;
+    if (tripId == null || tripId.isEmpty) return;
+    tripEvent.value = TripPushEvent(
+        msg.data['type'] as String?, tripId, msg.data,
+        opened: opened);
+  }
 
   /// Canal Android de alta prioridad. Trips lo manda explícito
   /// (ChannelId=bugie_high_priority); Rewards no lo manda, así que también
@@ -276,6 +313,7 @@ class FcmService {
         route: msg.data['route'] as String?,
         pushType: msg.data['type'] as String?,
         tripId: (msg.data['trip_id'] ?? msg.data['tripId']) as String?,
+        reasonCode: msg.data['reason_code'] as String?,
       );
 
   /// Id de la notificación guardada en el backend (solo la traen los
@@ -289,11 +327,18 @@ class FcmService {
     final pushType = msg.data['type'] as String?;
 
     // Nuevo aviso guardado en la bandeja: sube el contador de la campana.
-    if (_notificationIdOf(msg) != null) NotificationsBadge().onPushReceived();
+    final notifId = _notificationIdOf(msg);
+    if (notifId != null) NotificationsBadge().onPushReceived();
+    // El mismo aviso llega también por el hub (UserNotification): se marca
+    // como visto para que no dispare otra recarga.
+    TripsHubService().markNotificationSeen(notifId);
 
     // Conductor: cualquier aviso puede cambiar su viaje activo (confirmado,
     // cancelado...). Se vuelve a consultar para la franja "Viaje en curso".
     if (_session?.role == UserRole.driver) ActiveTripService().refresh();
+
+    // Las pantallas de negociación recargan si es su viaje.
+    _emitTripEvent(msg);
 
     // Llego el conductor: con la app abierta se va al seguimiento y se
     // muestra el popup (no hace falta el banner).
@@ -307,6 +352,15 @@ class FcmService {
     // Viaje cancelado: las pantallas del viaje refrescan y muestran el motivo.
     if (pushType == 'trip_cancelled') {
       tripCancelled.value = TripCancelledEvent(msg.data['trip_id'] as String?);
+      // Pasajero: nadie aceptó su pedido → se abre el seguimiento de ese
+      // viaje con "Nadie aceptó tu pedido…" y el botón para volver a pedir.
+      if (_session?.role == UserRole.passenger &&
+          msg.data['reason_code'] == 'no_driver_timeout') {
+        final route = _routeOf(msg);
+        if (route != null && !_currentPath().startsWith('/passenger/tracking')) {
+          _router?.go(route);
+        }
+      }
     }
 
     // Cuenta del conductor: las pantallas del conductor refrescan su estado
@@ -373,6 +427,7 @@ class FcmService {
     if (notifId != null) NotificationsBadge().markRead(notifId);
     final route = _routeOf(msg);
     if (route != null) _navigateWhenReady(route);
+    _emitTripEvent(msg, opened: true);
 
     // Toco el aviso "tu conductor llego": al abrir el seguimiento se muestra el popup.
     if (pushType == 'driver_arrived') {

@@ -5,10 +5,9 @@ import { API, apiFetch } from '../../../state/api';
 import { fmtDateTime, LivePassenger, liveTripStatus, OnlineDriver, SosAlert, VehicleBulk } from './types';
 import { fileUrl } from '../people/PeopleShared';
 import { DriverLink, PassengerLink } from '../../../components/EntityLinks';
-import { PlannedRoute, RouteLegend, TripPath, buildRouteLines, fetchPlannedRoute, fetchTripPath } from '../../../components/tripRoutes';
-
-/** Cada cuánto se vuelve a pedir el recorrido real mientras el detalle está abierto. */
-const PATH_REFRESH_MS = 20_000;
+import { PlannedRoute, RouteLegend, buildRouteLines, fetchPlannedRoute } from '../../../components/tripRoutes';
+import { ROUTE_COLORS } from '../../../components/BugieMapAdmin';
+import { LiveTrail } from './useLiveTrails';
 
 /** Largo aproximado (m) de una línea [[lat, lng], ...]. */
 function lengthMeters(pts: [number, number][]): number {
@@ -25,7 +24,8 @@ function lengthMeters(pts: [number, number][]): number {
 /*
  * Detalle de un viaje EN CURSO (monitoreo): ruta del sistema (guardada al
  * crear el viaje; si no hay, se calcula con GraphHopper), recorrido real
- * hasta ahora, posiciones en vivo de pasajero y conductor, teléfonos y botón para
+ * hasta ahora (el trazo en vivo del Monitoreo, que crece con cada GPS del
+ * hub), posiciones en vivo de pasajero y conductor, teléfonos y botón para
  * desactivar un SOS. Es distinto de components/TripDetailModal, que muestra
  * el recorrido GPS GRABADO de un viaje ya hecho (tarifa, línea de tiempo,
  * fotos de envío) y no tiene datos en vivo ni SOS.
@@ -47,6 +47,8 @@ interface Props {
   trip: LivePassenger;
   driver: OnlineDriver | null;
   vehicle?: VehicleBulk;
+  /** Recorrido en vivo del viaje (useLiveTrails); null si aún no tiene conductor. */
+  trail: LiveTrail | null;
   deviated: boolean;
   /** SOS activo del pasajero (la tarjeta se pinta en rojo). */
   passengerSosAlert: SosAlert | null;
@@ -56,12 +58,11 @@ interface Props {
   onClose: () => void;
 }
 
-export default function LiveTripDetail({ trip, driver, vehicle, deviated, passengerSosAlert, driverSosAlert, onResolveSos, onClose }: Props) {
-  // Ruta del sistema (no cambia durante el viaje) y recorrido real (crece).
+export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated, passengerSosAlert, driverSosAlert, onResolveSos, onClose }: Props) {
+  // Ruta del sistema (no cambia durante el viaje). El recorrido real viene
+  // del padre (trail) y crece con cada GPS que llega por SignalR.
   const [planned, setPlanned] = useState<PlannedRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(true);
-  const [path, setPath] = useState<TripPath | null>(null);
-  const [pathLoading, setPathLoading] = useState(true);
   const [vehiclePhotoOk, setVehiclePhotoOk] = useState(true);
   const fitRef = useRef<(() => void) | null>(null);
 
@@ -117,20 +118,17 @@ export default function LiveTripDetail({ trip, driver, vehicle, deviated, passen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip.tripId]);
 
-  // Recorrido real hasta ahora: al abrir y cada PATH_REFRESH_MS.
-  useEffect(() => {
-    let cancelled = false;
-    setPathLoading(true);
-    const load = () => fetchTripPath(trip.tripId)
-      .then(p => { if (!cancelled) setPath(p); })
-      .catch(() => { /* se mantiene el último recorrido */ })
-      .finally(() => { if (!cancelled) setPathLoading(false); });
-    load();
-    const t = setInterval(load, PATH_REFRESH_MS);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [trip.tripId]);
-
-  const lines = useMemo(() => buildRouteLines(planned, path), [planned, path]);
+  // Ruta del sistema + recorrido en vivo (verde, encima). Solo cambia la
+  // referencia del trazo cuando llega un punto nuevo.
+  const trailPoints = trail?.points;
+  const lines = useMemo(() => {
+    const list = buildRouteLines(planned, null);
+    if (trailPoints && trailPoints.length >= 2) {
+      list.push({ id: 'real', points: trailPoints, color: ROUTE_COLORS.real, weight: 6, opacity: 0.9 });
+    }
+    return list;
+  }, [planned, trailPoints]);
+  const realSummary = trail ? { distanceKm: trail.distanceKm, points: trail.points.length } : null;
 
   // Origen, destino, pasajero y conductor (se mueven con cada GPS).
   const markers = useMemo(() => {
@@ -260,8 +258,8 @@ export default function LiveTripDetail({ trip, driver, vehicle, deviated, passen
             </div>
           </div>
           <div className="mt-2">
-            <RouteLegend compact planned={planned} path={path} loadingPlanned={routeLoading && !planned}
-                         loadingPath={pathLoading && !path} realLabel="Recorrido hasta ahora" />
+            <RouteLegend compact planned={planned} path={null} real={realSummary} loadingPlanned={routeLoading && !planned}
+                         loadingPath={!!trail && !trail.loaded && trail.points.length === 0} realLabel="Recorrido hasta ahora" />
           </div>
         </div>
       </div>

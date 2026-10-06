@@ -17,6 +17,11 @@ export interface DriverLocationEvent {
   lat: number;
   lng: number;
   hasActiveTrip: boolean;
+  /// Viaje activo del conductor (lo resuelve Trips.Api); null si no tiene viaje.
+  /// Con esto el monitoreo agrega el punto al recorrido en vivo de ese viaje.
+  tripId: string | null;
+  heading: number | null;
+  speedKmh: number | null;
   at: string;
 }
 
@@ -140,6 +145,9 @@ export function useMonitorHub(opts: UseMonitorHubOpts) {
           lat:           payload.lat,
           lng:           payload.lng,
           hasActiveTrip: !!payload.hasActiveTrip,
+          tripId:        payload.tripId ? String(payload.tripId) : null,
+          heading:       typeof payload.heading === 'number' ? payload.heading : null,
+          speedKmh:      typeof payload.speedKmh === 'number' ? payload.speedKmh : null,
           at:            payload.at,
         });
       } catch (e) { console.warn('Error procesando driver:location', e); }

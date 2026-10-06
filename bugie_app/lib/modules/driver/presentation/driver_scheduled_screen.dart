@@ -93,8 +93,15 @@ class _DriverScheduledScreenState extends State<DriverScheduledScreen> {
     );
     if (ok != true || !mounted) return;
     try {
-      await context.read<TripsRepository>()
+      final after = await context.read<TripsRepository>()
           .cancel(t.id, reason: 'El conductor canceló el programado');
+      // Antes de su hora el programado no se cancela: vuelve a buscar
+      // conductor (ya no es mío) y sale de la lista al recargar.
+      if (mounted && after != null && after.driverId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Cancelaste el viaje programado; se buscará otro conductor.')));
+      }
       await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);

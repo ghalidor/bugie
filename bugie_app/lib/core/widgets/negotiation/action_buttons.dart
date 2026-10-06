@@ -197,6 +197,8 @@ class DestructiveTextButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final IconData? icon;
   final bool expand;
+  /// Rueda giratoria en lugar del texto mientras la acción corre.
+  final bool loading;
 
   const DestructiveTextButton({
     super.key,
@@ -204,6 +206,7 @@ class DestructiveTextButton extends StatelessWidget {
     required this.onPressed,
     this.icon,
     this.expand = false,
+    this.loading = false,
   });
 
   @override
@@ -215,8 +218,15 @@ class DestructiveTextButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      onPressed: onPressed,
-      child: Row(
+      onPressed: loading ? null : onPressed,
+      child: loading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.2, color: BugieColors.danger),
+            )
+          : Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[

@@ -54,9 +54,11 @@ public class UpdateLocationHandler : IRequestHandler<UpdateLocationCommand, Unit
         // Broadcast SignalR vía Trips.Api. Fire-and-forget: si falla, no
         // hace nada — el dato ya está en BD y el polling de respaldo lo
         // mostrará al admin. hasActiveTrip = true si vino TripId.
+        // speedKmh y heading viajan tambien: Trips se los manda al pasajero del viaje.
         await _notify.NotifyDriverLocationAsync(
             cmd.UserId, cmd.Lat, cmd.Lng,
             hasActiveTrip: cmd.TripId is not null,
+            speedKmh: cmd.Speed, heading: cmd.Heading,
             ct: ct);
 
         return Unit.Value;

@@ -151,10 +151,14 @@ class Trip {
   /// Calificación del pasajero (hoy siempre null: aún no existe).
   final double? passengerRating;
   final int? passengerRatingCount;
-  /// Hora límite (hora de Perú). Solo en /pending; null si no aplica.
+  /// Hora límite (hora de Perú). En /pending (conductor) y en /active o
+  /// /{id}/tracking (pasajero, mientras busca conductor); null si no aplica.
   final DateTime? expiresAt;
-  /// 'proposal_confirm' | 'scheduled_time' | null.
+  /// 'proposal_confirm' | 'no_driver_timeout' | 'scheduled_time' | null.
   final String? expiresReason;
+  /// Tarifa que pidió el pasajero al crear el viaje. Base del rango para
+  /// ofertar/contraofertar (máximo = suggestedFare × fare_max_multiplier).
+  final double? suggestedFare;
   /// Lo que ofrece el pasajero (en /pending: su última contraoferta a este
   /// conductor o la tarifa estimada; en otras respuestas = estimatedFare).
   final double? passengerOfferFare;
@@ -222,7 +226,80 @@ class Trip {
     this.expiresAt,
     this.expiresReason,
     this.passengerOfferFare,
+    this.suggestedFare,
   });
+
+  /// Tarifa base del rango de negociación (igual que el backend:
+  /// SuggestedFare ?? EstimatedFare).
+  double get fareForRange => suggestedFare ?? estimatedFare;
+
+  /// Copia del viaje con la posición del conductor actualizada (llega por el
+  /// canal en tiempo real sin volver a pedir el viaje).
+  Trip withDriverLocation({
+    required double lat,
+    required double lng,
+    DateTime? at,
+  }) =>
+      Trip(
+        id: id,
+        passengerId: passengerId,
+        passengerName: passengerName,
+        passengerShortName: passengerShortName,
+        passengerPhotoUrl: passengerPhotoUrl,
+        driverName: driverName,
+        driverPhotoUrl: driverPhotoUrl,
+        driverRating: driverRating,
+        vehiclePlate: vehiclePlate,
+        vehicleBrand: vehicleBrand,
+        vehicleModel: vehicleModel,
+        vehicleColor: vehicleColor,
+        vehiclePhotoUrl: vehiclePhotoUrl,
+        passengerStars: passengerStars,
+        driverId: driverId,
+        originAddress: originAddress,
+        originLat: originLat,
+        originLng: originLng,
+        destAddress: destAddress,
+        destLat: destLat,
+        destLng: destLng,
+        estimatedFare: estimatedFare,
+        couponCode: couponCode,
+        discountAmount: discountAmount,
+        fareBeforeDiscount: fareBeforeDiscount,
+        finalFare: finalFare,
+        proposedFare: proposedFare,
+        status: status,
+        paymentMethod: paymentMethod,
+        createdAt: createdAt,
+        acceptedAt: acceptedAt,
+        driverArrivedAt: driverArrivedAt,
+        waypoints: waypoints,
+        driverCurrentLat: lat,
+        driverCurrentLng: lng,
+        driverLocationAt: at ?? DateTime.now(),
+        serviceType: serviceType,
+        packageDescription: packageDescription,
+        packageWeightKg: packageWeightKg,
+        packageIsFragile: packageIsFragile,
+        packageDetails: packageDetails,
+        pickupVerified: pickupVerified,
+        recipientName: recipientName,
+        recipientPhone: recipientPhone,
+        deliveryReceivedBy: deliveryReceivedBy,
+        deliveryConfirmedAt: deliveryConfirmedAt,
+        cancelledBy: cancelledBy,
+        cancelReason: cancelReason,
+        pickupObservation: pickupObservation,
+        scheduledAt: scheduledAt,
+        scheduledActive: scheduledActive,
+        driverLate: driverLate,
+        passengerRating: passengerRating,
+        passengerRatingCount: passengerRatingCount,
+        expiresAt: expiresAt,
+        expiresReason: expiresReason,
+        passengerOfferFare: passengerOfferFare,
+        suggestedFare: suggestedFare,
+      );
 
   factory Trip.fromJson(Map<String, dynamic> j) => Trip(
         id:             j['id'].toString(),
@@ -285,5 +362,6 @@ class Trip {
         expiresAt:         DateTime.tryParse(j['expiresAt'] ?? ''),
         expiresReason:     j['expiresReason']?.toString(),
         passengerOfferFare: (j['passengerOfferFare'] as num?)?.toDouble(),
+        suggestedFare:     (j['suggestedFare'] as num?)?.toDouble(),
       );
 }

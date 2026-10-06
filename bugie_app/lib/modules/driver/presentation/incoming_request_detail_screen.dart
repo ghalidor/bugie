@@ -6,7 +6,10 @@ import 'package:provider/provider.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/services/active_trip_service.dart';
+import '../../../core/services/admin_settings_service.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
+import '../../../core/services/trips_hub_service.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_map.dart';
 import '../../../core/widgets/negotiation/negotiation.dart';
@@ -55,6 +58,12 @@ class _IncomingRequestDetailScreenState
     extends State<IncomingRequestDetailScreen> with WidgetsBindingObserver {
   Trip? _trip;
   DriverCounterInfo? _counter;
+  /// Mi oferta vigente en este viaje (GET /{id}/proposals solo devuelve la
+  /// mía): pending, driver_accepted (acepté su tarifa) o
+  /// accepted_by_passenger (con confirmExpiresAt).
+  Proposal? _myOffer;
+  /// Rango permitido para proponer (base_fare / fare_max_multiplier).
+  FareRules _rules = const FareRules();
   List<LatLng> _routePoints = const [];
   /// Distancia y duración del viaje (origen → destino), de la misma ruta.
   double? _routeKm;
@@ -73,7 +82,8 @@ class _IncomingRequestDetailScreenState
   final Set<String> _hiddenRejects = {};
   /// Monto que se está enviando ahora mismo (para el estado "Enviando…").
   double? _sendingFare;
-  /// Qué botón está trabajando: 'accept' | 'decline' | 'confirm' | 'propose'.
+  /// Qué botón está trabajando: 'accept' | 'counter' | 'decline' |
+  /// 'confirm' | 'propose'.
   String? _actingKind;
 
   // Tracking de nuevas solicitudes que llegan mientras estoy acá.
@@ -90,6 +100,69 @@ class _IncomingRequestDetailScreenState
     WidgetsBinding.instance.addObserver(this);
     _proposeCtrl = TextEditingController();
     ActiveTripService().active.addListener(_onActiveTrip);
+    FcmService.tripEvent.addListener(_onTripPush);
+    // Tiempo real (hub): este viaje (si ya oferté o me asignaron) y mis
+    // ofertas → misma recarga del polling. Si el join se rechaza (aún no
+    // oferté), se reintenta al tener oferta; mientras, sigue el polling.
+    final hub = TripsHubService();
+    hub.joinTrip(widget.tripId);
+    hub.connected.addListener(_onHubState);
+    hub.tripChanged.addListener(_onHubTripChanged);
+    hub.proposalsChanged.addListener(_onHubProposalsChanged);
+    hub.requestsChanged.addListener(_onHubRequestsChanged);
+    _loadRules();
+    _load();
+  }
+
+  /// Hub (re)conectado: recarga completa. Hub caído: polling corto.
+  void _onHubState() {
+    if (!mounted) return;
+    if (TripsHubService().connected.value) {
+      _load();
+    } else {
+      _scheduleNext();
+    }
+  }
+
+  void _onHubTripChanged() {
+    final e = TripsHubService().tripChanged.value;
+    if (mounted && e != null && e.tripId == widget.tripId) _load();
+  }
+
+  void _onHubProposalsChanged() {
+    final e = TripsHubService().proposalsChanged.value;
+    if (mounted && e != null && e.tripId == widget.tripId) _load();
+  }
+
+  /// La solicitud se tomó, retiró o canceló (grupo de solicitudes, al que
+  /// entra la lista): recargar para mostrar "ya no está disponible".
+  void _onHubRequestsChanged() {
+    final e = TripsHubService().requestsChanged.value;
+    if (mounted && e != null && e.tripId == widget.tripId) _load();
+  }
+
+  Future<void> _loadRules() async {
+    try {
+      final r = await context.read<AdminSettingsService>().getFareRules();
+      if (mounted) setState(() => _rules = r);
+    } catch (_) {/* sin reglas: valida el backend */}
+  }
+
+  /// Push de ESTE viaje: te eligieron → al viaje asignado; cualquier otro
+  /// (aceptó tu oferta, deshizo, eligió a otro, venció...) → recargar.
+  void _onTripPush() {
+    final e = FcmService.tripEvent.value;
+    if (!mounted || e == null || e.tripId != widget.tripId) return;
+    if (e.type == 'driver_chosen') {
+      // Al tocar el aviso ya navega su ruta; con la app abierta, aquí.
+      if (!e.opened) {
+        final route = (e.data['route'] ?? '').toString();
+        context.go(route.contains('scheduled')
+            ? '/driver/scheduled'
+            : '/driver/trip-in-progress');
+      }
+      return;
+    }
     _load();
   }
 
@@ -110,6 +183,13 @@ class _IncomingRequestDetailScreenState
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ActiveTripService().active.removeListener(_onActiveTrip);
+    FcmService.tripEvent.removeListener(_onTripPush);
+    final hub = TripsHubService();
+    hub.connected.removeListener(_onHubState);
+    hub.tripChanged.removeListener(_onHubTripChanged);
+    hub.proposalsChanged.removeListener(_onHubProposalsChanged);
+    hub.requestsChanged.removeListener(_onHubRequestsChanged);
+    hub.leaveTrip(widget.tripId);
     _pollingTimer?.cancel();
     _proposeCtrl.dispose();
     super.dispose();
@@ -164,12 +244,27 @@ class _IncomingRequestDetailScreenState
         _seenTripIds = list.map((t) => t.id).toSet();
       }
 
-      // 2) Counter del trip actual.
+      // 2) Counter del trip actual + mi oferta vigente (para saber si
+      //    acepté su tarifa o si el pasajero aceptó la mía y hasta cuándo).
       DriverCounterInfo? counter;
-      try {
-        final counters = await repo.getMyCounterProposals([widget.tripId]);
-        counter = counters[widget.tripId];
-      } catch (_) {}
+      Proposal? myOffer;
+      if (me != null) {
+        try {
+          final counters = await repo.getMyCounterProposals([widget.tripId]);
+          counter = counters[widget.tripId];
+        } catch (_) {}
+        try {
+          final mine = await repo.getProposals(widget.tripId);
+          for (final p in mine) {
+            if (p.status == 'pending' ||
+                p.status == 'driver_accepted' ||
+                p.status == 'accepted_by_passenger') {
+              myOffer = p;
+              break;
+            }
+          }
+        } catch (_) {}
+      }
 
       // 3) Ruta del trip (solo la primera vez).
       if (_routePoints.isEmpty && me != null) {
@@ -195,9 +290,12 @@ class _IncomingRequestDetailScreenState
         setState(() {
           _trip = me ?? _trip;
           _counter = counter;
+          _myOffer = myOffer;
           _loading = false;
           _error = me == null ? 'Esta solicitud ya no está disponible.' : null;
         });
+        // Con oferta vigente ya tengo acceso al grupo del viaje en el hub.
+        if (myOffer != null) TripsHubService().retryJoinTrip(widget.tripId);
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -209,145 +307,179 @@ class _IncomingRequestDetailScreenState
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     } finally {
-      // Reprograma siguiente poll: 5s si hay negociación viva, 10s normal.
-      final hasActive = _counter?.isMyPending == true ||
-          _counter?.isCounterFromPassenger == true;
-      _pollingTimer?.cancel();
-      if (_isForeground && mounted) {
-        _pollingTimer = Timer(
-          Duration(seconds: hasActive ? 5 : 10),
-          _load,
-        );
-      }
+      _scheduleNext();
     }
+  }
+
+  /// Reprograma el siguiente poll: 5 s si hay negociación viva, 10 s normal;
+  /// con el hub conectado los cambios llegan al instante y queda 30 s de
+  /// respaldo.
+  void _scheduleNext() {
+    _pollingTimer?.cancel();
+    if (!_isForeground || !mounted) return;
+    final hasActive = _counter?.isMyPending == true ||
+        _counter?.isCounterFromPassenger == true ||
+        _myOffer != null;
+    final seconds =
+        TripsHubService().connected.value ? 30 : (hasActive ? 5 : 10);
+    _pollingTimer = Timer(Duration(seconds: seconds), _load);
   }
 
   // ── ACCIONES (mismo orden y nombres que IncomingRequestsScreen) ──
+  // Todas pasan por _run: una sola acción a la vez (anti doble toque) y,
+  // con error, el mensaje del backend tal cual y se recarga la solicitud.
 
+  /// Ejecuta una acción de negociación. Devuelve true si salió bien.
+  Future<bool> _run(String kind, Future<void> Function() action,
+      {double? sendingFare}) async {
+    if (_isActing) return false;
+    setState(() {
+      _isActing = true;
+      _actingKind = kind;
+      _sendingFare = sendingFare;
+    });
+    try {
+      await action();
+      return true;
+    } on ApiException catch (e) {
+      _showSnack(e.message);
+      await _handleConflict(e);
+      return false;
+    } catch (_) {
+      _showSnack('No se pudo completar la acción. Intenta de nuevo.');
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActing = false;
+          _actingKind = null;
+          _sendingFare = null;
+        });
+      }
+    }
+  }
+
+  /// 409 del backend: un pasajero ya aceptó mi oferta en OTRO viaje
+  /// (waitingTripId) → ir a esa solicitud a confirmarla; en los demás casos
+  /// (ej. proposalId: el pasajero ya aceptó mi oferta aquí) se recarga y la
+  /// pantalla muestra "Confirmar viaje".
+  Future<void> _handleConflict(ApiException e) async {
+    if (!mounted) return;
+    final waitingTripId = e.field('waitingTripId');
+    if (e.status == 409 &&
+        waitingTripId != null &&
+        waitingTripId != widget.tripId) {
+      context.pushReplacement('/driver/incoming/$waitingTripId');
+      return;
+    }
+    await _load();
+  }
+
+  /// Viaje asignado: al viaje en curso o, si es un programado que todavía
+  /// no empieza, a la agenda de programados.
+  void _goToAssigned(Trip assigned) {
+    if (!mounted) return;
+    context.go(assigned.isFutureScheduled
+        ? '/driver/scheduled'
+        : '/driver/trip-in-progress');
+  }
+
+  /// "Aceptar S/ X": acepta la tarifa del pasajero (driver-accept). No
+  /// asigna: queda esperando que el pasajero me elija.
   Future<void> _accept() async {
     final t = _trip;
-    if (t == null || _blockedByActiveTrip()) return;
-    setState(() {
-      _isActing = true;
-      _actingKind = 'accept';
-    });
-    try {
-      // Nuevo flujo: aceptar NO asigna directo. Espera confirmación del
-      // pasajero. Vuelvo a la lista; cuando el pasajero confirme, el polling
-      // de la lista me lleva a "viaje en curso".
-      await context.read<TripsRepository>().driverAccept(t.id);
-      if (!mounted) return;
-      _showSnack('Aceptación enviada. Espera que el pasajero confirme.');
-      if (context.canPop()) {
-        context.pop();
-      }
-    } on ApiException catch (e) {
-      _showSnack(e.message);
-      if (mounted) setState(() => _isActing = false);
-    } catch (_) {
-      _showSnack('No se pudo aceptar el viaje.');
-      if (mounted) setState(() => _isActing = false);
-    }
+    if (t == null || _isActing || _blockedByActiveTrip()) return;
+    final ok = await _run('accept',
+        () => context.read<TripsRepository>().driverAccept(t.id));
+    if (!ok || !mounted) return;
+    _showSnack('Aceptaste la tarifa. Espera que el pasajero te elija.');
+    await _load();
   }
 
-  Future<void> _decline() async {
-    final t = _trip;
-    if (t == null) return;
-    setState(() {
-      _isActing = true;
-      _actingKind = 'decline';
-    });
-    try {
-      await context.read<TripsRepository>().declineByDriver(t.id);
-      if (!mounted) return;
-      context.pop();
-    } on ApiException catch (e) {
-      _showSnack(e.message);
-      if (mounted) setState(() => _isActing = false);
-    } catch (_) {
-      _showSnack('No se pudo declinar el viaje.');
-      if (mounted) setState(() => _isActing = false);
-    }
-  }
-
-  Future<void> _confirmAcceptance() async {
+  /// "Aceptar S/ Y": acepta la contraoferta del pasajero (accept-counter).
+  /// El viaje queda asignado directo.
+  Future<void> _acceptCounter() async {
     final t = _trip;
     final c = _counter;
-    if (t == null || c == null || _blockedByActiveTrip()) return;
-    setState(() {
-      _isActing = true;
-      _actingKind = 'confirm';
+    if (t == null || c == null || _isActing || _blockedByActiveTrip()) return;
+    Trip? assigned;
+    final ok = await _run('counter', () async {
+      assigned = await context.read<TripsRepository>().acceptCounter(t.id, c.id);
     });
-    try {
-      await context.read<TripsRepository>().confirmAcceptance(t.id, c.id);
-      if (!mounted) return;
-      context.go('/driver/trip-in-progress');
-    } on ApiException catch (e) {
-      _showSnack(e.message);
-      if (mounted) setState(() => _isActing = false);
-    } catch (_) {
-      _showSnack('No se pudo confirmar la aceptación.');
-      if (mounted) setState(() => _isActing = false);
+    if (ok && assigned != null) _goToAssigned(assigned!);
+  }
+
+  /// "Retirar oferta" (decline-by-driver): cierra mis ofertas en este viaje.
+  Future<void> _decline() async {
+    final t = _trip;
+    if (t == null || _isActing) return;
+    final ok = await _run('decline',
+        () => context.read<TripsRepository>().declineByDriver(t.id));
+    if (ok && mounted && context.canPop()) context.pop();
+  }
+
+  /// "Confirmar viaje": confirma la oferta que el pasajero aceptó.
+  Future<void> _confirmAcceptance() async {
+    final t = _trip;
+    final proposalId = _myOffer?.isWaitingDriverConfirmation == true
+        ? _myOffer!.id
+        : (_counter?.isWaitingMyConfirmation == true ? _counter!.id : null);
+    if (t == null || proposalId == null || _isActing || _blockedByActiveTrip()) {
+      return;
     }
+    Trip? assigned;
+    final ok = await _run('confirm', () async {
+      assigned = await context
+          .read<TripsRepository>()
+          .confirmAcceptance(t.id, proposalId);
+    });
+    if (ok && assigned != null) _goToAssigned(assigned!);
+  }
+
+  /// Valida el monto con el rango (mismo texto que el backend). Muestra el
+  /// error y devuelve false si no es válido.
+  bool _validFare(double? fare) {
+    final t = _trip;
+    if (t == null) return false;
+    if (fare == null) {
+      _showSnack(FareRules.invalidAmount);
+      return false;
+    }
+    final err = _rules.rangeError(fare, t.fareForRange);
+    if (err != null) {
+      _showSnack(err);
+      return false;
+    }
+    return true;
   }
 
   Future<void> _submitProposal() async {
-    if (_blockedByActiveTrip()) return;
-    final raw = _proposeCtrl.text.trim();
-    final fare = double.tryParse(raw.replaceAll(',', '.'));
-    if (fare == null || fare <= 0) {
-      _showSnack('Ingresa una tarifa válida.');
-      return;
-    }
-    await _sendProposal(fare);
+    if (_isActing || _blockedByActiveTrip()) return;
+    final fare = FareRules.parse(_proposeCtrl.text);
+    if (!_validFare(fare)) return;
+    await _sendProposal(fare!);
   }
 
   /// Chip de contraoferta rápida: confirmación breve y envía con la misma
   /// llamada que "Otro monto".
   Future<void> _quickPropose(double fare) async {
-    if (_blockedByActiveTrip()) return;
+    if (_isActing || _blockedByActiveTrip() || !_validFare(fare)) return;
     final ok = await confirmQuickFare(context,
         fare: fare, recipient: 'el pasajero');
     if (!ok || !mounted) return;
     await _sendProposal(fare);
   }
 
-  /// Envía una propuesta de tarifa al pasajero (llamada existente proposeFare).
+  /// "Proponer otro monto" (propose).
   Future<void> _sendProposal(double fare) async {
     final t = _trip;
     if (t == null || _blockedByActiveTrip()) return;
-    setState(() {
-      _isActing = true;
-      _actingKind = 'propose';
-      _sendingFare = fare;
-    });
-    try {
-      await context.read<TripsRepository>().proposeFare(t.id, fare);
-      if (mounted) {
-        setState(() {
-          _isProposing = false;
-          _isActing = false;
-          _sendingFare = null;
-        });
-      }
-      await _load();
-    } on ApiException catch (e) {
-      _showSnack(e.message);
-      if (mounted) {
-        setState(() {
-          _isActing = false;
-          _sendingFare = null;
-        });
-      }
-    } catch (_) {
-      _showSnack('No se pudo enviar la propuesta.');
-      if (mounted) {
-        setState(() {
-          _isActing = false;
-          _sendingFare = null;
-        });
-      }
-    }
+    final ok = await _run('propose',
+        () => context.read<TripsRepository>().proposeFare(t.id, fare),
+        sendingFare: fare);
+    if (!mounted) return;
+    if (ok) setState(() => _isProposing = false);
+    await _load();
   }
 
   void _showSnack(String msg) {
@@ -566,20 +698,61 @@ class _IncomingRequestDetailScreenState
     );
   }
 
+  // ── Estado de la negociación (según mi oferta vigente) ──
+
+  /// El pasajero aceptó mi oferta: debo confirmar antes del plazo.
+  bool get _waitingMyConfirm =>
+      _myOffer?.isWaitingDriverConfirmation == true ||
+      _counter?.isWaitingMyConfirmation == true;
+
+  /// Acepté la tarifa del pasajero y espero que me elija.
+  bool get _iAcceptedFare =>
+      !_waitingMyConfirm && _myOffer?.status == 'driver_accepted';
+
+  /// El pasajero me envió una contraoferta.
+  bool get _passengerCounter =>
+      !_waitingMyConfirm && _counter?.isCounterFromPassenger == true;
+
+  /// Tengo una oferta vigente (puedo retirarla).
+  bool get _hasOffer =>
+      _waitingMyConfirm ||
+      _iAcceptedFare ||
+      _passengerCounter ||
+      _counter?.isMyPending == true ||
+      _myOffer != null;
+
+  /// Hasta cuándo puedo confirmar la oferta que el pasajero aceptó.
+  DateTime? get _confirmExpiresAt {
+    final fromOffer = _myOffer?.isWaitingDriverConfirmation == true
+        ? _myOffer!.confirmExpiresAt
+        : null;
+    if (fromOffer != null) return fromOffer;
+    final t = _trip;
+    return t?.expiresReason == 'proposal_confirm' ? t?.expiresAt : null;
+  }
+
+  /// Monto de la oferta que el pasajero aceptó.
+  double? get _acceptedFare => _myOffer?.isWaitingDriverConfirmation == true
+      ? _myOffer!.fare
+      : (_counter?.isWaitingMyConfirmation == true ? _counter!.fare : null);
+
   /// Contenido de la hoja inferior.
   List<Widget> _sheetChildren(
       Trip t, List<Waypoint> sortedWp, LatLng? driverPos) {
     final c = _counter;
     final bc = context.bugie;
-    final passengerCounter = c?.isCounterFromPassenger == true;
-    final waitingMyConfirm = c?.isWaitingMyConfirmation == true;
+    final passengerCounter = _passengerCounter;
+    final waitingMyConfirm = _waitingMyConfirm;
     // Lo que ofrece el pasajero (o su contrapropuesta, si respondió).
-    // estimatedFare = oferta del pasajero (proposedFare es la primera
-    // propuesta de algún conductor).
-    final offer = t.estimatedFare;
+    // passengerOfferFare = oferta vigente del pasajero (/pending).
+    final offer = t.passengerOfferFare ?? t.estimatedFare;
     final headline = passengerCounter ? c!.fare : offer;
-    // Chips rápidos: precio ofrecido +1, +2, +3.
-    final fares = quickFares(base: headline, deltas: const [1, 2, 3]);
+    // Rango permitido para proponer.
+    final range = _rules.range(t.fareForRange);
+    // Chips rápidos: precio ofrecido +1, +2, +3 (solo los que caen en el rango).
+    final fares = quickFares(base: headline, deltas: const [1, 2, 3])
+        .where((f) => f >= range.min && f <= range.max)
+        .toList();
     final pickupKm = driverPos == null
         ? null
         : haversineKm(driverPos, LatLng(t.originLat, t.originLng));
@@ -620,13 +793,16 @@ class _IncomingRequestDetailScreenState
           child: ScheduledBadge(at: t.scheduledAt!),
         ),
       ],
-      // Vencimiento: confirmar la propuesta aceptada / hora del programado.
-      if (t.expiresAt != null) ...[
+      // Vencimiento: se cancela por falta de conductor / hora del
+      // programado. (El plazo para confirmar va en el aviso de abajo.)
+      if (t.expiresAt != null && t.expiresReason != 'proposal_confirm') ...[
         const SizedBox(height: 6),
         Align(
           alignment: Alignment.centerLeft,
           child: ExpiryCountdown(
-              expiresAt: t.expiresAt!, reason: t.expiresReason),
+              expiresAt: t.expiresAt!,
+              reason: t.expiresReason,
+              onExpired: _load),
         ),
       ],
       const SizedBox(height: 8),
@@ -759,7 +935,7 @@ class _IncomingRequestDetailScreenState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    '¿Quieres cobrar otro monto?',
+                    'Proponer otro monto',
                     style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -767,7 +943,8 @@ class _IncomingRequestDetailScreenState
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Toca un monto para enviárselo al pasajero.',
+                    'Toca un monto para enviárselo al pasajero. '
+                    '${_rules.rangeHint(t.fareForRange)}.',
                     style: TextStyle(fontSize: 12.5, color: bc.textMuted),
                   ),
                   const SizedBox(height: 10),
@@ -777,7 +954,7 @@ class _IncomingRequestDetailScreenState
                     enabled: !busy && activeTrip == null,
                     onSelected: _quickPropose,
                     onOther: () {
-                      if (_blockedByActiveTrip()) return;
+                      if (_isActing || _blockedByActiveTrip()) return;
                       setState(() {
                       _isProposing = !_isProposing;
                       if (_isProposing && _proposeCtrl.text.isEmpty) {
@@ -797,11 +974,14 @@ class _IncomingRequestDetailScreenState
                                 controller: _proposeCtrl,
                                 title: 'Proponer otro monto al pasajero',
                                 hint: t.estimatedFare.toStringAsFixed(2),
+                                helper: _rules.rangeHint(t.fareForRange),
                                 loading:
                                     _isActing && _actingKind == 'propose',
                                 onSubmit: _submitProposal,
-                                onCancel: () =>
-                                    setState(() => _isProposing = false),
+                                onCancel: () {
+                                  if (_isActing) return;
+                                  setState(() => _isProposing = false);
+                                },
                               ),
                             ),
                           )
@@ -813,57 +993,73 @@ class _IncomingRequestDetailScreenState
     ];
   }
 
-  /// Barra fija inferior: UNA acción principal grande ("Aceptar S/ X" o
-  /// "Confirmar y empezar") y "Rechazar" como secundaria a su lado.
+  /// Barra fija inferior: la acción principal según el estado y
+  /// "Rechazar" / "Retirar oferta" como secundaria a su lado.
+  ///  - Sin oferta:          Rechazar | Aceptar S/ X (driver-accept).
+  ///  - Mi oferta pendiente: Retirar oferta | Aceptar S/ X (tarifa del pasajero).
+  ///  - Contraoferta S/ Y:   Retirar oferta | Aceptar S/ Y (accept-counter).
+  ///  - Acepté su tarifa:    Retirar oferta.
+  ///  - El pasajero aceptó:  Retirar oferta | Confirmar viaje.
   /// Mientras se escribe "Otro monto" se oculta: ahí la acción principal es
   /// "Enviar oferta" del propio panel.
   Widget? _bottomBar(Trip t) {
     final c = _counter;
     final bc = context.bugie;
-    final passengerCounter = c?.isCounterFromPassenger == true;
-    final waitingMyConfirm = c?.isWaitingMyConfirmation == true;
-    // "Aceptar" acepta a estimatedFare (oferta del pasajero).
-    final offer = t.estimatedFare;
+    final passengerCounter = _passengerCounter;
+    final waitingMyConfirm = _waitingMyConfirm;
+    // "Aceptar" acepta la oferta vigente del pasajero.
+    final offer = t.passengerOfferFare ?? t.estimatedFare;
     final busy = _isActing;
     // Viaje activo: aceptar / confirmar quedan deshabilitados.
     final blocked = ActiveTripService().hasActive;
     if (_isProposing && !waitingMyConfirm) return null;
 
-    final Widget content = waitingMyConfirm
-        ? PrimaryActionButton(
-            key: const ValueKey('confirm'),
-            label: t.isDelivery
-                ? 'Confirmar y empezar envío'
-                : 'Confirmar y empezar viaje',
-            icon: Icons.play_arrow_rounded,
-            loading: _isActing && _actingKind == 'confirm',
-            onPressed: _isActing || blocked ? null : _confirmAcceptance,
-          )
+    final secondary = _RejectButton(
+      label: _hasOffer ? 'Retirar oferta' : 'Rechazar',
+      loading: busy && _actingKind == 'decline',
+      onPressed: busy ? null : _decline,
+    );
+
+    final String kind;
+    final Widget? primary;
+    if (waitingMyConfirm) {
+      kind = 'confirm';
+      primary = PrimaryActionButton(
+        label: t.isDelivery ? 'Confirmar envío' : 'Confirmar viaje',
+        icon: Icons.play_arrow_rounded,
+        loading: busy && _actingKind == 'confirm',
+        onPressed: busy || blocked ? null : _confirmAcceptance,
+      );
+    } else if (passengerCounter) {
+      kind = 'counter';
+      primary = PrimaryActionButton(
+        label: 'Aceptar ${formatSoles(c!.fare)}',
+        icon: Icons.check_rounded,
+        loading: busy && _actingKind == 'counter',
+        onPressed: busy || blocked ? null : _acceptCounter,
+      );
+    } else if (_iAcceptedFare) {
+      kind = 'withdraw';
+      primary = null;
+    } else {
+      kind = 'accept';
+      primary = PrimaryActionButton(
+        label: 'Aceptar ${formatSoles(offer)}',
+        icon: Icons.check_rounded,
+        loading: busy && _actingKind == 'accept',
+        onPressed: busy || blocked ? null : _accept,
+      );
+    }
+
+    final Widget content = primary == null
+        ? SizedBox(
+            key: ValueKey(kind), width: double.infinity, child: secondary)
         : Row(
-            key: const ValueKey('actions'),
+            key: ValueKey(kind),
             children: [
-              Expanded(
-                flex: 1,
-                child: _RejectButton(
-                  loading: _isActing && _actingKind == 'decline',
-                  onPressed: busy ? null : _decline,
-                ),
-              ),
+              Expanded(flex: 1, child: secondary),
               const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: PrimaryActionButton(
-                  // Aceptar = misma acción de siempre (driverAccept),
-                  // también cuando el pasajero contrapropuso. Por eso
-                  // en ese caso no se muestra el monto de la contra.
-                  label: passengerCounter
-                      ? 'Aceptar'
-                      : 'Aceptar ${formatSoles(offer)}',
-                  icon: Icons.check_rounded,
-                  loading: _isActing && _actingKind == 'accept',
-                  onPressed: busy || blocked ? null : _accept,
-                ),
-              ),
+              Expanded(flex: 2, child: primary),
             ],
           );
 
@@ -885,10 +1081,11 @@ class _IncomingRequestDetailScreenState
     );
   }
 
-  /// Aviso del estado de la negociación según el counter actual.
+  /// Aviso del estado de la negociación según mi oferta vigente.
   Widget _statusBanner(DriverCounterInfo? c) {
     Widget wrap(Widget w) =>
         Padding(padding: const EdgeInsets.only(bottom: 14), child: w);
+    final t = _trip;
 
     if (_sendingFare != null) {
       return wrap(NegotiationStatusBanner(
@@ -896,28 +1093,56 @@ class _IncomingRequestDetailScreenState
         title: 'Enviando tu oferta de ${formatSoles(_sendingFare!)}…',
       ));
     }
-    if (c == null) return const SizedBox(width: double.infinity);
-    if (c.isWaitingMyConfirmation) {
-      return wrap(NegotiationStatusBanner(
-        state: NegotiationState.accepted,
-        title: '¡El pasajero aceptó ${formatSoles(c.fare)}!',
-        message: 'Confirma para empezar. Al confirmar, tus demás solicitudes '
-            'pendientes se rechazarán automáticamente.',
+    if (_waitingMyConfirm) {
+      final until = _confirmExpiresAt;
+      return wrap(Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          NegotiationStatusBanner(
+            state: NegotiationState.accepted,
+            title: '¡El pasajero aceptó ${formatSoles(_acceptedFare ?? 0)}!',
+            message: 'Al confirmar, tus demás solicitudes pendientes se '
+                'rechazarán automáticamente.',
+          ),
+          if (until != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: ExpiryCountdown(
+                expiresAt: until,
+                reason: 'proposal_confirm',
+                textBuilder: (clock) => 'Confirma antes de $clock',
+                onExpired: _load,
+              ),
+            ),
+          ],
+        ],
       ));
     }
-    if (c.isMyPending) {
-      return wrap(NegotiationStatusBanner(
+    if (_iAcceptedFare) {
+      return wrap(const NegotiationStatusBanner(
         state: NegotiationState.waiting,
-        title: 'Propuesta enviada: ${formatSoles(c.fare)}',
-        message: 'Esperando al pasajero. Si quieres, envía otro monto.',
+        title: 'Aceptaste la tarifa; esperando que el pasajero te elija',
+        message: 'Si quieres, propón otro monto o retira tu oferta.',
       ));
     }
+    if (c == null) return const SizedBox(width: double.infinity);
     if (c.isCounterFromPassenger) {
       return wrap(NegotiationStatusBanner(
         state: NegotiationState.counter,
-        title: 'El pasajero te propone ${formatSoles(c.fare)}',
-        message: 'Si te conviene, envíale el mismo monto con "Otro monto". '
-            'Si no, propón otro monto o rechaza.',
+        title: 'El pasajero te ofrece ${formatSoles(c.fare)}',
+        message: 'Acéptalo, propón otro monto o retira tu oferta.',
+      ));
+    }
+    if (c.isMyPending) {
+      final theirs = t == null
+          ? ''
+          : ' de ${formatSoles(t.passengerOfferFare ?? t.estimatedFare)}';
+      return wrap(NegotiationStatusBanner(
+        state: NegotiationState.waiting,
+        title: 'Esperando al pasajero',
+        message: 'Tu oferta: ${formatSoles(c.fare)}. Puedes proponer otro '
+            'monto o aceptar su tarifa$theirs.',
       ));
     }
     if (c.isRejected && !_hiddenRejects.contains(c.id)) {
@@ -1082,9 +1307,11 @@ class _CircleIconBtn extends StatelessWidget {
 
 /// "Rechazar" con borde rojo, mismo alto que el botón principal.
 class _RejectButton extends StatelessWidget {
+  final String label;
   final bool loading;
   final VoidCallback? onPressed;
-  const _RejectButton({required this.loading, required this.onPressed});
+  const _RejectButton(
+      {this.label = 'Rechazar', required this.loading, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -1108,12 +1335,12 @@ class _RejectButton extends StatelessWidget {
               child: CircularProgressIndicator(
                   strokeWidth: 2.4, color: BugieColors.danger),
             )
-          : const FittedBox(
+          : FittedBox(
               fit: BoxFit.scaleDown,
-              child: Text('Rechazar',
+              child: Text(label,
                   maxLines: 1,
                   style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                      const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ),
     );
   }

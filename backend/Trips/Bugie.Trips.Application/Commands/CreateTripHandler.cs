@@ -249,5 +249,9 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>,
         t.RecipientName, t.RecipientPhone, t.DeliveryReceivedBy, t.DeliveryConfirmedAt,
         t.ScheduledAt,
         t.ScheduledAt.HasValue && !t.IsFutureScheduled(DateTime.UtcNow),
-        t.IsDriverLate(DateTime.UtcNow));
+        t.IsDriverLate(DateTime.UtcNow))
+        {
+            // Base del maximo al negociar (viajes antiguos: la tarifa actual).
+            SuggestedFare = t.SuggestedFare ?? t.EstimatedFare,
+        };
 }

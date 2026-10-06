@@ -15,6 +15,7 @@ import 'core/services/in_app_alert_service.dart';
 import 'core/services/location_tracking_service.dart';
 import 'core/services/notification_prefs.dart';
 import 'core/services/request_alert_service.dart';
+import 'core/services/trips_hub_service.dart';
 import 'core/session/session.dart';
 import 'core/theme/bugie_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -140,6 +141,11 @@ class BugieApp extends StatelessWidget {
             session: session,
             trips: context.read<TripsRepository>(),
           );
+
+          // Canal en tiempo real con Trips (hub SignalR). Las pantallas del
+          // viaje se suscriben; se desconecta al cerrar sesión y en segundo
+          // plano.
+          TripsHubService().attach(session: session);
 
           // Contador de notificaciones sin leer (campana). Antes de FCM para
           // que un push tocado con la app cerrada pueda marcarse como leído.

@@ -171,10 +171,14 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddSignalR()
     .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new PeruDateTimeJsonConverter()));
 builder.Services.AddScoped<IAdminNotifier, SignalRAdminNotifier>();
+// Canal en tiempo real para PASAJEROS y CONDUCTORES (hub /hubs/trips, ver TripsHub).
+// Singleton: lo usa FcmSender (singleton) para espejar cada push como "UserNotification".
+builder.Services.AddSingleton<ITripRealtimeNotifier, SignalRTripRealtimeNotifier>();
 
 // ?? Expirador de propuestas accepted_by_passenger ?????????????????????????
-// Marca como rejected las propuestas que el conductor nunca confirmó después
-// de aceptación del pasajero. Evita que el pasajero quede bloqueado.
+// Vencimientos de la negociación (cada 30 s): ofertas aceptadas por el pasajero
+// que el conductor no confirmó a tiempo y viajes inmediatos que nadie tomó.
+// Los plazos se configuran en Admin › Configuración (ver NegotiationRules).
 builder.Services.Configure<ProposalExpirationOptions>(
     builder.Configuration.GetSection("ProposalExpiration"));
 builder.Services.AddHostedService<ProposalExpirationService>();
@@ -253,4 +257,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<MonitorHub>("/hubs/monitor");
+// Pasajeros y conductores: reemplaza el polling mientras la pantalla esta abierta.
+app.MapHub<TripsHub>("/hubs/trips");
 app.Run();

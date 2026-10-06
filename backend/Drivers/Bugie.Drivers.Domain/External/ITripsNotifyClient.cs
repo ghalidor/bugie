@@ -14,9 +14,14 @@
 /// </summary>
 public interface ITripsNotifyClient
 {
-    /// <summary>Notifica nueva posición GPS del conductor al admin vía SignalR.</summary>
+    /// <summary>
+    /// Notifica nueva posición GPS del conductor vía SignalR (Trips.Api): al admin y,
+    /// si tiene viaje activo, al pasajero de ese viaje. speedKmh y heading son
+    /// opcionales (solo los usa el pasajero para orientar el ícono del auto).
+    /// </summary>
     Task NotifyDriverLocationAsync(Guid userId, double lat, double lng,
-                                    bool hasActiveTrip, CancellationToken ct = default);
+                                    bool hasActiveTrip, double? speedKmh = null, double? heading = null,
+                                    CancellationToken ct = default);
 
     /// <summary>Notifica que el conductor se puso offline (sacar pin del mapa).</summary>
     Task NotifyDriverOfflineAsync(Guid userId, CancellationToken ct = default);

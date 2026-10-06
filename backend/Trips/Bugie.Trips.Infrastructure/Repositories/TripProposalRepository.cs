@@ -47,7 +47,7 @@ public class TripProposalRepository : ITripProposalRepository
                 FROM Candidatas
             )
             SELECT Id, TripId, DriverId, Fare, Status,
-                   ProposedByRole, RejectedBy, CreatedAt
+                   ProposedByRole, RejectedBy, CreatedAt, AcceptedByPassengerAt
             FROM Numeradas
             WHERE Rn = 1
             ORDER BY CreatedAt DESC",
@@ -78,14 +78,63 @@ public class TripProposalRepository : ITripProposalRepository
             new { Id = id, Status = status, RejectedBy = rejectedBy });
     }
 
-    public async Task RejectOthersAsync(Guid tripId, Guid acceptedId, CancellationToken ct = default)
+    public async Task<bool> TransitionAsync(Guid id, string[] from, string to, string? rejectedBy = null,
+        CancellationToken ct = default)
     {
-        await _db.ExecuteAsync(@"
+        var n = await _db.ExecuteAsync(@"
             UPDATE trips.TripProposals
-            SET Status = 'rejected', RejectedBy = 'passenger'
-            WHERE TripId = @TripId AND Id != @AcceptedId
-              AND Status IN ('pending', 'driver_accepted')",
+               SET Status = @To, RejectedBy = @RejectedBy
+             WHERE Id = @Id AND Status = ANY(@From)",
+            new { Id = id, From = from, To = to, RejectedBy = rejectedBy });
+        return n > 0;
+    }
+
+    public async Task<bool> MarkAcceptedByPassengerAsync(Guid id, CancellationToken ct = default)
+    {
+        var n = await _db.ExecuteAsync(@"
+            UPDATE trips.TripProposals
+               SET Status = 'accepted_by_passenger', RejectedBy = NULL,
+                   AcceptedByPassengerAt = (now() at time zone 'utc')
+             WHERE Id = @Id AND Status = 'pending'",
+            new { Id = id });
+        return n > 0;
+    }
+
+    public async Task<bool> UndoAcceptedByPassengerAsync(Guid id, CancellationToken ct = default)
+    {
+        var n = await _db.ExecuteAsync(@"
+            UPDATE trips.TripProposals
+               SET Status = 'pending', AcceptedByPassengerAt = NULL
+             WHERE Id = @Id AND Status = 'accepted_by_passenger'",
+            new { Id = id });
+        return n > 0;
+    }
+
+    public Task<TripProposal?> GetAcceptedByPassengerOnTripAsync(Guid tripId, CancellationToken ct = default) =>
+        _db.QueryFirstOrDefaultAsync<TripProposal?>(@"
+            SELECT * FROM trips.TripProposals
+            WHERE TripId = @TripId AND Status = 'accepted_by_passenger'
+            ORDER BY CreatedAt DESC LIMIT 1",
+            new { TripId = tripId });
+
+    public async Task<List<ClosedProposal>> RejectOthersAsync(Guid tripId, Guid acceptedId, CancellationToken ct = default)
+    {
+        // Incluye la aceptada por el pasajero (si eligio a otro conductor) para avisarle a ese conductor.
+        var rows = await _db.QueryAsync<ClosedProposal>(@"
+            WITH Objetivo AS (
+                SELECT Id, Status AS OldStatus FROM trips.TripProposals
+                WHERE TripId = @TripId AND Id <> @AcceptedId
+                  AND Status IN ('pending', 'driver_accepted', 'accepted_by_passenger')
+                FOR UPDATE
+            )
+            UPDATE trips.TripProposals p
+               SET Status = 'rejected', RejectedBy = 'passenger'
+              FROM Objetivo o, trips.Trips t
+             WHERE p.Id = o.Id AND t.Id = p.TripId
+            RETURNING p.Id AS ProposalId, p.TripId, p.DriverId, p.Fare, o.OldStatus,
+                      t.PassengerId, t.ServiceType",
             new { TripId = tripId, AcceptedId = acceptedId });
+        return rows.ToList();
     }
 
     /// <summary>
@@ -101,13 +150,17 @@ public class TripProposalRepository : ITripProposalRepository
             ORDER BY CreatedAt DESC LIMIT 1",
             new { TripId = tripId, DriverId = driverId });
 
-    public async Task<int> SupersedePendingAsync(Guid tripId, Guid driverId, CancellationToken ct = default)
+    public async Task<int> SupersedePendingAsync(Guid tripId, Guid driverId, bool includeDriverAccepted = false,
+        CancellationToken ct = default)
     {
+        var statuses = includeDriverAccepted
+            ? new[] { "pending", "driver_accepted" }
+            : new[] { "pending" };
         return await _db.ExecuteAsync(@"
             UPDATE trips.TripProposals
             SET Status = 'superseded'
-            WHERE TripId = @TripId AND DriverId = @DriverId AND Status = 'pending'",
-            new { TripId = tripId, DriverId = driverId });
+            WHERE TripId = @TripId AND DriverId = @DriverId AND Status = ANY(@Statuses)",
+            new { TripId = tripId, DriverId = driverId, Statuses = statuses });
     }
 
     public async Task<List<TripProposal>> GetHistoryByDriverAsync(
@@ -130,7 +183,8 @@ public class TripProposalRepository : ITripProposalRepository
         return await _db.ExecuteAsync(@"
             UPDATE trips.TripProposals
             SET Status = 'rejected', RejectedBy = 'driver'
-            WHERE TripId = @TripId AND DriverId = @DriverId AND Status = 'pending'",
+            WHERE TripId = @TripId AND DriverId = @DriverId
+              AND Status IN ('pending', 'driver_accepted', 'accepted_by_passenger')",
             new { TripId = tripId, DriverId = driverId });
     }
 
@@ -172,13 +226,17 @@ public class TripProposalRepository : ITripProposalRepository
     /// <summary>
     /// Rechaza TODAS las propuestas pending del viaje desde el lado del pasajero.
     /// </summary>
-    public async Task<int> RejectAllByPassengerAsync(Guid tripId, CancellationToken ct = default)
+    public async Task<List<Guid>> RejectAllByPassengerAsync(Guid tripId, CancellationToken ct = default)
     {
-        return await _db.ExecuteAsync(@"
+        // Tambien las aceptaciones a tarifa (driver_accepted). La aceptada por el
+        // pasajero no: esa se deshace con cancel-acceptance.
+        var drivers = await _db.QueryAsync<Guid>(@"
             UPDATE trips.TripProposals
             SET Status = 'rejected', RejectedBy = 'passenger'
-            WHERE TripId = @TripId AND Status = 'pending'",
+            WHERE TripId = @TripId AND Status IN ('pending', 'driver_accepted')
+            RETURNING DriverId",
             new { TripId = tripId });
+        return drivers.ToList();
     }
 
     /// <summary>
@@ -218,51 +276,72 @@ public class TripProposalRepository : ITripProposalRepository
     /// El motivo 'driver_busy' deja claro en el historial que el rechazo fue
     /// automático y no de mala fe.
     /// </summary>
-    public async Task<int> RejectAllOtherPendingByDriverAsync(
+    public async Task<List<ClosedProposal>> RejectAllOtherPendingByDriverAsync(
         Guid driverId, Guid exceptTripId, CancellationToken ct = default)
     {
-        return await _db.ExecuteAsync(@"
-            UPDATE trips.TripProposals
-            SET Status = 'rejected', RejectedBy = 'driver_busy'
-            WHERE DriverId   = @DriverId
-              AND TripId    <> @ExceptTripId
-              AND Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')
-              -- Las negociaciones de PROGRAMADOS siguen vigentes: no chocan con un viaje de ahora.
-              AND TripId IN (SELECT Id FROM trips.Trips WHERE ScheduledAt IS NULL)",
+        var rows = await _db.QueryAsync<ClosedProposal>(@"
+            WITH Objetivo AS (
+                SELECT p.Id, p.Status AS OldStatus FROM trips.TripProposals p
+                JOIN trips.Trips t ON t.Id = p.TripId
+                WHERE p.DriverId = @DriverId
+                  AND p.TripId  <> @ExceptTripId
+                  AND p.Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')
+                  -- Las negociaciones de PROGRAMADOS siguen vigentes: no chocan con un viaje de ahora.
+                  AND t.ScheduledAt IS NULL
+                FOR UPDATE OF p
+            )
+            UPDATE trips.TripProposals p
+               SET Status = 'rejected', RejectedBy = 'driver_busy'
+              FROM Objetivo o, trips.Trips t
+             WHERE p.Id = o.Id AND t.Id = p.TripId
+            RETURNING p.Id AS ProposalId, p.TripId, p.DriverId, p.Fare, o.OldStatus,
+                      t.PassengerId, t.ServiceType",
             new { DriverId = driverId, ExceptTripId = exceptTripId });
+        return rows.ToList();
     }
 
     /// <summary>
-    /// Expira propuestas 'accepted_by_passenger' viejas (CreatedAt &lt; cutoff).
+    /// Expira propuestas 'accepted_by_passenger' que el conductor no confirmo a tiempo.
     /// El motivo 'driver_no_confirm' es claro en el historial: el conductor
     /// recibió aceptación pero no confirmó.
     ///
-    /// Nota: usamos CreatedAt como aproximación. Idealmente tendríamos
-    /// AcceptedByPassengerAt pero no agregamos esa columna para no complicar
-    /// el schema. Con cutoff ~30min es seguro: las negociaciones reales no
-    /// duran tanto.
+    /// El plazo corre desde AcceptedByPassengerAt (CreatedAt en filas antiguas):
+    /// inmediato = + immediateMinutes; programado = hora del viaje - scheduledBeforeMinutes,
+    /// pero nunca antes de + immediateMinutes (misma regla que NegotiationSettings.ConfirmDeadline).
     /// </summary>
-    public async Task<int> ExpireStaleAcceptedByPassengerAsync(
-        DateTime cutoffUtc, CancellationToken ct = default)
+    public async Task<List<ClosedProposal>> ExpireUnconfirmedAsync(
+        DateTime nowUtc, int immediateMinutes, int scheduledBeforeMinutes, CancellationToken ct = default)
     {
-        return await _db.ExecuteAsync(@"
-            UPDATE trips.TripProposals
-            SET Status = 'rejected', RejectedBy = 'driver_no_confirm'
-            WHERE Status     = 'accepted_by_passenger'
-              AND CreatedAt  < @Cutoff",
-            new { Cutoff = cutoffUtc });
+        var rows = await _db.QueryAsync<ClosedProposal>(@"
+            UPDATE trips.TripProposals p
+               SET Status = 'rejected', RejectedBy = 'driver_no_confirm'
+              FROM trips.Trips t
+             WHERE t.Id = p.TripId
+               AND p.Status = 'accepted_by_passenger'
+               AND @Now >= CASE
+                     WHEN t.ScheduledAt IS NULL
+                       THEN COALESCE(p.AcceptedByPassengerAt, p.CreatedAt) + make_interval(mins => @Imm)
+                     ELSE GREATEST(t.ScheduledAt - make_interval(mins => @Sched),
+                                   COALESCE(p.AcceptedByPassengerAt, p.CreatedAt) + make_interval(mins => @Imm))
+                   END
+            RETURNING p.Id AS ProposalId, p.TripId, p.DriverId, p.Fare,
+                      'accepted_by_passenger' AS OldStatus, t.PassengerId, t.ServiceType",
+            new { Now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified),
+                  Imm = immediateMinutes, Sched = scheduledBeforeMinutes });
+        return rows.ToList();
     }
 
-    public async Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, CancellationToken ct = default)
+    public async Task<List<Guid>> CancelOpenByTripAsync(Guid tripId, string closedBy = "trip_cancelled",
+        CancellationToken ct = default)
     {
-        // Viaje cancelado = negociacion cerrada. RejectedBy deja constancia del motivo.
+        // Viaje cancelado (o reabierto) = negociacion cerrada. RejectedBy deja constancia del motivo.
         var drivers = await _db.QueryAsync<Guid>(@"
             UPDATE trips.TripProposals
-               SET Status = 'cancelled', RejectedBy = 'trip_cancelled'
+               SET Status = 'cancelled', RejectedBy = @ClosedBy
              WHERE TripId = @TripId
                AND Status IN ('pending', 'accepted_by_passenger', 'driver_accepted')
             RETURNING DriverId",
-            new { TripId = tripId });
+            new { TripId = tripId, ClosedBy = closedBy });
         return drivers.Distinct().ToList();
     }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import BugieMapAdmin, { MapMarker } from '../../components/BugieMapAdmin';
+import BugieMapAdmin, { MapLine, MapMarker } from '../../components/BugieMapAdmin';
 import { Drawer, IconButton, Page, SectionCard, StatCard, StatGrid, Tone, useMediaQuery, useToast } from '../../components/ui';
 import { useLiveMonitor } from './livemap/useLiveMonitor';
 import { useResolveSos, useReviewDeviation } from './livemap/sosActions';
@@ -10,9 +10,26 @@ import TripsList from './livemap/TripsList';
 import AlertsList from './livemap/AlertsList';
 import LiveTripDetail from './livemap/LiveTripDetail';
 import { useTripDetail } from '../../components/useTripDetail';
+import { LiveTrail } from './livemap/useLiveTrails';
 import './ops.scss';
 
-/// Botón de capa del mapa (mostrar/ocultar conductores, pasajeros o SOS).
+/// Color del trazo recorrido según el estado del viaje/conductor (mismos
+/// colores que el pin del conductor).
+const TRAIL_COLORS = {
+  sos:      '#f87171', // conductor o pasajero con SOS activo
+  deviated: '#dc2626', // fuera de la ruta planificada
+  inTrip:   '#818cf8', // viaje en curso
+  enRoute:  '#0ea5e9', // conductor en camino al recojo
+} as const;
+const TRAIL_LEGEND: Array<{ color: string; label: string }> = [
+  { color: TRAIL_COLORS.enRoute,  label: 'En camino al recojo' },
+  { color: TRAIL_COLORS.inTrip,   label: 'Viaje en curso' },
+  { color: TRAIL_COLORS.deviated, label: 'Desviado' },
+  { color: TRAIL_COLORS.sos,      label: 'SOS' },
+];
+const NO_LINES: MapLine[] = [];
+
+/// Botón de capa del mapa (mostrar/ocultar conductores, pasajeros, SOS o recorridos).
 function LayerToggle({ active, onClick, tone, label }: { active: boolean; onClick: () => void; tone: Tone; label: string }) {
   return (
     <button type="button" className={`lm-layer bx-tone-${tone}`} aria-pressed={active} onClick={onClick}
@@ -31,7 +48,7 @@ export default function LiveMap() {
     onNewSos: e => toast.show({ tone: 'error', title: 'Nueva alerta SOS', message: `${roleLabel(e.userRole)} pidió ayuda. Revísala en «Alertas».`, duration: 8000 }),
     onNewDeviation: () => toast.warning('Un conductor se salió de la ruta planificada. Revísalo en «Alertas».', 'Desvío de ruta'),
   });
-  const { drivers, alerts, passengers, vehicleByUser, deviations, deviatedByUserId, sosUserIds, sosDriverUserIds } = m;
+  const { drivers, alerts, passengers, vehicleByUser, deviations, trails, deviatedByUserId, sosUserIds, sosDriverUserIds } = m;
 
   const resolveSos = useResolveSos();
   const reviewDeviation = useReviewDeviation();
@@ -48,6 +65,7 @@ export default function LiveMap() {
   const [showDrivers,       setShowDrivers]       = useState(true);
   const [showPassengers,    setShowPassengers]    = useState(true);
   const [showSos,           setShowSos]           = useState(true);
+  const [showTrails,        setShowTrails]        = useState(true);
 
   // Al pasar a escritorio el Drawer ya no hace falta.
   useEffect(() => { if (isXl) setPanelOpen(false); }, [isXl]);
@@ -175,13 +193,47 @@ export default function LiveMap() {
     return list;
   }, [drivers, passengers, vehicleByUser, deviatedByUserId, sosUserIds, selectedId, selectedPaxTripId, showDrivers, showPassengers, showSos]);
 
+  // ── Recorridos en vivo (una polilínea por viaje con conductor) ───────
+  // Solo cambia la referencia de los puntos del viaje que recibió GPS; el
+  // mapa actualiza esa línea y deja las demás tal cual.
+  const trailLines = useMemo(() => {
+    const list: MapLine[] = [];
+    const selectedDriver = selectedId ? drivers.find(d => d.id === selectedId) : null;
+    const byTrip: Record<string, LivePassenger> = {};
+    passengers.forEach(p => { byTrip[p.tripId] = p; });
+
+    const colorFor = (t: LiveTrail, trip: LivePassenger | undefined) => {
+      if (trip && (sosUserIds.has(trip.passengerId) || (t.driverId && sosUserIds.has(t.driverId)))) return TRAIL_COLORS.sos;
+      if (t.driverId && deviatedByUserId[t.driverId]) return TRAIL_COLORS.deviated;
+      return trip?.status === 2 ? TRAIL_COLORS.enRoute : TRAIL_COLORS.inTrip;
+    };
+    const isSelected = (t: LiveTrail) =>
+      t.tripId === selectedPaxTripId || (!!selectedDriver && t.driverId === selectedDriver.userId);
+
+    // Primero las rutas planificadas (tenues), luego los recorridos encima.
+    Object.values(trails).forEach(t => {
+      const leg = t.planned?.trip;
+      if (leg && leg.points.length >= 2) {
+        list.push({ id: `planned:${t.tripId}`, points: leg.points, color: colorFor(t, byTrip[t.tripId]), weight: 3, opacity: isSelected(t) ? 0.6 : 0.3, dashArray: '6 10' });
+      }
+    });
+    Object.values(trails).forEach(t => {
+      if (t.points.length < 2) return;
+      const selected = isSelected(t);
+      list.push({ id: `trail:${t.tripId}`, points: t.points, color: colorFor(t, byTrip[t.tripId]), weight: selected ? 7 : 5, opacity: selected ? 1 : 0.85 });
+    });
+    return list;
+  }, [trails, passengers, drivers, selectedId, selectedPaxTripId, sosUserIds, deviatedByUserId]);
+  const mapLines = showTrails ? trailLines : NO_LINES;
+
   // Con el detalle abierto, el mapa principal queda congelado (no se redibuja debajo).
-  const frozenMarkersRef = useRef<MapMarker[] | null>(null);
+  const frozenRef = useRef<{ markers: MapMarker[]; lines: MapLine[] } | null>(null);
   useEffect(() => {
-    if (tripDetailId) { if (frozenMarkersRef.current === null) frozenMarkersRef.current = markers; }
-    else frozenMarkersRef.current = null;
-  }, [tripDetailId, markers]);
-  const mainMapMarkers = tripDetailId ? (frozenMarkersRef.current ?? markers) : markers;
+    if (tripDetailId) { if (frozenRef.current === null) frozenRef.current = { markers, lines: mapLines }; }
+    else frozenRef.current = null;
+  }, [tripDetailId, markers, mapLines]);
+  const mainMapMarkers = tripDetailId ? (frozenRef.current?.markers ?? markers) : markers;
+  const mainMapLines   = tripDetailId ? (frozenRef.current?.lines ?? mapLines) : mapLines;
 
   // ── Conductores ordenados: SOS → desviado → en viaje → disponible ────
   const filteredDrivers = useMemo(() => {
@@ -277,6 +329,7 @@ export default function LiveMap() {
               <LayerToggle active={showDrivers}    onClick={() => setShowDrivers(v => !v)}    tone="ok"   label="Conductores" />
               <LayerToggle active={showPassengers} onClick={() => setShowPassengers(v => !v)} tone="warn" label="Pasajeros" />
               <LayerToggle active={showSos}        onClick={() => setShowSos(v => !v)}        tone="bad"  label="SOS" />
+              <LayerToggle active={showTrails}     onClick={() => setShowTrails(v => !v)}     tone="info" label="Recorridos" />
             </div>
           }
         >
@@ -284,6 +337,7 @@ export default function LiveMap() {
             <BugieMapAdmin
               height="100%"
               markers={mainMapMarkers}
+              lines={mainMapLines}
               onFocusRef={focusMarkerRef}
               onFitBoundsRef={mainFitBoundsRef}
               onMarkerClick={mk => {
@@ -296,6 +350,13 @@ export default function LiveMap() {
             <div className="lm-map-fab">
               <IconButton icon="fa-crosshairs" label="Centrar en todos los pines" tooltipPlacement="left" onClick={() => mainFitBoundsRef.current?.()} />
             </div>
+            {showTrails && trailLines.length > 0 && (
+              <ul className="lm-trail-legend" aria-label="Colores de los recorridos">
+                {TRAIL_LEGEND.map(l => (
+                  <li key={l.label}><span className="sw" style={{ background: l.color }} aria-hidden="true" />{l.label}</li>
+                ))}
+              </ul>
+            )}
             {!isXl && (
               <button type="button" className="btn btn-bugie lm-map-open" onClick={() => setPanelOpen(true)} data-tour="monitor-lists">
                 <i className="fa-solid fa-list" aria-hidden="true" />
@@ -324,6 +385,7 @@ export default function LiveMap() {
           trip={tripDetail}
           driver={drivers.find(d => d.userId === tripDetail.driverId) || null}
           vehicle={tripDetail.driverId ? vehicleByUser[tripDetail.driverId] : undefined}
+          trail={trails[tripDetail.tripId] ?? null}
           deviated={tripDetail.driverId ? deviatedByUserId[tripDetail.driverId] === true : false}
           passengerSosAlert={alerts.find(a => a.userId === tripDetail.passengerId) ?? null}
           driverSosAlert={tripDetail.driverId ? (alerts.find(a => a.userId === tripDetail.driverId) ?? null) : null}

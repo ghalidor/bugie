@@ -23,6 +23,7 @@ TRUNCATE
   drivers.reviews, drivers.locationhistory, drivers.driverpresencecheckins, drivers.approvalaudit, drivers.vehiclephotos,
   drivers.driverreviewrequests,
   rewards.pointsprofiles, rewards.pointstransactions, rewards.pointsadjustments,
+  rewards.levelbenefitclaims, rewards.levelbenefitnotices,
   rewards.milestoneawards, rewards.promotionapplications, rewards.promotions,
   rewards.raffles, rewards.raffletickets, rewards.rafflewinners, rewards.redemptions,
   rewards.referralcodes, rewards.referralinvitations, rewards.referrals,

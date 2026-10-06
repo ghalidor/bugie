@@ -96,10 +96,13 @@ public class SignalRAdminNotifier : IAdminNotifier
     /// <summary>
     /// Broadcast de nueva posición GPS de conductor al grupo "admins".
     /// Cada admin actualizará solo el pin de ese conductor en su mapa,
-    /// sin recargar toda la lista.
+    /// sin recargar toda la lista. Si viene tripId (viaje activo), el monitoreo
+    /// agrega el punto al trazo del recorrido en vivo de ese viaje.
     /// </summary>
     public async Task NotifyDriverLocationAsync(Guid driverUserId, double lat, double lng,
-                                                 bool hasActiveTrip, CancellationToken ct = default)
+                                                 bool hasActiveTrip, Guid? tripId = null,
+                                                 double? heading = null, double? speedKmh = null,
+                                                 CancellationToken ct = default)
     {
         try
         {
@@ -109,6 +112,9 @@ public class SignalRAdminNotifier : IAdminNotifier
                 lat,
                 lng,
                 hasActiveTrip,
+                tripId,
+                heading,
+                speedKmh,
                 at = DateTime.UtcNow,
             }, ct);
             // Evitamos log a nivel Information aquí — esto se llama 1 vez/10s

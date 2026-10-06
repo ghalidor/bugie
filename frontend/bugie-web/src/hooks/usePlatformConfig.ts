@@ -28,10 +28,21 @@ export interface PlatformConfig {
   supportEmail: string;
   /** Teléfono de soporte (vacío si el admin no lo configuró). */
   supportPhone: string;
+  /**
+   * Monto mínimo para pedir, ofertar o contraofertar: la tarifa base que el
+   * admin configuró (base_fare). null si no la configuró (el backend tampoco
+   * exige mínimo en ese caso).
+   */
+  minFare: number | null;
+  /** Máximo para ofertar/contraofertar = tarifa pedida × este valor (fare_max_multiplier). */
+  fareMaxMultiplier: number;
 }
 
 /** Los valores que estaban escritos a mano. Se usan si la config no carga. */
-const DEFAULT: PlatformConfig = { baseFare: 5, farePerKm: 1.5, sosResponseMin: 2, supportEmail: '', supportPhone: '' };
+const DEFAULT: PlatformConfig = {
+  baseFare: 5, farePerKm: 1.5, sosResponseMin: 2, supportEmail: '', supportPhone: '',
+  minFare: null, fareMaxMultiplier: 3,
+};
 
 let _cache: PlatformConfig | null = null;
 const _subscribers = new Set<(cfg: PlatformConfig) => void>();
@@ -48,12 +59,17 @@ function fetchAndSet() {
     };
     const text = (key: string) => (settings.find(s => s.settingKey === key)?.value ?? '').trim();
 
+    // Mismo criterio que el backend: un multiplicador menor que 1 no vale.
+    const maxMult = get('fare_max_multiplier', DEFAULT.fareMaxMultiplier);
+
     const cfg: PlatformConfig = {
       baseFare:       get('base_fare',       DEFAULT.baseFare),
       farePerKm:      get('fare_per_km',     DEFAULT.farePerKm),
       sosResponseMin: get('sos_response_min', DEFAULT.sosResponseMin),
       supportEmail:   text('support_email'),
       supportPhone:   text('support_phone'),
+      minFare:        get('base_fare', 0) || null,
+      fareMaxMultiplier: maxMult >= 1 ? maxMult : DEFAULT.fareMaxMultiplier,
     };
     _cache = cfg;
     _subscribers.forEach(cb => cb(cfg));
@@ -81,4 +97,37 @@ export function usePlatformConfig(): PlatformConfig {
  */
 export function calcularTarifa(km: number, cfg: PlatformConfig): number {
   return Math.max(cfg.baseFare, Math.round(km * cfg.farePerKm * 10) / 10);
+}
+
+/** "S/ 12.50" (igual que los mensajes del backend). */
+const soles = (n: number) => `S/ ${n.toFixed(2)}`;
+
+/**
+ * Rango permitido para ofertar o contraofertar en un viaje (igual que el
+ * backend): mínimo = base_fare; máximo = tarifa pedida × fare_max_multiplier
+ * (nunca menor que el mínimo).
+ */
+export function fareRange(suggestedFare: number, cfg: PlatformConfig): { min: number; max: number } {
+  const min = cfg.minFare ?? 0.01;
+  const max = Math.round(suggestedFare * cfg.fareMaxMultiplier * 100) / 100;
+  return { min, max: Math.max(min, max) };
+}
+
+/** "Entre S/ X y S/ Y" (se muestra junto al campo del monto). */
+export function fareRangeHint(r: { min: number; max: number }): string {
+  return `Entre ${soles(r.min)} y ${soles(r.max)}`;
+}
+
+/** Mensaje si el monto está fuera del rango (mismo texto que el backend); null si es válido. */
+export function fareRangeError(amount: number, r: { min: number; max: number }): string | null {
+  return amount < r.min || amount > r.max
+    ? `El monto debe estar entre ${soles(r.min)} y ${soles(r.max)}.`
+    : null;
+}
+
+/** Al crear un viaje o envío solo aplica el mínimo (mismo texto que el backend). */
+export function createFareError(amount: number, cfg: PlatformConfig): string | null {
+  return cfg.minFare != null && amount < cfg.minFare
+    ? `El monto debe ser al menos ${soles(cfg.minFare)}.`
+    : null;
 }

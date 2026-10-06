@@ -2,17 +2,23 @@
 // Bugie - generador de datos de prueba para bugie_test
 //
 // Recorre los flujos REALES por HTTP (registro -> activacion -> viajes ->
-// pagos -> puntos -> canjes -> cupones -> sorteos -> admin).
+// negociacion -> pagos -> puntos -> canjes -> cupones -> sorteos -> admin).
 //
 // Requisitos:
 //   1) bugie_test limpia (01_limpiar_bugie_test.sql)
 //   2) APIs levantadas contra bugie_test (levantar_apis_test.sh)
+//   3) GraphHopper local en http://localhost:8989 (rutas por calles; si no
+//      responde se usa una linea recta y se registra como aviso)
 //
 // Uso:  node scripts/test-data/seed.mjs
 //
-// Correos: cada vez que el backend envia un correo a un usuario, ese
-// usuario tiene en ese momento el correo REAL_EMAIL. Despues se le cambia
-// por su correo final (@bugie.test) para liberar REAL_EMAIL.
+// Correos (maximo 50 reales): antes de cada fase, los usuarios que van a
+// recibir correo pasan a tener un alias del correo real
+// (ghaluix+<clave>@gmail.com: Gmail lo entrega en la misma bandeja y asi
+// varios usuarios pueden tenerlo a la vez, porque auth.users.email es UNIQUE).
+// Al terminar la fase se espera ~10 s (el SMTP sale en segundo plano) y se
+// les devuelve su @bugie.test. Se lleva un contador estimado; al llegar a 48
+// las fases siguientes van directo a @bugie.test.
 // =====================================================================
 import { execFileSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
@@ -30,23 +36,37 @@ const API = {
   landing:  'http://127.0.0.1:5005/api',
   rewards:  'http://127.0.0.1:5006/api',
 };
+const GRAPHHOPPER = process.env.GRAPHHOPPER_URL ?? 'http://localhost:8989';
 const PASSWORD   = '10203040';
 const REAL_EMAIL = 'ghaluix@gmail.com';
 const ADMIN      = { email: 'admin@bugie.pe', password: PASSWORD };
 const PSQL       = 'C:/Program Files/PostgreSQL/18/bin/psql.exe';
 const DB_ARGS    = ['-h', 'localhost', '-U', 'postgres', '-d', 'bugie_test', '-tAq', '-v', 'ON_ERROR_STOP=1'];
-const DB_ENV     = { ...process.env, PGPASSWORD: '147896321' };
+const DB_ENV     = { ...process.env, PGPASSWORD: '147896321', PGCLIENTENCODING: 'UTF8' };
 
 // ------------------------------------------------------------------ log
 const report = [];   // { area, step, ok, detail }
 function ok(area, step, detail = '')   { report.push({ area, step, ok: true,  detail }); console.log(`  ✔ [${area}] ${step}${detail ? ' — ' + detail : ''}`); }
 function fail(area, step, err)         { const d = String(err?.message ?? err).slice(0, 400); report.push({ area, step, ok: false, detail: d }); console.log(`  ✘ [${area}] ${step} — ${d}`); }
+function aviso(area, step, detail = '') { report.push({ area, step, ok: true, aviso: true, detail }); console.log(`  ! [${area}] ${step}${detail ? ' — ' + detail : ''}`); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Espera hasta que cond() sea verdadero (consulta cada `every` ms, maximo `ms`).
+async function esperar(cond, ms = 150000, every = 5000) {
+  const fin = Date.now() + ms;
+  while (Date.now() < fin) { if (await cond()) return true; await sleep(every); }
+  return !!(await cond());
+}
 
 // ------------------------------------------------------------------ sql
 function sql(q) {
   return execFileSync(PSQL, [...DB_ARGS, '-c', q], { env: DB_ENV, encoding: 'utf8' }).trim();
 }
+// Estado de una propuesta: "status|rejectedby"
+const propEstado = id => sql(`SELECT status || '|' || coalesce(rejectedby, '') FROM trips.tripproposals WHERE id = '${id}'`);
+// Fila de un viaje: [status, driverid, cancelledby, cancelreason, scheduledat]
+const viajeFila = id => sql(`SELECT status || '|' || coalesce(driverid::text, '') || '|' || coalesce(cancelledby, '') || '|' || coalesce(cancelreason, '') || '|' || coalesce(scheduledat::text, '') FROM trips.trips WHERE id = '${id}'`).split('|');
+// Cantidad de avisos en la bandeja de un usuario con ese type (columna o data.type) para un viaje
+const avisos = (userId, type, tripId) => Number(sql(`SELECT count(*) FROM trips.usernotifications WHERE userid = '${userId}' AND (type = '${type}' OR data->>'type' = '${type}')${tripId ? ` AND data->>'trip_id' = '${tripId}'` : ''}`) || 0);
 
 // ------------------------------------------------------------------ http
 class HttpError extends Error {
@@ -70,6 +90,11 @@ async function api(method, url, { token, body, form } = {}) {
 const get  = (u, o) => api('GET', u, o);
 const post = (u, o) => api('POST', u, o);
 const put  = (u, o) => api('PUT', u, o);
+// Espera un error HTTP concreto: { ok, got, error }
+async function esperaError(promise, status) {
+  try { await promise; return { ok: false, got: 200, error: 'respondió 200' }; }
+  catch (e) { return { ok: e.status === status, got: e.status, error: e.body?.error ?? e.message }; }
+}
 
 // ------------------------------------------------------------------ png
 // PNG simple de un color con una franja, para documentos / fotos de prueba.
@@ -134,14 +159,115 @@ function km(a, b) {
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
 }
+// Rumbo (grados 0-360) de a hacia b
+function rumbo(a, b) {
+  const f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180, dl = (b.lng - a.lng) * Math.PI / 180;
+  const y = Math.sin(dl) * Math.cos(f2), x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return Math.round(((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360);
+}
 // base_fare 5.00 + fare_per_km 1.50 (landing.systemsettings), redondeado a 0.50
 const fareFor = (a, b) => Math.round((5 + 1.5 * km(a, b) * 1.3) * 2) / 2;
+// Linea con una leve curva (respaldo si GraphHopper no responde)
 function route(a, b, n = 10) {
-  // Linea con una leve curva para que en el mapa no sea una recta perfecta
   return Array.from({ length: n + 1 }, (_, i) => {
     const t = i / n, bend = Math.sin(t * Math.PI) * 0.0025;
     return { lat: a.lat + (b.lat - a.lat) * t + bend, lng: a.lng + (b.lng - a.lng) * t - bend };
   });
+}
+// Ruta por calles con GraphHopper (profile car). Cache en memoria por par de puntos.
+// Si GraphHopper no responde cae a la linea recta y lo deja como aviso (no fail).
+const rutaCache = new Map();
+let ghAvisado = false;
+async function ruta(a, b) {
+  const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)}|${b.lat.toFixed(5)},${b.lng.toFixed(5)}`;
+  if (rutaCache.has(key)) return rutaCache.get(key);
+  let pts, real = true;
+  try {
+    const url = `${GRAPHHOPPER}/route?point=${a.lat},${a.lng}&point=${b.lat},${b.lng}&profile=car&points_encoded=false&instructions=false`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    const coords = j?.paths?.[0]?.points?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) throw new Error('sin coordenadas');
+    pts = coords.map(([lng, lat]) => ({ lat, lng }));
+  } catch (e) {
+    real = false;
+    pts = route(a, b, 10);
+    if (!ghAvisado) { aviso('GPS', 'GraphHopper no responde: se usa linea recta', `${GRAPHHOPPER} · ${e.message}`); ghAvisado = true; }
+  }
+  const r = { pts, real };
+  rutaCache.set(key, r);
+  return r;
+}
+// Recorre la polilinea y deja ~1 punto cada 80-120 m, con el rumbo de cada tramo.
+function densificar(poly) {
+  const out = [{ ...poly[0] }];
+  let paso = 0.08 + Math.random() * 0.04, acum = 0;
+  for (let i = 1; i < poly.length; i++) {
+    const a = poly[i - 1], b = poly[i], d = km(a, b);
+    if (d === 0) continue;
+    let pos = 0;
+    while (acum + (d - pos) >= paso) {
+      const falta = paso - acum, t = (pos + falta) / d;
+      out.push({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });
+      pos += falta; acum = 0; paso = 0.08 + Math.random() * 0.04;
+    }
+    acum += d - pos;
+  }
+  const fin = poly[poly.length - 1];
+  if (km(out[out.length - 1], fin) > 0.02) out.push({ ...fin });
+  for (let i = 0; i < out.length; i++) out[i].heading = rumbo(out[Math.max(0, i - 1)], out[Math.min(out.length - 1, i + 1)]);
+  return out;
+}
+async function rutaDensa(a, b) {
+  const r = await ruta(a, b);
+  return { pts: densificar(r.pts), km: r.pts.reduce((s, p, i) => i ? s + km(r.pts[i - 1], p) : 0, 0), real: r.real };
+}
+
+// ------------------------------------------------------------------ correos reales (maximo 50)
+const MAX_CORREOS  = 50;   // nunca mas de esto
+const TOPE_CORREOS = 48;   // al llegar aqui, las fases siguientes van a @bugie.test
+const correos = { estimados: 0, detalle: [] };
+const conCorreoReal = new Set();   // userIds que ahora mismo tienen el alias real
+// Alias del correo real por usuario (Gmail entrega ghaluix+p1@gmail.com en la misma bandeja).
+const aliasReal = key => REAL_EMAIL.replace('@', `+${String(key).toLowerCase()}@`);
+function ponerCorreoReal(users, esperados) {
+  const lista = users.filter(u => u?.userId);
+  if (!lista.length) return [];
+  if (correos.estimados >= TOPE_CORREOS || correos.estimados + esperados > MAX_CORREOS) {
+    aviso('Correos', `tope de correos reales alcanzado (${correos.estimados}): esta fase va a @bugie.test`);
+    return [];
+  }
+  for (const u of lista) {
+    u.currentEmail = aliasReal(u.key);
+    sql(`UPDATE auth.users SET email = '${u.currentEmail}' WHERE id = '${u.userId}'`);
+    conCorreoReal.add(u.userId);
+  }
+  return lista;
+}
+function devolverCorreos(users) {
+  for (const u of users) {
+    if (!u?.userId || u.currentEmail === u.email) continue;
+    sql(`UPDATE auth.users SET email = '${u.email}' WHERE id = '${u.userId}'`);
+    u.currentEmail = u.email;
+    conCorreoReal.delete(u.userId);
+  }
+}
+// Registra un correo que el backend acaba de enviar a ese usuario (solo cuenta si tenia el alias real).
+function correo(u, motivo) {
+  if (!u?.userId || !conCorreoReal.has(u.userId)) return false;
+  correos.estimados++; correos.detalle.push(`${u.key}: ${motivo}`);
+  return true;
+}
+// Correo que va directo a REAL_EMAIL (contacto web, libro de reclamaciones, invitacion).
+function correoDirecto(motivo) { correos.estimados++; correos.detalle.push(`directo: ${motivo}`); }
+const puedeCorreoDirecto = () => correos.estimados < TOPE_CORREOS;
+// Ejecuta una fase con los usuarios indicados con correo real; al final espera 10 s
+// (el SMTP sale en segundo plano) y les devuelve su @bugie.test.
+async function faseConCorreo(users, esperados, fn) {
+  const lista = ponerCorreoReal(users, esperados);
+  try { return await fn(lista.length > 0); }
+  finally { if (lista.length) { await sleep(10000); devolverCorreos(lista); } }
 }
 
 // ------------------------------------------------------------------ users
@@ -149,30 +275,27 @@ async function login(email) {
   const r = await post(`${API.auth}/auth/login`, { body: { email, password: PASSWORD } });
   return r.token;
 }
-function freeRealEmail() {
-  sql(`UPDATE auth.users SET email = 'liberado.' || left(id::text, 8) || '@bugie.test' WHERE lower(email) = lower('${REAL_EMAIL}')`);
-}
-function setEmail(userId, email) {
-  freeRealEmail();
-  sql(`UPDATE auth.users SET email = '${email}' WHERE id = '${userId}'`);
-}
+const loginUser = u => login(u.currentEmail ?? u.email);
 
 // Documento de identidad de prueba: DNI = '4' + ultimos 7 digitos del celular
 // (es el que sale dibujado en las imagenes del DNI). Unico por usuario.
 const dniOf = (phone) => '4' + phone.slice(-7);
 
 async function registerUser(u, role, referralCode) {
-  // El registro siempre se hace con el correo real -> llega el correo de bienvenida
-  // Documento y nombres separados son obligatorios (FullName lo arma la API).
-  freeRealEmail();
+  // El registro se hace con el alias del correo real -> llega el correo de bienvenida
+  // (salvo que ya se haya llegado al tope de correos).
+  const real = correos.estimados < TOPE_CORREOS;
+  const email = real ? aliasReal(u.key) : u.email;
   const r = await post(`${API.auth}/auth/register`, { body: {
-    email: REAL_EMAIL, password: PASSWORD, phone: u.phone, role,
+    email, password: PASSWORD, phone: u.phone, role,
     docType: 'DNI', docNumber: dniOf(u.phone),
     firstNames: u.fn, lastNamePaternal: u.regAp ?? u.ap, lastNameMaternal: u.am ?? null,
     acceptedTerms: true, signatureImage: SIGNATURE, referralCode,
   } });
-  u.userId = r.userId; u.token = r.token; u.role = role;
-  ok('Registro', `${role} ${u.name}`, `correo de bienvenida a ${REAL_EMAIL}${referralCode ? `, referido con ${referralCode}` : ''}`);
+  u.userId = r.userId; u.token = r.token; u.role = role; u.currentEmail = email;
+  if (real) conCorreoReal.add(u.userId);
+  correo(u, 'bienvenida');
+  ok('Registro', `${role} ${u.name}`, `correo de bienvenida a ${email}${referralCode ? `, referido con ${referralCode}` : ''}`);
 }
 
 // ------------------------------------------------------------------ data
@@ -199,6 +322,7 @@ const drivers = [
   { key: 'D5', name: 'Hugo Flores Quispe',      fn: 'Hugo',         ap: 'Flores',  am: 'Quispe',  phone: '953200205', email: 'hugo.flores@bugie.test',   status: 'rejected', vehicle: { plate: 'Z5E-505', brand: 'Nissan',  model: 'Sentra', year: 2017, color: 'Negro'  }, at: PLACES.ciudadN },
 ];
 const byKey = Object.fromEntries([...passengers, ...drivers].map(u => [u.key, u]));
+const aprobados = () => [...passengers, ...drivers].filter(u => u.status === 'approved' && u.token);
 let adminToken;
 
 const DRIVER_DOCS = ['dni_front', 'dni_back', 'license', 'soat', 'tarjeta_propiedad', 'revision_tecnica', 'certificado_unico_laboral'];
@@ -276,12 +400,29 @@ async function faseAdmin() {
       docType: 'DNI', docNumber: dniOf('951000001'), firstNames: 'Soporte', lastNamePaternal: 'Bugie', lastNameMaternal: null } });
     ok('Admin', 'crear admin soporte@bugie.test');
   } catch (e) { fail('Admin', 'rol/usuario soporte', e); }
+  // Parametros de negociacion que usa el seed (deben estar en sus valores por defecto)
+  try {
+    const s = await get(`${API.landing}/landing/settings`);
+    const v = k => s.find(x => x.settingKey === k)?.value;
+    ok('Admin', 'settings de negociacion', `base_fare=${v('base_fare')} fare_max_multiplier=${v('fare_max_multiplier')} trip_no_driver_cancel_min=${v('trip_no_driver_cancel_min')} driver_confirm_immediate_min=${v('driver_confirm_immediate_min')}`);
+    if (v('trip_no_driver_cancel_min') !== '10' || v('driver_confirm_immediate_min') !== '2') {
+      await put(`${API.landing}/landing/settings/trip_no_driver_cancel_min`, { token: adminToken, body: { value: '10' } });
+      await put(`${API.landing}/landing/settings/driver_confirm_immediate_min`, { token: adminToken, body: { value: '2' } });
+      aviso('Admin', 'settings de negociacion restaurados a 10 / 2 (quedaron cambiados de una corrida anterior)');
+    }
+  } catch (e) { fail('Admin', 'leer settings de negociacion', e); }
 }
 
 async function faseRewardsConfig() {
   console.log('\n== Configuracion de rewards');
   const T = { token: adminToken };
-  try { await put(`${API.rewards}/rewards/admin/settings/coupons_apply_to_fare`, { ...T, body: { value: 'true' } }); ok('Rewards', 'activar cupones en tarifa'); }
+  try {
+    await put(`${API.rewards}/rewards/admin/settings/coupons_apply_to_fare`, { ...T, body: { value: 'true' } });
+    const s = await get(`${API.rewards}/rewards/admin/settings`, T).catch(() => null);
+    const v = Array.isArray(s) ? s.find(x => (x.key ?? x.settingKey) === 'coupons_apply_to_fare')?.value : null;
+    if (v && String(v) !== 'true') fail('Rewards', 'coupons_apply_to_fare', `quedo en ${v}`);
+    else ok('Rewards', 'activar cupones en tarifa (coupons_apply_to_fare = true)');
+  }
   catch (e) { fail('Rewards', 'activar cupones en tarifa', e); }
   const now = Date.now();
   const promos = [
@@ -316,6 +457,7 @@ async function faseRewardsConfig() {
 
 async function fasePasajeros() {
   console.log('\n== Pasajeros: registro -> documentos -> activacion');
+  // Toda la fase con el alias del correo real (bienvenida, cuenta activa, rechazo, cuenta eliminada).
   for (const p of passengers) {
     try {
       const ref = p.referredBy ? byKey[p.referredBy].referralCode : undefined;
@@ -331,7 +473,8 @@ async function fasePasajeros() {
       if (p.status === 'approved') {
         for (const id of p.docs) await put(`${API.auth}/auth/passengers/documents/${id}/approve`, T);
         await put(`${API.auth}/auth/admin/passengers/${p.userId}/approve`, T);
-        ok('Pasajero', `${p.key} activado por admin`, `correo "cuenta activa" a ${REAL_EMAIL}`);
+        correo(p, 'cuenta activa');
+        ok('Pasajero', `${p.key} activado por admin`, `correo "cuenta activa" a ${p.currentEmail}`);
         if (p.regAp) {
           // Correccion de nombres por el admin (queda en la auditoria de la cuenta)
           try {
@@ -345,28 +488,31 @@ async function fasePasajeros() {
       } else if (p.status === 'rejected') {
         await put(`${API.auth}/auth/passengers/documents/${p.docs[0]}/reject`, { ...T, body: { reason: 'La foto del DNI esta borrosa' } });
         await put(`${API.auth}/auth/admin/passengers/${p.userId}/reject`, { ...T, body: { reason: 'DNI ilegible, vuelve a subirlo' } });
-        ok('Pasajero', `${p.key} rechazado por admin`, `correo "vuelve a subir documentos" a ${REAL_EMAIL}`);
+        correo(p, 'rechazo de documentos');
+        ok('Pasajero', `${p.key} rechazado por admin`, `correo "vuelve a subir documentos" a ${p.currentEmail}`);
       } else if (p.status === 'deleted') {
-        // Elimina su cuenta desde la app (con el correo real -> llega "tu cuenta fue eliminada")
+        // Elimina su cuenta desde la app -> llega "tu cuenta fue eliminada"
         await post(`${API.auth}/auth/me/delete-account`, { token: p.token, body: { password: PASSWORD, reason: 'Ya no uso la aplicacion' } });
-        ok('Pasajero', `${p.key} elimina su cuenta`, `correo "cuenta eliminada" a ${REAL_EMAIL}`);
-        setEmail(p.userId, p.email);
+        correo(p, 'cuenta eliminada');
+        ok('Pasajero', `${p.key} elimina su cuenta`, `correo "cuenta eliminada" a ${p.currentEmail}`);
         continue; // una cuenta eliminada ya no puede iniciar sesion
       } else ok('Pasajero', `${p.key} queda pendiente de revision`);
-      setEmail(p.userId, p.email);
-      p.token = await login(p.email);
+      p.token = await loginUser(p);
       if (p.status === 'approved') {
         try { const r = await get(`${API.rewards}/rewards/me/referral`, { token: p.token }); p.referralCode = r.code; }
         catch (e) { fail('Rewards', `codigo de referido ${p.key}`, e); }
       }
     } catch (e) { fail('Pasajero', `${p.key} ${p.name}`, e); }
   }
+  // Fin de fase: un solo sleep para que salga el SMTP y se devuelven los @bugie.test
+  await sleep(10000);
+  devolverCorreos(passengers);
 }
 
 // Conexion del conductor: selfie (check-in) y luego "en linea" en su punto de partida.
 async function connectDriver(d, score) {
   await post(`${API.drivers}/drivers/me/presence/checkin`, { token: d.token, form: form({ faceQualityScore: score }, { file: [[imgBlob(`selfie_${d.key}.png`), 'selfie.png']] }) });
-  await put(`${API.drivers}/drivers/go-online`, { token: d.token, body: d.at });
+  await put(`${API.drivers}/drivers/go-online`, { token: d.token, body: d.pos ?? d.at });
 }
 
 // Fechas de Peru (UTC-5) en formato yyyy-MM-dd
@@ -406,13 +552,13 @@ async function faseConductores() {
       if (d.status === 'approved') {
         for (const id of Object.values(d.docs)) await put(`${API.drivers}/drivers/documents/${id}/approve`, T);
         await put(`${API.drivers}/drivers/${d.driverId}/approve`, T);
-        ok('Conductor', `${d.key} documentos aprobados y conductor activado`, `correo "cuenta activa" a ${REAL_EMAIL}`);
+        correo(d, 'conductor activado');
+        ok('Conductor', `${d.key} documentos aprobados y conductor activado`, `correo "cuenta activa" a ${d.currentEmail}`);
       } else if (d.status === 'pending') {
         await put(`${API.drivers}/drivers/documents/${d.docs.soat}/reject`, { ...T, body: { reason: 'SOAT vencido en la foto, sube el vigente' } });
         ok('Conductor', `${d.key} queda en revision con SOAT rechazado`);
       } else ok('Conductor', `${d.key} queda en revision (el admin lo rechaza al final)`);
-      setEmail(d.userId, d.email);
-      d.token = await login(d.email);
+      d.token = await loginUser(d);
 
       if (d.status === 'approved') {
         // Historial de conexiones: 4 turnos cerrados (selfie -> en linea -> fuera de linea -> cierre).
@@ -433,6 +579,8 @@ async function faseConductores() {
       }
     } catch (e) { fail('Conductor', `${d.key} ${d.name}`, e); }
   }
+  await sleep(10000);
+  devolverCorreos(drivers);
 }
 
 // ------------------------------------------------------------------ viajes
@@ -444,10 +592,46 @@ function tomorrowPeru(hh, mm = 0) {
   const p2 = n => String(n).padStart(2, '0');
   return `${peru.getUTCFullYear()}-${p2(peru.getUTCMonth() + 1)}-${p2(peru.getUTCDate())}T${p2(hh)}:${p2(mm)}:00`;
 }
-async function pingRoute(d, tripId, a, b, n = 10) {
-  for (const pt of route(a, b, n)) {
-    await put(`${API.drivers}/drivers/location`, { token: d.token, body: { driverId: d.driverId, lat: pt.lat, lng: pt.lng, tripId, speedKmh: 28 + Math.round(Math.random() * 15), heading: 90 } });
+// El conductor recorre la ruta por calles de a hasta b mandando su posicion con
+// los endpoints reales (PUT /drivers/location con speedKmh y heading). `fraccion`
+// < 1 deja el recorrido a medias (viaje EN CURSO). Actualiza d.pos.
+// El endpoint no acepta hora: 03_repartir_fechas.sql reparte despues las horas
+// de los puntos de forma coherente con la duracion del viaje (~22 km/h).
+async function pingPath(d, tripId, a, b, fraccion = 1) {
+  const r = await rutaDensa(a, b);
+  const n = Math.max(1, Math.ceil(r.pts.length * fraccion));
+  for (let i = 0; i < n; i++) {
+    const pt = r.pts[i];
+    const speed = i === 0 || i === r.pts.length - 1 ? 4 + Math.round(Math.random() * 4) : 19 + Math.round(Math.random() * 6);
+    await put(`${API.drivers}/drivers/location`, { token: d.token, body: { driverId: d.driverId, lat: pt.lat, lng: pt.lng, tripId, speedKmh: speed, heading: pt.heading } });
+    d.pos = { lat: pt.lat, lng: pt.lng };
   }
+  return { puntos: n, km: Math.round(r.km * 100) / 100, real: r.real };
+}
+
+// Cuerpo de un viaje inmediato entre dos lugares.
+function cuerpoViaje(from, to, extra = {}) {
+  return {
+    originAddress: from.address, originLat: from.lat, originLng: from.lng,
+    destAddress: to.address, destLat: to.lat, destLng: to.lng,
+    estimatedFare: fareFor(from, to), paymentMethod: 'cash', waypoints: [], serviceType: 0, ...extra,
+  };
+}
+const crearViaje = (p, from, to, extra) => post(`${API.trips}/trips`, { token: p.token, body: cuerpoViaje(from, to, extra) });
+
+// Conductor asignado: va al origen, avisa llegada, inicia, recorre la ruta y completa.
+async function completarViaje(p, d, tripId, from, to, label, s = {}) {
+  const P = { token: p.token }, D = { token: d.token };
+  const ida = await pingPath(d, tripId, d.pos ?? d.at, from);
+  await put(`${API.trips}/trips/${tripId}/arrived`, D);
+  await put(`${API.trips}/trips/${tripId}/start`, D);
+  await put(`${API.trips}/trips/passenger-location`, { ...P, body: { lat: from.lat, lng: from.lng } }).catch(() => {});
+  const rec = await pingPath(d, tripId, from, to);
+  await put(`${API.trips}/trips/${tripId}/complete`, D);
+  const done = await get(`${API.trips}/trips/${tripId}`, P).catch(() => null);
+  if (s.stars) await post(`${API.trips}/trips/ratings/${tripId}`, { ...P, body: { stars: s.stars, comment: s.comment } }).catch(e => fail('Viaje', `${label} calificar`, e));
+  tripsLog.push({ p: p.key, d: d.key, from: s.from, to: s.to, scenario: label, tripId, fare: done?.estimatedFare, final: 'completado', coupon: done?.couponCode ?? null });
+  return { done, ida, rec };
 }
 
 async function runTrip(s) {
@@ -473,12 +657,17 @@ async function runTrip(s) {
           { files: [[imgBlob(`paquete1_${s.img}.png`), 'paquete1.png'], [imgBlob(`paquete2_${s.img}.png`), 'paquete2.png']] }) })
       : await post(`${API.trips}/trips`, { ...P, body });
     tripId = t.id;
+    if (t.suggestedFare == null) fail('Viaje', `${label} suggestedFare`, 'el TripDto no trae suggestedFare');
 
     if (s.cancel === 'pending') {
       await put(`${API.trips}/trips/${tripId}/cancel`, { ...P, body: { reason: 'Ya no necesito el viaje' } });
       ok('Viaje', label, 'cancelado por pasajero antes de asignar'); tripsLog.push({ ...s, tripId, fare, final: 'cancelado' }); return;
     }
-    if (s.leavePending) { ok('Viaje', label, 'queda pendiente buscando conductor'); tripsLog.push({ ...s, tripId, fare, final: 'pendiente' }); return; }
+    if (s.leavePending) {
+      if (s.scheduledHour) ok('Programado', label, `queda PROGRAMADO SIN conductor para ${body.scheduledAt} (hora de Peru)`);
+      else ok('Viaje', label, `queda pendiente buscando conductor (Bugie lo cancela a los 10 min si nadie lo toma; vence ${t.expiresAt ?? '?'})`);
+      tripsLog.push({ ...s, tripId, fare, final: s.scheduledHour ? 'programado sin conductor' : 'pendiente' }); return;
+    }
 
     // ---- asignacion
     let finalFare = fare;
@@ -496,19 +685,28 @@ async function runTrip(s) {
         else fail('Viaje', `${label} ofertas siguen abiertas`, `${abiertas} abiertas`);
         tripsLog.push({ ...s, tripId, fare, final: 'cancelado' }); return;
       }
-      await put(`${API.trips}/trips/${tripId}/accept-proposal/${r1.proposalId}`, P);
+      if (s.leaveNegotiating) {
+        const [st] = viajeFila(tripId);
+        if (st === '7') ok('Viaje', label, `queda NEGOCIANDO con 2 ofertas (S/ ${offer} y S/ ${offer + 1.5}); Bugie lo cancela a los 10 min si el pasajero no elige`);
+        else fail('Viaje', `${label} estado`, `quedo en status ${st}, se esperaba 7 (negociando)`);
+        tripsLog.push({ ...s, tripId, fare, final: 'negociando' }); return;
+      }
+      const acc = await put(`${API.trips}/trips/${tripId}/accept-proposal/${r1.proposalId}`, P);
+      if (!acc?.confirmExpiresAt) fail('Viaje', `${label} confirmExpiresAt`, 'accept-proposal no devolvio el plazo del conductor');
       await put(`${API.trips}/trips/${tripId}/confirm-acceptance/${r1.proposalId}`, D);
       finalFare = offer;
     } else if (s.mode === 'counter') {
       const counter = Math.max(5, Math.round((fare - 1.5) * 2) / 2);
-      await post(`${API.trips}/trips/${tripId}/counter`, { ...P, body: { driverId: d.userId, fare: counter } });
-      await put(`${API.trips}/trips/${tripId}/accept`, D);
+      // La contraoferta solo va a un conductor que ya oferto; el conductor la acepta a ese monto.
+      await put(`${API.trips}/trips/${tripId}/propose`, { ...D, body: { proposedFare: Math.round((fare + 1) * 2) / 2 } });
+      const c = await post(`${API.trips}/trips/${tripId}/counter`, { ...P, body: { driverId: d.userId, fare: counter } });
+      const r = await post(`${API.trips}/trips/${tripId}/accept-counter/${c.proposalId}`, D);
+      if (Number(r?.tripDto?.estimatedFare) !== counter) fail('Viaje', `${label} monto de la contraoferta`, `quedo S/ ${r?.tripDto?.estimatedFare}, se esperaba S/ ${counter}`);
       finalFare = counter;
-    } else if (s.mode === 'driverAccept') {
+    } else {
+      // Aceptacion a tarifa: el conductor acepta y el pasajero lo elige.
       const r = await post(`${API.trips}/trips/${tripId}/driver-accept`, D);
       await put(`${API.trips}/trips/${tripId}/confirm-driver-acceptance/${r.proposalId}`, P);
-    } else {
-      await put(`${API.trips}/trips/${tripId}/accept`, D);
     }
 
     // Programado aceptado para manana: queda asi (no cuenta como viaje activo).
@@ -522,25 +720,25 @@ async function runTrip(s) {
     }
 
     if (s.cancel === 'accepted') {
-      await pingRoute(d, tripId, d.at, from, 3).catch(() => {});
-      await put(`${API.trips}/trips/${tripId}/arrived`, D).catch(() => {});
+      await pingPath(d, tripId, d.pos ?? d.at, from, 0.4).catch(() => {});
       const c = await put(`${API.trips}/trips/${tripId}/cancel`, { ...D, body: { reason: 'El pasajero no se presenta' } });
       if (c?.cancelledBy === 'driver') ok('Viaje', label, `cancelado por el CONDUCTOR (motivo: ${c.cancelReason})`);
       else fail('Viaje', `${label} cancelledBy`, `quedo como "${c?.cancelledBy}"`);
       tripsLog.push({ ...s, tripId, fare, final: 'cancelado' }); return;
     }
 
-    // conductor va al punto de recojo y avisa "Ya llegue" (push al pasajero)
-    await pingRoute(d, tripId, d.at, from, 4);
+    // conductor va al punto de recojo (ruta por calles) y avisa "Ya llegue" (push al pasajero)
+    const ida = await pingPath(d, tripId, d.pos ?? d.at, from);
     if (!s.noArrive) {
       await put(`${API.trips}/trips/${tripId}/arrived`, D);
       const act = await get(`${API.trips}/trips/active`, P).catch(() => null);
       if (!act?.driverArrivedAt) fail('Llegada', `${label} driverArrivedAt`, 'el pasajero no ve la llegada');
     }
-    // Envios: los avisos "recogimos tu paquete" y "entregado" (push + correo)
-    // le llegan al remitente. Mientras dura el envio tiene el correo real.
-    if (s.delivery) setEmail(p.userId, REAL_EMAIL);
-    if (s.delivery) await post(`${API.trips}/trips/${tripId}/pickup-verification`,{ ...D, form: form({ observation: 'Paquete recibido sellado' }, { main: [[imgBlob(`recojo_${s.img}.png`), 'recojo.png']], secondary: [[imgBlob(`recojo2_${s.img}.png`), 'recojo2.png']] }) });
+    // Envios: "recogimos tu paquete" (push + correo al remitente)
+    if (s.delivery) {
+      await post(`${API.trips}/trips/${tripId}/pickup-verification`,{ ...D, form: form({ observation: 'Paquete recibido sellado' }, { main: [[imgBlob(`recojo_${s.img}.png`), 'recojo.png']], secondary: [[imgBlob(`recojo2_${s.img}.png`), 'recojo2.png']] }) });
+      correo(p, 'paquete recogido');
+    }
 
     let coupon = null;
     if (s.coupon) {
@@ -555,12 +753,11 @@ async function runTrip(s) {
     await put(`${API.trips}/trips/passenger-location`, { ...P, body: { lat: from.lat, lng: from.lng } }).catch(() => {});
 
     if (s.leaveInProgress) {
-      const half = route(from, to, 10).slice(0, 6);
-      for (const pt of half) await put(`${API.drivers}/drivers/location`, { ...D, body: { driverId: d.driverId, lat: pt.lat, lng: pt.lng, tripId, speedKmh: 32, heading: 120 } });
-      ok('Viaje', label, 'queda EN CURSO (seguimiento en mapa)'); tripsLog.push({ ...s, tripId, fare, final: 'en curso' }); return;
+      const r = await pingPath(d, tripId, from, to, 0.5);
+      ok('Viaje', label, `queda EN CURSO (seguimiento en mapa): ${r.puntos} puntos GPS, a mitad de la ruta`); tripsLog.push({ ...s, tripId, fare, final: 'en curso' }); return;
     }
 
-    await pingRoute(d, tripId, from, to, 10);
+    const rec = await pingPath(d, tripId, from, to);
 
     if (s.sos) {
       const mid = route(from, to, 2)[1];
@@ -575,11 +772,10 @@ async function runTrip(s) {
       const sinConfirmar = await put(`${API.trips}/trips/${tripId}/complete`, D).then(() => true).catch(() => false);
       if (sinConfirmar) fail('Envio', `${label} se completo sin confirmar entrega`, 'deberia rechazarse');
       // Confirmacion en destino: foto + quien recibio
-      const rec = s.recipient ?? 'Recepcion del destino';
-      await post(`${API.trips}/trips/${tripId}/delivery-confirmation`, { ...D, form: form({ receivedBy: rec }, { photo: [[imgBlob(`entrega_${s.img}.png`), 'entrega.png']] }) });
-      ok('Envio', `${label} entrega confirmada`, `recibio: ${rec} · correos "recogido" y "entregado" a ${REAL_EMAIL}`);
-      await sleep(4000); // el aviso se envia en segundo plano
-      setEmail(p.userId, p.email);
+      const rec2 = s.recipient ?? 'Recepcion del destino';
+      await post(`${API.trips}/trips/${tripId}/delivery-confirmation`, { ...D, form: form({ receivedBy: rec2 }, { photo: [[imgBlob(`entrega_${s.img}.png`), 'entrega.png']] }) });
+      correo(p, 'envio entregado');
+      ok('Envio', `${label} entrega confirmada`, `recibio: ${rec2} · correos "recogido" y "entregado" a ${p.currentEmail}`);
       // Las fotos solo las ven pasajero, conductor del viaje o admin
       const otro = drivers.find(x => x.status === 'approved' && x.key !== s.d);
       const visto = await get(`${API.trips}/trips/${tripId}/photos`, { token: otro.token }).then(() => true).catch(e => e.status !== 403);
@@ -587,7 +783,7 @@ async function runTrip(s) {
     }
     await put(`${API.trips}/trips/${tripId}/complete`, D);
     const done = await get(`${API.trips}/trips/${tripId}`, P).catch(() => null);
-    ok('Viaje', label, `completado S/ ${done?.finalFare ?? finalFare} ${s.method ?? 'cash'}${coupon ? ` con cupon (antes S/ ${done?.fareBeforeDiscount ?? '?'})` : ''}`);
+    ok('Viaje', label, `completado S/ ${done?.finalFare ?? finalFare} ${s.method ?? 'cash'}${coupon ? ` con cupon (antes S/ ${done?.fareBeforeDiscount ?? '?'})` : ''} · GPS ${ida.puntos}+${rec.puntos} puntos (${ida.km}+${rec.km} km${rec.real ? '' : ', linea recta'})`);
 
     if (s.stars) {
       await post(`${API.trips}/trips/ratings/${tripId}`, { ...P, body: { stars: s.stars, comment: s.comment } });
@@ -603,6 +799,13 @@ async function runTrip(s) {
     // no dejar viajes colgados que bloqueen al pasajero/conductor
     if (tripId) await put(`${API.trips}/trips/${tripId}/cancel`, P).catch(() => {});
   }
+}
+
+// Una tanda de viajes: los remitentes de envios tienen el correo real durante la tanda.
+async function runTanda(lista, titulo) {
+  console.log(`\n== ${titulo}`);
+  const remitentes = [...new Set(lista.filter(s => s.delivery && !s.leavePending && !s.scheduledHour).map(s => byKey[s.p]))];
+  await faseConCorreo(remitentes, remitentes.length * 2, async () => { for (const s of lista) await runTrip(s); });
 }
 
 // Escenarios: 5-10 viajes por pasajero activo.
@@ -635,8 +838,8 @@ const TRIPS_A = [
   { p: 'P5', d: 'D1', from: 'unjbg', to: 'estadio', method: 'plin', mode: 'propose', scenario: 'negociado', stars: 4, incident: 'El pasajero dejo olvidada una mochila', incidentBy: 'driver' },
 ];
 const TRIPS_B = [
-  // segunda tanda: tras canjear puntos -> viajes con cupon
-  { p: 'P1', d: 'D3', from: 'aeropuerto', to: 'paseo', method: 'cash', mode: R, scenario: 'con cupon', coupon: true, stars: 5 },
+  // segunda tanda: tras canjear puntos -> viajes con cupon (el primero de P1 usa su cupon de NIVEL)
+  { p: 'P1', d: 'D3', from: 'aeropuerto', to: 'paseo', method: 'cash', mode: R, scenario: 'con cupon de nivel', coupon: true, stars: 5 },
   { p: 'P1', d: 'D1', from: 'paseo', to: 'ciudadN', method: 'yape', mode: R, scenario: 'directo', stars: 5 },
   { p: 'P1', d: 'D2', from: 'ciudadN', to: 'terminal', method: 'plin', mode: R, scenario: 'directo', stars: 5 },
   { p: 'P1', d: 'D3', from: 'terminal', to: 'unjbg', method: 'cash', mode: 'driverAccept', scenario: 'conductor acepta tarifa', stars: 5 },
@@ -654,17 +857,309 @@ const TRIPS_B = [
   { p: 'P5', d: 'D3', from: 'albarr', to: 'terminal', method: 'yape', mode: R, scenario: 'aceptado y cancelado por conductor', cancel: 'accepted' },
   { p: 'P5', d: 'D1', from: 'terminal', to: 'plaza', method: 'cash', mode: R, scenario: 'directo', stars: 5 },
 ];
+// Estados vivos para la demo. Van AL FINAL del seed: un pedido inmediato sin
+// conductor (pendiente o negociando) lo cancela Bugie a los 10 minutos
+// (trip_no_driver_cancel_min). El programado con conductor de manana lo deja
+// el escenario (i) de negociacion (P1 -> D3, 10:00).
 const TRIPS_FINAL = [
-  // estados vivos para la demo
-  { p: 'P2', d: 'D1', from: 'plaza', to: 'aeropuerto', method: 'yape', mode: R, scenario: 'EN CURSO para mapa', leaveInProgress: true },
-  { p: 'P4', d: 'D2', from: 'hospital', to: 'pocollay', method: 'cash', mode: R, scenario: 'PENDIENTE buscando conductor', leavePending: true },
-  // programados aceptados para manana (no bloquean al conductor ni al pasajero)
-  { p: 'P1', d: 'D3', from: 'plaza', to: 'aeropuerto', method: 'cash', mode: R, scenario: 'PROGRAMADO viaje manana 10:00', scheduledHour: 10 },
-  { p: 'P3', d: 'D2', from: 'hospital', to: 'terminal', method: 'yape', mode: 'driverAccept', scenario: 'PROGRAMADO envio manana 15:00', scheduledHour: 15,
+  { p: 'P5', d: 'D2', from: 'hospital', to: 'terminal', method: 'yape', mode: R, scenario: 'PROGRAMADO envio manana 15:00 SIN conductor', scheduledHour: 15, leavePending: true,
     delivery: 'Caja con repuestos de celular', recipient: 'Jorge Mamani', fragile: true },
+  { p: 'P2', d: 'D1', from: 'plaza', to: 'aeropuerto', method: 'yape', mode: R, scenario: 'EN CURSO para mapa', leaveInProgress: true },
+  { p: 'P3', d: 'D2', other: 'D3', from: 'unjbg', to: 'pocollay', method: 'cash', mode: 'propose', scenario: 'NEGOCIANDO con 2 ofertas', leaveNegotiating: true },
+  { p: 'P4', d: 'D2', from: 'hospital', to: 'pocollay', method: 'cash', mode: R, scenario: 'PENDIENTE buscando conductor', leavePending: true },
 ];
 
-async function faseCanjes() {
+// ------------------------------------------------------------------ negociacion (escenarios nuevos)
+const NEG = 'Negociacion';
+// Deja al pasajero libre si un escenario fallo a medias.
+async function limpiarViaje(p, tripId) { if (tripId) await put(`${API.trips}/trips/${tripId}/cancel`, { token: p.token, body: { reason: 'Limpieza del seed' } }).catch(() => {}); }
+
+async function faseNegociacion() {
+  console.log('\n== Negociacion: escenarios nuevos');
+  const [P1, P2, P3, P4, P5] = ['P1', 'P2', 'P3', 'P4', 'P5'].map(k => byKey[k]);
+  const [D1, D2, D3] = ['D1', 'D2', 'D3'].map(k => byKey[k]);
+  const T = u => ({ token: u.token });
+  const trips = `${API.trips}/trips`;
+
+  // a) El pasajero elige a uno de dos conductores que aceptaron su precio; el otro queda rechazado.
+  let tripId;
+  try {
+    const t = await crearViaje(P1, PLACES.plaza, PLACES.mercado); tripId = t.id;
+    const a1 = await post(`${trips}/${tripId}/driver-accept`, T(D1));
+    const a2 = await post(`${trips}/${tripId}/driver-accept`, T(D2));
+    if (a1.status !== 'driver_accepted' || a2.status !== 'driver_accepted') throw new Error(`estados ${a1.status} / ${a2.status}`);
+    const r = await put(`${trips}/${tripId}/confirm-driver-acceptance/${a1.proposalId}`, T(P1));
+    const otra = propEstado(a2.proposalId);
+    if (r?.tripDto?.driverId === D1.userId && otra.startsWith('rejected')) ok(NEG, 'a) pasajero elige a D1 entre dos que aceptaron su precio', `D1 asignado · oferta de D2 ${otra}`);
+    else fail(NEG, 'a) elegir entre dos aceptaciones', `driverId ${r?.tripDto?.driverId} · oferta D2 ${otra}`);
+    await completarViaje(P1, D1, tripId, PLACES.plaza, PLACES.mercado, 'a) elegido entre dos', { from: 'plaza', to: 'mercado', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'a) elegir entre dos aceptaciones', e); await limpiarViaje(P1, tripId); }
+
+  // b) El conductor acepta la contraoferta del pasajero: el viaje queda a ESE monto.
+  try {
+    const from = PLACES.hospital, to = PLACES.estadio, fare = fareFor(from, to);
+    const t = await crearViaje(P2, from, to); tripId = t.id;
+    await put(`${trips}/${tripId}/propose`, { ...T(D2), body: { proposedFare: fare + 2 } });
+    const contra = fare - 1;
+    const c = await post(`${trips}/${tripId}/counter`, { ...T(P2), body: { driverId: D2.userId, fare: contra } });
+    const r = await post(`${trips}/${tripId}/accept-counter/${c.proposalId}`, T(D2));
+    const [st, drv] = viajeFila(tripId);
+    if (Number(r?.tripDto?.estimatedFare) === contra && st === '2' && drv === D2.userId) ok(NEG, 'b) conductor acepta la contraoferta del pasajero', `viaje a S/ ${contra} (ofrecio S/ ${fare + 2})`);
+    else fail(NEG, 'b) accept-counter', `estimatedFare ${r?.tripDto?.estimatedFare}, status ${st}, driver ${drv}`);
+    await completarViaje(P2, D2, tripId, from, to, 'b) contraoferta aceptada', { from: 'hospital', to: 'estadio', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'b) accept-counter', e); await limpiarViaje(P2, tripId); }
+
+  // c) Montos invalidos: 400 con el rango.
+  try {
+    const from = PLACES.unjbg, to = PLACES.plaza, fare = fareFor(from, to);
+    const bajo = await esperaError(crearViaje(P3, from, to, { estimatedFare: 4 }), 400);
+    if (bajo.ok) ok(NEG, 'c) crear viaje bajo base_fare -> 400', bajo.error); else fail(NEG, 'c) crear viaje bajo base_fare', `respondio ${bajo.got}: ${bajo.error}`);
+    const t = await crearViaje(P3, from, to); tripId = t.id;
+    for (const [nombre, monto] of [['0', 0], ['negativo', -5], ['10x la tarifa', fare * 10]]) {
+      const r = await esperaError(put(`${trips}/${tripId}/propose`, { ...T(D3), body: { proposedFare: monto } }), 400);
+      if (r.ok) ok(NEG, `c) proponer ${nombre} -> 400`, r.error); else fail(NEG, `c) proponer ${nombre}`, `respondio ${r.got}: ${r.error}`);
+    }
+    await put(`${trips}/${tripId}/propose`, { ...T(D3), body: { proposedFare: fare + 1 } });
+    const fuera = await esperaError(post(`${trips}/${tripId}/counter`, { ...T(P3), body: { driverId: D3.userId, fare: fare * 5 } }), 400);
+    if (fuera.ok) ok(NEG, 'c) contraoferta fuera de rango -> 400', fuera.error); else fail(NEG, 'c) contraoferta fuera de rango', `respondio ${fuera.got}: ${fuera.error}`);
+    const cero = await esperaError(post(`${trips}/${tripId}/counter`, { ...T(P3), body: { driverId: D3.userId, fare: 0 } }), 400);
+    if (cero.ok) ok(NEG, 'c) contraoferta 0 -> 400', cero.error); else fail(NEG, 'c) contraoferta 0', `respondio ${cero.got}: ${cero.error}`);
+    // Cierre normal: contraoferta valida y el conductor la acepta
+    const c = await post(`${trips}/${tripId}/counter`, { ...T(P3), body: { driverId: D3.userId, fare } });
+    await post(`${trips}/${tripId}/accept-counter/${c.proposalId}`, T(D3));
+    await completarViaje(P3, D3, tripId, from, to, 'c) tras montos invalidos', { from: 'unjbg', to: 'plaza', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'c) montos invalidos', e); await limpiarViaje(P3, tripId); }
+
+  // d) Dos confirmaciones "a la vez": exactamente una 200 y la otra 409; el viaje con un solo conductor.
+  try {
+    const from = PLACES.terminal, to = PLACES.mercado;
+    const t = await crearViaje(P4, from, to); tripId = t.id;
+    const a1 = await post(`${trips}/${tripId}/driver-accept`, T(D1));
+    const a2 = await post(`${trips}/${tripId}/driver-accept`, T(D2));
+    const rs = await Promise.allSettled([
+      put(`${trips}/${tripId}/confirm-driver-acceptance/${a1.proposalId}`, T(P4)),
+      put(`${trips}/${tripId}/confirm-driver-acceptance/${a2.proposalId}`, T(P4)),
+    ]);
+    const oks = rs.filter(r => r.status === 'fulfilled'), errs = rs.filter(r => r.status === 'rejected');
+    const [st, drv] = viajeFila(tripId);
+    const ganador = oks[0]?.value?.tripDto?.driverId;
+    const asignadas = Number(sql(`SELECT count(*) FROM trips.tripproposals WHERE tripid = '${tripId}' AND status = 'accepted'`));
+    if (oks.length === 1 && errs.length === 1 && errs[0].reason?.status === 409 && st === '2' && drv === ganador && asignadas === 1)
+      ok(NEG, 'd) dos confirmaciones a la vez: una 200 y otra 409', `gano ${ganador === D1.userId ? 'D1' : 'D2'} · 409: ${errs[0].reason.body?.error}`);
+    else fail(NEG, 'd) dos confirmaciones a la vez', `200=${oks.length} errores=${errs.map(e => e.reason?.status).join(',')} status=${st} driver=${drv} accepted=${asignadas}`);
+    const d = drv === D1.userId ? D1 : D2;
+    await completarViaje(P4, d, tripId, from, to, 'd) confirmacion simultanea', { from: 'terminal', to: 'mercado', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'd) dos confirmaciones a la vez', e); await limpiarViaje(P4, tripId); }
+
+  // e) El pasajero acepta una oferta, se arrepiente (cancel-acceptance) y acepta otra.
+  try {
+    const from = PLACES.paseo, to = PLACES.albarr, fare = fareFor(from, to);
+    const t = await crearViaje(P5, from, to); tripId = t.id;
+    const o1 = await put(`${trips}/${tripId}/propose`, { ...T(D1), body: { proposedFare: fare + 2 } });
+    const o2 = await put(`${trips}/${tripId}/propose`, { ...T(D2), body: { proposedFare: fare + 1 } });
+    const acc = await put(`${trips}/${tripId}/accept-proposal/${o1.proposalId}`, T(P5));
+    // Mientras tiene una aceptada no puede aceptar otra
+    const dos = await esperaError(put(`${trips}/${tripId}/accept-proposal/${o2.proposalId}`, T(P5)), 409);
+    if (!dos.ok) fail(NEG, 'e) segunda aceptacion deberia ser 409', `respondio ${dos.got}`);
+    await put(`${trips}/${tripId}/cancel-acceptance/${o1.proposalId}`, T(P5));
+    const e1 = propEstado(o1.proposalId);
+    const deshechas = Number(sql(`SELECT count(*) FROM trips.passengeracceptancecancellations WHERE tripid = '${tripId}'`));
+    await put(`${trips}/${tripId}/accept-proposal/${o2.proposalId}`, T(P5));
+    const r = await put(`${trips}/${tripId}/confirm-acceptance/${o2.proposalId}`, T(D2));
+    const e1b = propEstado(o1.proposalId);
+    if (acc?.confirmExpiresAt && e1 === 'pending|' && deshechas === 1 && r?.tripDto?.driverId === D2.userId && e1b.startsWith('rejected'))
+      ok(NEG, 'e) acepta a D1, deshace y acepta a D2', `D1 volvio a pending y luego quedo ${e1b} · 1 registro de aceptacion deshecha`);
+    else fail(NEG, 'e) deshacer aceptacion', `confirmExpiresAt=${acc?.confirmExpiresAt} D1=${e1}->${e1b} deshechas=${deshechas} driver=${r?.tripDto?.driverId}`);
+    await completarViaje(P5, D2, tripId, from, to, 'e) aceptacion deshecha', { from: 'paseo', to: 'albarr', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'e) deshacer aceptacion', e); await limpiarViaje(P5, tripId); }
+
+  // f) El conductor retira su oferta despues de que el pasajero la acepto: aviso al pasajero, que elige otra.
+  try {
+    const from = PLACES.mercado, to = PLACES.ciudadN, fare = fareFor(from, to);
+    const t = await crearViaje(P1, from, to); tripId = t.id;
+    const o3 = await put(`${trips}/${tripId}/propose`, { ...T(D3), body: { proposedFare: fare + 1.5 } });
+    const o1 = await put(`${trips}/${tripId}/propose`, { ...T(D1), body: { proposedFare: fare + 2.5 } });
+    await put(`${trips}/${tripId}/accept-proposal/${o3.proposalId}`, T(P1));
+    const dec = await put(`${trips}/${tripId}/decline-by-driver`, T(D3));
+    await sleep(2500); // el aviso se guarda en segundo plano
+    const e3 = propEstado(o3.proposalId);
+    const aviso1 = avisos(P1.userId, 'offer_withdrawn', tripId);
+    const [st] = viajeFila(tripId);
+    await put(`${trips}/${tripId}/accept-proposal/${o1.proposalId}`, T(P1));
+    const r = await put(`${trips}/${tripId}/confirm-acceptance/${o1.proposalId}`, T(D1));
+    if (dec?.affected >= 1 && e3.startsWith('rejected') && aviso1 >= 1 && st !== '5' && r?.tripDto?.driverId === D1.userId)
+      ok(NEG, 'f) conductor retira su oferta ya aceptada; el pasajero elige a otro', `oferta de D3 ${e3} · aviso offer_withdrawn en la bandeja de P1 · D1 asignado`);
+    else fail(NEG, 'f) retirar oferta aceptada', `affected=${dec?.affected} D3=${e3} avisos=${aviso1} status=${st} driver=${r?.tripDto?.driverId}`);
+    await completarViaje(P1, D1, tripId, from, to, 'f) oferta retirada', { from: 'mercado', to: 'ciudadN', stars: 4 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'f) retirar oferta aceptada', e); await limpiarViaje(P1, tripId); }
+
+  // k) Conductor ocupado (viaje en curso) intenta tomar otro: 409.
+  let tripA, tripB;
+  try {
+    const fromA = PLACES.estadio, toA = PLACES.unjbg, fromB = PLACES.bolognesi, toB = PLACES.pocollay;
+    tripA = (await crearViaje(P2, fromA, toA)).id;
+    const a = await post(`${trips}/${tripA}/driver-accept`, T(D1));
+    await put(`${trips}/${tripA}/confirm-driver-acceptance/${a.proposalId}`, T(P2));
+    await pingPath(D1, tripA, D1.pos ?? D1.at, fromA);
+    await put(`${trips}/${tripA}/arrived`, T(D1));
+    await put(`${trips}/${tripA}/start`, T(D1));
+    tripB = (await crearViaje(P3, fromB, toB)).id;
+    const r1 = await esperaError(post(`${trips}/${tripB}/driver-accept`, T(D1)), 409);
+    const r2 = await esperaError(put(`${trips}/${tripB}/propose`, { ...T(D1), body: { proposedFare: fareFor(fromB, toB) + 1 } }), 409);
+    if (r1.ok && r2.ok) ok(NEG, 'k) conductor en viaje en curso no puede aceptar ni ofertar en otro (409)', `${r1.error} · ${r2.error}`);
+    else fail(NEG, 'k) conductor ocupado', `driver-accept ${r1.got} · propose ${r2.got}`);
+    const b = await post(`${trips}/${tripB}/driver-accept`, T(D2));
+    await put(`${trips}/${tripB}/confirm-driver-acceptance/${b.proposalId}`, T(P3));
+    // D1 termina su viaje; D2 hace el suyo
+    await put(`${trips}/passenger-location`, { ...T(P2), body: { lat: fromA.lat, lng: fromA.lng } }).catch(() => {});
+    await pingPath(D1, tripA, fromA, toA);
+    await put(`${trips}/${tripA}/complete`, T(D1));
+    await post(`${trips}/ratings/${tripA}`, { ...T(P2), body: { stars: 5 } }).catch(() => {});
+    tripsLog.push({ p: 'P2', d: 'D1', from: 'estadio', to: 'unjbg', scenario: 'k) viaje en curso del conductor ocupado', tripId: tripA, final: 'completado' });
+    tripA = null;
+    await completarViaje(P3, D2, tripB, fromB, toB, 'k) tomado por otro conductor', { from: 'bolognesi', to: 'pocollay', stars: 5 });
+    tripB = null;
+  } catch (e) {
+    fail(NEG, 'k) conductor ocupado', e);
+    if (tripA) await put(`${trips}/${tripA}/complete`, T(D1)).catch(() => limpiarViaje(P2, tripA));
+    await limpiarViaje(P3, tripB);
+  }
+
+  // l) reject-all con 2 ofertas; rechazar una aceptacion a tarifa (driver_accepted).
+  try {
+    const from = PLACES.ciudadN, to = PLACES.bolognesi, fare = fareFor(from, to);
+    const t = await crearViaje(P4, from, to); tripId = t.id;
+    const o1 = await put(`${trips}/${tripId}/propose`, { ...T(D1), body: { proposedFare: fare + 3 } });
+    const o2 = await put(`${trips}/${tripId}/propose`, { ...T(D2), body: { proposedFare: fare + 2.5 } });
+    const ra = await put(`${trips}/${tripId}/proposals/reject-all`, T(P4));
+    const e1 = propEstado(o1.proposalId), e2 = propEstado(o2.proposalId);
+    if (ra?.affected === 2 && e1 === 'rejected|passenger' && e2 === 'rejected|passenger') ok(NEG, 'l) reject-all con 2 ofertas', `2 ofertas rechazadas por el pasajero`);
+    else fail(NEG, 'l) reject-all', `affected=${ra?.affected} D1=${e1} D2=${e2}`);
+    const a3 = await post(`${trips}/${tripId}/driver-accept`, T(D3));
+    await put(`${trips}/${tripId}/proposals/${a3.proposalId}/reject`, T(P4));
+    const e3 = propEstado(a3.proposalId);
+    const otraVez = await esperaError(put(`${trips}/${tripId}/proposals/${a3.proposalId}/reject`, T(P4)), 400);
+    if (e3 === 'rejected|passenger' && otraVez.ok) ok(NEG, 'l) rechazar una aceptacion a tarifa (driver_accepted)', `queda ${e3}; rechazarla de nuevo da 400`);
+    else fail(NEG, 'l) rechazar driver_accepted', `estado ${e3} · segundo rechazo ${otraVez.got}`);
+    // D3 vuelve a aceptar y esta vez el pasajero lo elige
+    const a3b = await post(`${trips}/${tripId}/driver-accept`, T(D3));
+    await put(`${trips}/${tripId}/confirm-driver-acceptance/${a3b.proposalId}`, T(P4));
+    await completarViaje(P4, D3, tripId, from, to, 'l) tras rechazar ofertas', { from: 'ciudadN', to: 'bolognesi', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'l) rechazar ofertas', e); await limpiarViaje(P4, tripId); }
+
+  // i) Programado de manana aceptado; el conductor lo cancela antes de la hora -> se REABRE y otro lo toma.
+  try {
+    const from = PLACES.plaza, to = PLACES.aeropuerto, hora = tomorrowPeru(10);
+    const t = await crearViaje(P1, from, to, { scheduledAt: hora }); tripId = t.id;
+    const a1 = await post(`${trips}/${tripId}/driver-accept`, T(D1));
+    await put(`${trips}/${tripId}/confirm-driver-acceptance/${a1.proposalId}`, T(P1));
+    const c = await put(`${trips}/${tripId}/cancel`, { ...T(D1), body: { reason: 'Se me malogro el auto, no podre ir manana' } });
+    await sleep(2500);
+    const e1 = propEstado(a1.proposalId);
+    const reabierto = avisos(P1.userId, 'trip_reopened', tripId);
+    const [st, drv, , , sch] = viajeFila(tripId);
+    if (c?.status === 1 && c?.driverId == null && c?.scheduledAt && st === '1' && drv === '' && sch)
+      ok(NEG, 'i) programado cancelado por el conductor antes de la hora -> reabierto', `status 1, sin conductor, sigue programado ${hora} · oferta de D1 ${e1} · aviso trip_reopened a P1: ${reabierto} (push; el backend no envia correo por esto)`);
+    else fail(NEG, 'i) reabrir programado', `respuesta status=${c?.status} driverId=${c?.driverId} scheduledAt=${c?.scheduledAt} · BD ${st}/${drv}/${sch}`);
+    const a3 = await post(`${trips}/${tripId}/driver-accept`, T(D3));
+    await put(`${trips}/${tripId}/confirm-driver-acceptance/${a3.proposalId}`, T(P1));
+    const mine = await get(`${trips}/scheduled`, T(D3)).catch(() => []);
+    if ((mine ?? []).some(x => x.id === tripId)) ok(NEG, 'i) otro conductor (D3) toma el programado reabierto', `queda para la demo: programado manana 10:00 CON conductor`);
+    else fail(NEG, 'i) D3 toma el programado', 'no aparece en /trips/scheduled de D3');
+    tripsLog.push({ p: 'P1', d: 'D3', from: 'plaza', to: 'aeropuerto', scenario: 'i) PROGRAMADO manana 10:00 reabierto y tomado por D3', tripId, final: 'programado' });
+    tripId = null;
+  } catch (e) { fail(NEG, 'i) reabrir programado', e); await limpiarViaje(P1, tripId); }
+
+  // j) Programado cuyo conductor no llega: el pasajero republica y otro conductor lo toma.
+  try {
+    const from = PLACES.unjbg, to = PLACES.paseo;
+    const t = await crearViaje(P5, from, to, { scheduledAt: tomorrowPeru(9) }); tripId = t.id;
+    const a2 = await post(`${trips}/${tripId}/driver-accept`, T(D2));
+    await put(`${trips}/${tripId}/confirm-driver-acceptance/${a2.proposalId}`, T(P5));
+    // La hora programada "ya paso" hace 20 minutos (ajuste en BD; el conductor nunca avisa llegada)
+    sql(`UPDATE trips.trips SET scheduledat = (now() AT TIME ZONE 'utc') - interval '20 minutes' WHERE id = '${tripId}'`);
+    const tarde = await get(`${trips}/${tripId}/tracking`, T(P5)).catch(() => null);
+    const r = await put(`${trips}/${tripId}/republish`, T(P5));
+    const e2 = propEstado(a2.proposalId);
+    if (r?.status === 1 && r?.driverId == null && tarde?.driverLate === true)
+      ok(NEG, 'j) programado con conductor que no llego: el pasajero republica', `driverLate=true · viaje vuelve a pendiente · oferta de D2 ${e2}`);
+    else fail(NEG, 'j) republicar', `driverLate=${tarde?.driverLate} status=${r?.status} driverId=${r?.driverId}`);
+    const a3 = await post(`${trips}/${tripId}/driver-accept`, T(D3));
+    await put(`${trips}/${tripId}/confirm-driver-acceptance/${a3.proposalId}`, T(P5));
+    await completarViaje(P5, D3, tripId, from, to, 'j) republicado y tomado por D3', { from: 'unjbg', to: 'paseo', stars: 5 });
+    tripId = null;
+  } catch (e) { fail(NEG, 'j) republicar', e); await limpiarViaje(P5, tripId); }
+}
+
+// g) y h): vencimientos. Corren EN PARALELO con las fases de admin (no crean viajes).
+// Bajan los plazos a 1 minuto via settings, esperan al servicio de vencimientos de
+// Trips (cada 5 s; su cache de settings dura 30 s) y restauran 2 / 10 al final.
+async function faseVencimientos() {
+  const P2 = byKey.P2, P5 = byKey.P5, D3 = byKey.D3, A = { token: adminToken };
+  const trips = `${API.trips}/trips`;
+  const setSetting = (k, v) => put(`${API.landing}/landing/settings/${k}`, { ...A, body: { value: String(v) } });
+  let tripG, tripH;
+  try {
+    await setSetting('driver_confirm_immediate_min', 1);
+    await setSetting('trip_no_driver_cancel_min', 1);
+    ok('Vencimientos', 'settings bajados a 1 minuto', 'driver_confirm_immediate_min=1, trip_no_driver_cancel_min=1');
+
+    // h) viaje que nadie toma
+    tripH = (await crearViaje(P5, PLACES.hospital, PLACES.plaza)).id;
+    // g) oferta aceptada que el conductor no confirma
+    const fromG = PLACES.pocollay, toG = PLACES.hospital;
+    tripG = (await crearViaje(P2, fromG, toG)).id;
+    const o = await put(`${trips}/${tripG}/propose`, { token: D3.token, body: { proposedFare: fareFor(fromG, toG) + 1.5 } });
+    const acc = await put(`${trips}/${tripG}/accept-proposal/${o.proposalId}`, { token: P2.token });
+    ok('Vencimientos', 'g) P2 acepta la oferta de D3 y D3 NO confirma', `vence ${acc?.confirmExpiresAt} (segun el setting de ese momento)`);
+    ok('Vencimientos', 'h) P5 crea un viaje que nadie toma', `vence ${(await get(`${trips}/active`, { token: P5.token }).catch(() => null))?.expiresAt ?? '?'}`);
+
+    const t0 = Date.now();
+    const gListo = await esperar(() => propEstado(o.proposalId) === 'rejected|driver_no_confirm', 160000, 5000);
+    const eg = propEstado(o.proposalId);
+    if (gListo) {
+      await sleep(2000);
+      const avisoP2 = avisos(P2.userId, 'driver_no_confirm', tripG);
+      ok('Vencimientos', 'g) la oferta vence por falta de confirmacion', `${eg} a los ${Math.round((Date.now() - t0) / 1000)} s · aviso driver_no_confirm a P2: ${avisoP2}`);
+      // Un conductor que no confirmo ya no puede confirmar
+      const tarde = await esperaError(put(`${trips}/${tripG}/confirm-acceptance/${o.proposalId}`, { token: D3.token }), 409);
+      if (tarde.ok) ok('Vencimientos', 'g) confirmar despues del plazo -> 409', tarde.error); else fail('Vencimientos', 'g) confirmar tarde', `respondio ${tarde.got}`);
+    } else fail('Vencimientos', 'g) vencimiento de confirmacion', `tras 160 s la oferta sigue ${eg}`);
+
+    const hListo = await esperar(() => viajeFila(tripH)[0] === '5', 160000, 5000);
+    const [st, , by, reason] = viajeFila(tripH);
+    if (hListo && by === 'system') {
+      await sleep(2000);
+      const avisoP5 = Number(sql(`SELECT count(*) FROM trips.usernotifications WHERE userid = '${P5.userId}' AND data->>'trip_id' = '${tripH}' AND data->>'reason_code' = 'no_driver_timeout'`));
+      ok('Vencimientos', 'h) viaje sin ofertas cancelado por el sistema', `cancelledBy=${by} · "${reason}" · aviso no_driver_timeout a P5: ${avisoP5}`);
+      tripH = null;
+    } else fail('Vencimientos', 'h) cancelacion por falta de conductor', `status=${st} cancelledBy=${by}`);
+    tripsLog.push({ p: 'P5', from: 'hospital', to: 'plaza', scenario: 'h) nadie lo tomo (cancelado por el sistema)', tripId: tripH, final: 'cancelado' });
+  } catch (e) { fail('Vencimientos', 'g/h', e); }
+  finally {
+    // g) el pasajero cierra su pedido (ya nadie lo confirmo)
+    if (tripG) await put(`${trips}/${tripG}/cancel`, { token: P2.token, body: { reason: 'El conductor no confirmo, pido otro' } }).catch(() => {});
+    tripsLog.push({ p: 'P2', d: 'D3', from: 'pocollay', to: 'hospital', scenario: 'g) oferta vencida sin confirmar', tripId: tripG, final: 'cancelado' });
+    if (tripH) await put(`${trips}/${tripH}/cancel`, { token: P5.token }).catch(() => {});
+    try {
+      await setSetting('driver_confirm_immediate_min', 2);
+      await setSetting('trip_no_driver_cancel_min', 10);
+      ok('Vencimientos', 'settings restaurados', 'driver_confirm_immediate_min=2, trip_no_driver_cancel_min=10');
+    } catch (e) { fail('Vencimientos', 'restaurar settings', e); }
+    await sleep(35000); // la cache de settings de Trips dura 30 s: que nada se cree con el plazo de 1 min
+  }
+}
+
+// ------------------------------------------------------------------ canjes y puntos
+let cuponNivelP1 = null, cuponTicketP1 = null;
+async function faseCanjes(raffles) {
   console.log('\n== Canjes de puntos');
   await sleep(8000);   // outbox de Trips -> Rewards cada 5 s
   let catalog = [];
@@ -673,13 +1168,14 @@ async function faseCanjes() {
       if (!catalog.length) catalog = await get(`${API.rewards}/rewards/catalog`, { token: u.token });
       const me = await get(`${API.rewards}/rewards/me`, { token: u.token });
       const pts = me.availablePoints ?? me.available ?? 0;
-      ok('Puntos', `${u.key} tiene ${pts} pts disponibles`, `nivel ${me.currentLevel ?? me.level ?? '?'}`);
+      ok('Puntos', `${u.key} tiene ${pts} pts disponibles`, `nivel ${me.currentLevel ?? me.level ?? '?'} · total ${me.totalPoints ?? '?'}`);
       const myCat = await get(`${API.rewards}/rewards/catalog`, { token: u.token });
       const wanted = u.role === 'passenger' ? ['pass_discount_2', 'pass_discount_2'] : ['drv_bonus_5'];
       let left = pts;
       for (const code of wanted) {
         const item = myCat.find(i => i.code === code);
-        if (!item || left < item.pointsCost) { fail('Canje', `${u.key} ${code}`, `puntos insuficientes (${left})`); continue; }
+        // Sin saldo suficiente no es un error: el sistema debe rechazarlo. Solo canjea quien alcanza.
+        if (!item || left < item.pointsCost) { ok('Canje', `${u.key} ${code} omitido`, `puntos insuficientes (${left} < ${item?.pointsCost ?? '?'}), no canjea`); continue; }
         const r = await post(`${API.rewards}/rewards/redeem`, { token: u.token, body: { catalogItemId: item.id } });
         const c = r.redemption?.code ?? r.code;
         (u.coupons ??= []).push(c); (u.redeemed ??= []).push(c);
@@ -688,26 +1184,67 @@ async function faseCanjes() {
       }
     } catch (e) { fail('Canje', u.key, e); }
   }
+
+  // ---- Puntos nuevos: nivel Plata, cupon de nivel, ticket de sorteo
+  const p1 = byKey.P1, A = { token: adminToken }, P = { token: p1.token };
+  try {
+    let me = await get(`${API.rewards}/rewards/me`, P);
+    const item = (await get(`${API.rewards}/rewards/catalog`, P)).find(i => i.code === 'pass_raffle_1');
+    const costo = item?.pointsCost ?? 5000;
+    // Para ser Plata hacen falta 5000 pts totales y para el ticket 5000 disponibles:
+    // el admin le acredita lo que falte con un ajuste (queda en el historial de puntos).
+    const falta = Math.max(5000 - (me.totalPoints ?? 0), costo - (me.availablePoints ?? 0), 0);
+    if (falta > 0) {
+      await post(`${API.rewards}/rewards/admin/users/${p1.userId}/adjust`, { ...A, body: { points: falta + 100, reason: 'Bono de campaña de lanzamiento (datos de prueba): sube a nivel Plata' } });
+      me = await get(`${API.rewards}/rewards/me`, P);
+      ok('Puntos', `ajuste +${falta + 100} pts a P1 para llegar a Plata`, `ahora ${me.availablePoints} disponibles, total ${me.totalPoints}, nivel ${me.currentLevel}`);
+    }
+    if (!['silver', 'gold', 'platinum'].includes(me.currentLevel)) fail('Puntos', 'P1 deberia ser nivel Plata o superior', `nivel ${me.currentLevel} con ${me.totalPoints} pts totales`);
+    // Beneficio de nivel: cupon de descuento del mes (no cuesta puntos)
+    const ben = await get(`${API.rewards}/rewards/me/level-benefits`, P);
+    if (!ben?.eligible || (ben.discountCoupons?.available ?? 0) < 1) fail('Puntos', 'P1 beneficios de nivel', `eligible=${ben?.eligible} cupones disponibles=${ben?.discountCoupons?.available} ${ben?.notEligibleReason ?? ''}`);
+    const claim = await post(`${API.rewards}/rewards/me/level-benefits/claim`, { ...P, body: { type: 'discount' } });
+    cuponNivelP1 = claim?.coupon?.code;
+    if (cuponNivelP1) {
+      (p1.coupons ??= []).unshift(cuponNivelP1);   // lo usa en su primer viaje "con cupon" de la tanda 2
+      ok('Puntos', `P1 (${ben.levelName}) reclama su cupon de nivel`, `${cuponNivelP1}: ${ben.discountPercentage}% de descuento · quedan ${claim.benefits?.discountCoupons?.available} este mes · se usa en el siguiente viaje`);
+    } else fail('Puntos', 'reclamar cupon de nivel', JSON.stringify(claim).slice(0, 200));
+    // Ticket de sorteo del catalogo y uso en el sorteo especial (abierto)
+    if (item) {
+      const r = await post(`${API.rewards}/rewards/redeem`, { ...P, body: { catalogItemId: item.id } });
+      cuponTicketP1 = r.redemption;
+      (p1.redeemed ??= []).push(cuponTicketP1.code);
+      ok('Canje', `P1 canjea "${item.name}"`, `cupon ${cuponTicketP1.code}, le quedan ${r.availablePointsAfter} pts`);
+      const abiertos = await get(`${API.rewards}/rewards/raffles`, P);
+      const especial = (abiertos ?? []).find(x => x.raffleType === 'special' && x.status === 'open') ?? (abiertos ?? []).find(x => x.status === 'open' && x.eligible);
+      if (!especial) throw new Error('no hay un sorteo abierto para usar el ticket');
+      const u = await post(`${API.rewards}/rewards/raffles/${especial.id}/use-ticket-coupon`, { ...P, body: { redemptionId: cuponTicketP1.id } });
+      if (u?.ticketsAdded >= 1) ok('Sorteo', `P1 usa su cupon de ticket en "${u.raffleName}"`, `+${u.ticketsAdded} ticket(s) ${u.ticketNumbers?.join(', ')} · ahora tiene ${u.myTickets}`);
+      else fail('Sorteo', 'usar cupon de ticket', JSON.stringify(u).slice(0, 200));
+      const otraVez = await esperaError(post(`${API.rewards}/rewards/raffles/${especial.id}/use-ticket-coupon`, { ...P, body: { redemptionId: cuponTicketP1.id } }), 400);
+      if (otraVez.ok) ok('Sorteo', 'usar el mismo cupon de ticket otra vez -> 400', otraVez.error); else fail('Sorteo', 'cupon de ticket reutilizado', `respondio ${otraVez.got}`);
+    } else fail('Canje', 'pass_raffle_1 no esta en el catalogo');
+  } catch (e) { fail('Puntos', 'nivel Plata / cupon de nivel / ticket de sorteo de P1', e); }
 }
 
 async function faseAdminFinal(raffles) {
   console.log('\n== Admin: revisiones, sorteos, ajustes, contacto');
   const A = { token: adminToken };
+  // Todos los activos con correo real durante la fase: pagos a conductores (bonos, manual,
+  // premio), ganadores de los 3 sorteos (correo + push), invitacion de referido y contacto.
+  await faseConCorreo(aprobados(), 11, async () => {
   // canjes de conductores: el admin registra el PAGO (metodo, n. operacion) y cierra el canje
   let op = 88210;
   for (const d of drivers.filter(x => x.redeemed?.length)) {
     const code = d.redeemed[0];
     const method = op % 2 ? 'yape' : 'plin';
     try {
-      // El correo "te pagamos" llega al correo real mientras se registra el pago
-      setEmail(d.userId, REAL_EMAIL);
       const pago = await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
         driverId: d.userId, driverName: d.name, amount: 5, method, operationNumber: String(++op),
         sourceType: 'reward_redemption', sourceRef: code, note: 'Bono S/ 5 por puntos' } });
       await put(`${API.rewards}/rewards/admin/redemptions/${code}/use`, { ...A, body: { note: `Pagado por ${method} · op ${pago.operationNumber} · S/ 5.00` } });
-      ok('Pago', `bono ${code} de ${d.key} pagado por ${method}`, `op ${pago.operationNumber} · correo a ${REAL_EMAIL}`);
-      await sleep(8000); // el aviso (push + correo) se envia en segundo plano (SMTP tarda)
-      setEmail(d.userId, d.email);
+      correo(d, 'pago de bono');
+      ok('Pago', `bono ${code} de ${d.key} pagado por ${method}`, `op ${pago.operationNumber} · correo a ${d.currentEmail}`);
       // no se puede pagar dos veces el mismo canje
       await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
         driverId: d.userId, amount: 5, method, operationNumber: '1', sourceType: 'reward_redemption', sourceRef: code } })
@@ -718,13 +1255,11 @@ async function faseAdminFinal(raffles) {
   }
   // pago manual en efectivo (bono especial)
   try {
-    setEmail(byKey.D2.userId, REAL_EMAIL);
     await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
       driverId: byKey.D2.userId, driverName: byKey.D2.name, amount: 20, method: 'efectivo',
       sourceType: 'manual', note: 'Bono por mejor calificacion del mes' } });
-    ok('Pago', 'pago manual en efectivo a D2', `S/ 20 · correo a ${REAL_EMAIL}`);
-    await sleep(8000);
-    setEmail(byKey.D2.userId, byKey.D2.email);
+    correo(byKey.D2, 'pago manual');
+    ok('Pago', 'pago manual en efectivo a D2', `S/ 20 · correo a ${byKey.D2.currentEmail}`);
   } catch (e) { fail('Pago', 'pago manual', e); }
   // un cupon sin usar se anula (devuelve puntos)
   const p5 = byKey.P5;
@@ -737,18 +1272,22 @@ async function faseAdminFinal(raffles) {
     try { await post(`${API.rewards}/rewards/admin/users/${byKey[k].userId}/adjust`, { ...A, body: { points: pts, reason } }); ok('Admin', `ajuste ${pts > 0 ? '+' : ''}${pts} pts a ${k}`); }
     catch (e) { fail('Admin', `ajuste a ${k}`, e); }
   }
-  // sorteos: repartir tickets, sortear el mensual y entregar premio
+  // sorteos: repartir tickets, sortear ("Sortear ahora") y entregar premios
   try { const r = await post(`${API.rewards}/rewards/admin/raffles/maintenance?draw=false`, A); ok('Sorteo', 'repartir tickets (mantenimiento)', JSON.stringify(r).slice(0, 150)); }
   catch (e) { fail('Sorteo', 'repartir tickets', e); }
+  const todos = [...passengers, ...drivers];
+  const ganadorDe = w => todos.find(x => x.userId === w.userId);
   try {
     const list = await get(`${API.rewards}/rewards/admin/raffles`, A);
-    const monthly = list.find(r => r.raffleType === 'monthly');
     for (const r of list) ok('Sorteo', `"${r.name}"`, `${r.ticketsNow} tickets`);
+    const monthly = list.find(r => r.raffleType === 'monthly');
     if (monthly) {
       await post(`${API.rewards}/rewards/admin/raffles/${monthly.id}/draw`, A);
       const after = (await get(`${API.rewards}/rewards/admin/raffles`, A)).find(r => r.id === monthly.id);
       const w = after.winners?.[0];
-      ok('Sorteo', `se sortea "${monthly.name}"`, w ? `ganador ticket ${w.ticketNumber}` : 'sin ganador');
+      const g = w && ganadorDe(w);
+      if (g) correo(g, 'ganador sorteo mensual');
+      ok('Sorteo', `se sortea "${monthly.name}"`, w ? `ganador ${w.userName ?? g?.key} ticket ${w.ticketNumber} · correo + push a ${g?.currentEmail ?? '?'}` : 'sin ganador');
       if (w) { await put(`${API.rewards}/rewards/admin/raffles/winners/${w.id}/deliver`, { ...A, body: { note: 'Premio entregado como saldo de viajes' } }); ok('Sorteo', 'premio entregado', `a ${w.userName ?? w.userId}`); }
     }
     // sorteo de conductores: el premio se paga en dinero y queda en el reporte
@@ -758,23 +1297,33 @@ async function faseAdminFinal(raffles) {
       const after = (await get(`${API.rewards}/rewards/admin/raffles`, A)).find(r => r.id === weekly.id);
       const w = after.winners?.[0];
       if (w) {
-        const ganador = drivers.find(x => x.userId === w.userId);
-        if (ganador) setEmail(ganador.userId, REAL_EMAIL);
+        const ganador = ganadorDe(w);
+        correo(ganador, 'ganador sorteo semanal');
         await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
           driverId: w.userId, driverName: w.userName, amount: weekly.prizeValue ?? 120, method: 'transferencia',
           operationNumber: '00045871', sourceType: 'raffle_prize', sourceRef: w.id, note: 'Premio sorteo semanal' } });
+        correo(ganador, 'pago del premio');
         await put(`${API.rewards}/rewards/admin/raffles/winners/${w.id}/deliver`, { ...A, body: { note: 'Pagado por transferencia · op 00045871' } });
-        ok('Sorteo', `sorteo semanal: ganó ${w.userName}`, `premio pagado por transferencia · correo a ${REAL_EMAIL}`);
-        await sleep(8000);
-        if (ganador) setEmail(ganador.userId, ganador.email);
+        ok('Sorteo', `sorteo semanal: ganó ${w.userName}`, `premio pagado por transferencia · correos a ${ganador?.currentEmail}`);
       }
+    }
+    // sorteo especial (donde P1 uso su cupon de ticket): "Sortear ahora" desde el admin
+    const special = list.find(r => r.raffleType === 'special');
+    if (special) {
+      await post(`${API.rewards}/rewards/admin/raffles/${special.id}/draw`, A);
+      const after = (await get(`${API.rewards}/rewards/admin/raffles`, A)).find(r => r.id === special.id);
+      const ws = after.winners ?? [];
+      for (const w of ws) correo(ganadorDe(w), 'ganador sorteo especial');
+      const p1Tickets = Number(sql(`SELECT count(*) FROM rewards.raffletickets WHERE raffleid = '${special.id}' AND userid = '${byKey.P1.userId}'`));
+      ok('Sorteo', `"Sortear ahora" en "${special.name}"`, `${ws.length} ganador(es): ${ws.map(w => `${w.userName ?? ganadorDe(w)?.key} (${w.ticketNumber})`).join(', ')} · P1 participo con ${p1Tickets} ticket(s) · correo + push a los ganadores`);
+      for (const w of ws) await put(`${API.rewards}/rewards/admin/raffles/winners/${w.id}/deliver`, { ...A, body: { note: 'Premio entregado en oficina' } }).catch(e => fail('Sorteo', 'entregar premio especial', e));
     }
   } catch (e) { fail('Sorteo', 'sortear / entregar', e); }
   // bono sin cancelaciones (usa endpoint interno de Trips)
   try { const today = new Date().toISOString().slice(0, 10); const r = await post(`${API.rewards}/rewards/admin/no-cancellations/run?date=${today}`, A); ok('Rewards', 'bono sin cancelaciones', JSON.stringify(r).slice(0, 150)); }
   catch (e) { fail('Rewards', 'bono sin cancelaciones', e); }
-  // referidos: invitacion por correo
-  try { await post(`${API.rewards}/rewards/me/referral/invite`, { token: byKey.P1.token, body: { email: REAL_EMAIL } }); ok('Referido', 'P1 invita por correo', `correo de invitacion a ${REAL_EMAIL}`); }
+  // referidos: invitacion por correo (va directo al correo real)
+  try { await post(`${API.rewards}/rewards/me/referral/invite`, { token: byKey.P1.token, body: { email: REAL_EMAIL } }); correoDirecto('invitacion de referido'); ok('Referido', 'P1 invita por correo', `correo de invitacion a ${REAL_EMAIL}`); }
   catch (e) { fail('Referido', 'invitacion por correo', e); }
   // contacto web + respuesta del admin
   try {
@@ -782,10 +1331,13 @@ async function faseAdminFinal(raffles) {
     ok('Contacto', 'mensaje desde la web', 'correo de aviso al admin');
     await put(`${API.landing}/landing/contact/${c.id}/read`, A).catch(e => fail('Contacto', 'marcar leido', e));
     await post(`${API.landing}/landing/contact/${c.id}/reply`, { ...A, body: { subject: 'Re: Consulta', body: 'Hola, si: Bugie opera en Pocollay todos los dias, incluidos fines de semana. Gracias por escribirnos.' } });
+    correoDirecto('respuesta de contacto');
     ok('Contacto', 'admin responde', `correo de respuesta a ${REAL_EMAIL}`);
     await post(`${API.landing}/landing/contact`, { body: { name: 'Empresa Logistica Sur', email: 'contacto@logisticasur.test', subject: 'Alianza', message: 'Nos interesa una alianza para envios corporativos en Tacna.' } });
     ok('Contacto', 'segundo mensaje sin leer (para bandeja del admin)');
   } catch (e) { fail('Contacto', 'contacto / respuesta', e); }
+  }); // fin faseConCorreo
+
   // reportes del admin
   for (const [name, url] of [
     ['viajes stats', `${API.trips}/trips/admin/stats`], ['ranking conductores', `${API.trips}/trips/admin/reports/driver-ranking?year=${new Date().getFullYear()}&month=${new Date().getMonth() + 1}`],
@@ -809,7 +1361,7 @@ async function faseAdminFinal(raffles) {
     } catch (e) { fail('Pagos recibidos', d.key, e); }
   }
   // hora de cancelacion guardada
-  const canc = tripsLog.find(t => t.final === 'cancelado');
+  const canc = tripsLog.find(t => t.final === 'cancelado' && t.tripId);
   if (canc) {
     try {
       const page = await get(`${API.trips}/trips/admin/paged?page=1&pageSize=100`, A);
@@ -843,12 +1395,21 @@ async function faseAdminFinal(raffles) {
     try { const r = await get(`${API.drivers}/drivers/admin/trips/${done.tripId}/path`, A); ok('Recorrido', `viaje ${done.p}->${done.d}`, `${r.points} puntos GPS, ${r.distanceKm} km`); }
     catch (e) { fail('Recorrido', 'path del viaje', e); }
   }
+  // el cupon de nivel de P1 se uso en un viaje
+  if (cuponNivelP1) {
+    const t = tripsLog.find(x => x.coupon === cuponNivelP1);
+    if (t) ok('Puntos', `cupon de nivel ${cuponNivelP1} usado en el viaje ${t.p}->${t.d} ${t.from}->${t.to}`);
+    else fail('Puntos', `cupon de nivel ${cuponNivelP1} no se uso en ningun viaje`);
+    const estado = sql(`SELECT status FROM rewards.redemptions WHERE code = '${cuponNivelP1}'`);
+    if (estado !== 'used') fail('Puntos', `cupon de nivel ${cuponNivelP1} deberia quedar used`, `quedo ${estado}`);
+  }
 }
 
 // ------------------------------------------------------------------ estados del conductor
 async function faseEstadosConductor() {
   console.log('\n== Estados del conductor: suspension, revision, rechazo');
   const A = { token: adminToken };
+  await faseConCorreo([byKey.D2, byKey.D5], 4, async () => {
   // Miguel (D2): suspendido con fecha -> pide revision -> se mantiene -> pide de nuevo -> reactivado
   const m = byKey.D2;
   if (m.driverId && m.token) {
@@ -858,14 +1419,17 @@ async function faseEstadosConductor() {
       const until = addDays(peruToday(), 3);
       const s = await post(`${API.drivers}/drivers/admin/${m.driverId}/suspend`, { ...A, body: {
         reason: 'Queja de un pasajero por trato descortés; se investiga el caso.', until } });
-      ok('Estado conductor', `D2 suspendido hasta ${until}`, `estado ${s?.status}`);
+      correo(m, 'suspension');
+      ok('Estado conductor', `D2 suspendido hasta ${until}`, `estado ${s?.status} · correo a ${m.currentEmail}`);
       await post(`${API.drivers}/drivers/me/review-request`, { token: m.token, body: { message: 'Fue un malentendido con el pasajero. Tengo el audio del viaje como prueba.' } });
       ok('Estado conductor', 'D2 solicita revision');
       await post(`${API.drivers}/drivers/admin/${m.driverId}/review-request/keep`, { ...A, body: { reason: 'Se mantiene la suspensión hasta revisar el audio del viaje.' } });
+      correo(m, 'revision: se mantiene');
       ok('Estado conductor', 'admin mantiene la suspension de D2');
       await post(`${API.drivers}/drivers/me/review-request`, { token: m.token, body: { message: 'Envié el audio al correo de soporte, por favor revisen mi caso.' } });
       ok('Estado conductor', 'D2 solicita revision de nuevo');
       const r = await post(`${API.drivers}/drivers/admin/${m.driverId}/reactivate`, { ...A, body: { reason: 'Se revisó el audio: no hubo falta. Se levanta la suspensión.' } });
+      correo(m, 'reactivacion');
       if (r?.status === 3) ok('Estado conductor', 'admin reactiva a D2', 'queda aprobado');
       else fail('Estado conductor', 'reactivar D2', `quedo en estado ${r?.status}`);
       await connectDriver(m, '0.95');
@@ -878,13 +1442,10 @@ async function faseEstadosConductor() {
   const h = byKey.D5;
   if (h?.driverId && h.token) {
     try {
-      setEmail(h.userId, REAL_EMAIL);
-      try {
-        const r = await post(`${API.drivers}/drivers/admin/${h.driverId}/reject`, { ...A, body: {
-          reason: 'La licencia de conducir no tiene la categoría requerida (A-IIa) para taxi.' } });
-        ok('Estado conductor', 'admin rechaza el registro de D5', `estado ${r?.status} · correo "registro no aceptado" a ${REAL_EMAIL}`);
-        await sleep(8000); // push + correo en segundo plano
-      } finally { setEmail(h.userId, h.email); }
+      const r = await post(`${API.drivers}/drivers/admin/${h.driverId}/reject`, { ...A, body: {
+        reason: 'La licencia de conducir no tiene la categoría requerida (A-IIa) para taxi.' } });
+      correo(h, 'registro rechazado');
+      ok('Estado conductor', 'admin rechaza el registro de D5', `estado ${r?.status} · correo "registro no aceptado" a ${h.currentEmail}`);
       // Puede seguir subiendo documentos estando rechazado
       await post(`${API.drivers}/drivers/documents`, { token: h.token, form: form({ docType: 'license', expiresAt: inOneYear() }, { file: [[imgBlob(`license_${h.key}.png`), 'license.png']] }) })
         .then(() => ok('Estado conductor', 'D5 sube su licencia recategorizada'))
@@ -896,6 +1457,7 @@ async function faseEstadosConductor() {
       else fail('Estado conductor', 'D5 solicitud abierta', JSON.stringify(me).slice(0, 160));
     } catch (e) { fail('Estado conductor', 'rechazo de D5', e); }
   }
+  });
 }
 
 // ------------------------------------------------------------------ feriado + libro de reclamaciones
@@ -949,16 +1511,18 @@ async function faseLibro() {
     ok('Libro', `queja pendiente ${c.code}`, `vence ${c.dueDate}`);
   } catch (e) { fail('Libro', 'queja pendiente', e); }
 
-  // 3) Queja RESPONDIDA (correo real: confirmacion + respuesta)
+  // 3) Queja RESPONDIDA (correo real: confirmacion + respuesta), si queda presupuesto de correos
   try {
-    const c = await registrar({ consumerName: 'Usuario de prueba Bugie', docNumber: '45123456', phone: '952123456', email: REAL_EMAIL,
+    const mail = puedeCorreoDirecto() ? REAL_EMAIL : 'usuario.prueba@bugie.test';
+    const c = await registrar({ consumerName: 'Usuario de prueba Bugie', docNumber: '45123456', phone: '952123456', email: mail,
       complaintType: 'queja', reference: 'Demora en el recojo',
       detail: 'El conductor llegó 15 minutos tarde al punto de recojo y no avisó por la app.',
       request: 'Que los conductores avisen cuando se van a demorar.' });
     const it = await hoja(c.code);
     await post(`${API.landing}/landing/admin/complaints/${it.id}/reply`, { ...A, body: { response:
       'Hola, lamentamos la demora. Hablamos con el conductor y reforzamos el aviso de llegada en la app. Te abonamos S/ 5.00 para tu próximo viaje.' } });
-    ok('Libro', `queja respondida ${c.code}`, `correos de confirmacion y respuesta a ${REAL_EMAIL}`);
+    if (mail === REAL_EMAIL) { correoDirecto('libro: confirmacion'); correoDirecto('libro: respuesta'); }
+    ok('Libro', `queja respondida ${c.code}`, `correos de confirmacion y respuesta a ${mail}`);
   } catch (e) { fail('Libro', 'queja respondida', e); }
 
   // 4) Hoja ANULADA con motivo
@@ -993,25 +1557,50 @@ async function faseLibro() {
 
 // ------------------------------------------------------------------ cuenta
 async function faseCuentas() {
-  console.log('\n== Cuenta: contrasena y cuenta eliminada');
-  // Maria (P3) cambia su contrasena y luego vuelve a 10203040 (todos deben quedar con 10203040)
+  console.log('\n== Cuenta: contrasena, desactivacion y cuenta eliminada');
+  // Maria (P3) cambia su contrasena (correo de constancia) y luego vuelve a 10203040
   const p3 = byKey.P3, OTRA = 'Tacna2026Bugie';
-  try {
-    await post(`${API.auth}/auth/me/change-password`, { token: p3.token, body: { currentPassword: PASSWORD, newPassword: OTRA } });
+  await faseConCorreo([p3], 2, async () => {
     try {
-      const t2 = (await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: OTRA } })).token;
-      ok('Cuenta', 'P3 cambia su contrasena', 'inicia sesion con la nueva');
-      await post(`${API.auth}/auth/me/change-password`, { token: t2, body: { currentPassword: OTRA, newPassword: PASSWORD } });
-    } finally {
-      // si algo fallo, igual se intenta dejar 10203040
-      await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: PASSWORD } }).catch(async () => {
-        const t = (await post(`${API.auth}/auth/login`, { body: { email: p3.email, password: OTRA } })).token;
-        await post(`${API.auth}/auth/me/change-password`, { token: t, body: { currentPassword: OTRA, newPassword: PASSWORD } });
-      });
-    }
-    p3.token = await login(p3.email);
-    ok('Cuenta', 'P3 vuelve a la contrasena 10203040');
-  } catch (e) { fail('Cuenta', 'cambio de contrasena de P3', e); }
+      await post(`${API.auth}/auth/me/change-password`, { token: p3.token, body: { currentPassword: PASSWORD, newPassword: OTRA } });
+      correo(p3, 'cambio de contrasena');
+      try {
+        const t2 = (await post(`${API.auth}/auth/login`, { body: { email: p3.currentEmail, password: OTRA } })).token;
+        ok('Cuenta', 'P3 cambia su contrasena', `inicia sesion con la nueva · correo de constancia a ${p3.currentEmail}`);
+        await post(`${API.auth}/auth/me/change-password`, { token: t2, body: { currentPassword: OTRA, newPassword: PASSWORD } });
+        correo(p3, 'cambio de contrasena (vuelve)');
+      } finally {
+        // si algo fallo, igual se intenta dejar 10203040
+        await post(`${API.auth}/auth/login`, { body: { email: p3.currentEmail, password: PASSWORD } }).catch(async () => {
+          const t = (await post(`${API.auth}/auth/login`, { body: { email: p3.currentEmail, password: OTRA } })).token;
+          await post(`${API.auth}/auth/me/change-password`, { token: t, body: { currentPassword: OTRA, newPassword: PASSWORD } });
+        });
+      }
+      p3.token = await loginUser(p3);
+      ok('Cuenta', 'P3 vuelve a la contrasena 10203040');
+    } catch (e) { fail('Cuenta', 'cambio de contrasena de P3', e); }
+  });
+  // Jorge (P4): el admin desactiva su cuenta (no puede entrar) y la reactiva.
+  // El backend no envia correo por desactivar/reactivar (solo auditoria), asi que no gasta correos.
+  const p4 = byKey.P4, A = { token: adminToken };
+  try {
+    await put(`${API.auth}/auth/users/${p4.userId}/deactivate`, { ...A, body: { reason: 'Verificacion de identidad pendiente por denuncia de un tercero.' } });
+    const bloqueado = await login(p4.email).then(() => false).catch(e => e.status === 401);
+    const sinToken = await get(`${API.trips}/trips/active`, { token: p4.token }).then(() => false).catch(e => e.status === 401);
+    const u = await get(`${API.auth}/auth/admin/users/${p4.userId}`, A);
+    if (bloqueado && sinToken && u?.deactivatedAt) ok('Cuenta', 'admin desactiva la cuenta de P4', `login 401, token anterior 401 · motivo: ${u.deactivatedReason ?? '-'} (sin correo: el backend no envia uno)`);
+    else fail('Cuenta', 'desactivar P4', `login bloqueado=${bloqueado} token invalido=${sinToken} deactivatedAt=${u?.deactivatedAt}`);
+    const r = await put(`${API.auth}/auth/users/${p4.userId}/reactivate`, { ...A, body: { reason: 'Identidad verificada en oficina.' } });
+    p4.token = await login(p4.email);
+    const audit = await get(`${API.auth}/auth/admin/users/${p4.userId}/audit`, A).catch(() => []);
+    const acciones = (Array.isArray(audit) ? audit : audit?.items ?? []).map(x => x.action);
+    if (r && p4.token && acciones.includes('deactivated') && acciones.includes('reactivated')) ok('Cuenta', 'admin reactiva la cuenta de P4', `vuelve a iniciar sesion · auditoria: ${acciones.join(' > ')}`);
+    else fail('Cuenta', 'reactivar P4', `token=${!!p4.token} auditoria=${acciones.join(',')}`);
+  } catch (e) {
+    fail('Cuenta', 'desactivar / reactivar P4', e);
+    await put(`${API.auth}/auth/users/${p4.userId}/reactivate`, A).catch(() => {});
+    p4.token = await login(p4.email).catch(() => p4.token);
+  }
   // Sofia (P8) elimino su cuenta: no puede iniciar sesion y el admin la ve eliminada (no se restaura)
   const p8 = byKey.P8;
   try {
@@ -1041,31 +1630,122 @@ async function faseBandeja() {
   }
 }
 
+// ------------------------------------------------------------------ verificacion de imagenes
+// Cada usuario con foto de perfil, cada conductor con sus documentos, fotos del
+// vehiculo (frente, costado, placa) y selfies de conexion, cada envio con sus fotos
+// (paquete, recojo, entrega) y cada URL respondiendo 200 (las sensibles salen ya
+// firmadas en las respuestas del admin).
+async function faseVerificacionImagenes() {
+  console.log('\n== Verificacion de imagenes');
+  const A = { token: adminToken };
+  let urls = 0, malas = 0;
+  const base = API.auth.replace('/api', '');
+  async function url200(url, que) {
+    if (!url) { fail('Imagenes', que, 'sin URL'); malas++; return false; }
+    const u = url.startsWith('http') ? url : base + url;
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(20000) });
+      urls++;
+      if (r.status === 200) return true;
+      fail('Imagenes', que, `HTTP ${r.status} ${u}`); malas++; return false;
+    } catch (e) { fail('Imagenes', que, `${u} no responde: ${e.message}`); malas++; return false; }
+  }
+  // fotos de perfil (todos los usuarios, incluida la cuenta eliminada)
+  for (const u of [...passengers, ...drivers]) {
+    if (!u.userId) continue;
+    const url = sql(`SELECT coalesce(profilephotourl, '') FROM auth.users WHERE id = '${u.userId}'`);
+    await url200(url, `${u.key} foto de perfil`);
+  }
+  // documentos de pasajero (DNI frente y reverso, URLs firmadas del detalle admin)
+  for (const p of passengers) {
+    if (!p.userId) continue;
+    try {
+      const d = await get(`${API.auth}/auth/admin/passengers/${p.userId}`, A);
+      for (const tipo of ['dni_front', 'dni_back']) {
+        const doc = (d.documents ?? []).find(x => x.docType === tipo);
+        await url200(doc?.fileUrl, `${p.key} documento ${tipo}`);
+      }
+    } catch (e) { fail('Imagenes', `${p.key} detalle de pasajero`, e); }
+  }
+  // conductores: documentos, perfil, vehiculo con 3 fotos, selfies de conexion
+  for (const d of drivers) {
+    if (!d.driverId) continue;
+    try {
+      const det = await get(`${API.drivers}/drivers/${d.driverId}/detail`, A);
+      for (const tipo of DRIVER_DOCS) {
+        const doc = (det.documents ?? []).filter(x => x.docType === tipo).sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))[0];
+        await url200(doc?.fileUrl, `${d.key} documento ${tipo}`);
+      }
+      await url200(det.driver?.profilePhotoUrl, `${d.key} foto de perfil de conductor`);
+      const v = (det.vehicles ?? [])[0];
+      if (!v) { fail('Imagenes', `${d.key} sin vehiculo`); malas++; }
+      else {
+        const fotos = await get(`${API.drivers}/drivers/vehicles/${v.id}/photos`, A);
+        for (const tipo of ['front', 'side', 'plate']) {
+          const f = (fotos ?? []).find(x => (x.photoType ?? x.type) === tipo);
+          await url200(f?.url, `${d.key} foto del vehiculo ${tipo}`);
+        }
+      }
+      if (d.status === 'approved') {
+        const pres = await get(`${API.drivers}/drivers/admin/${d.driverId}/presence?page=1&pageSize=100`, A);
+        const items = pres?.items ?? [];
+        const esperadas = d.key === 'D2' ? 6 : 5;
+        if (items.length < esperadas) { fail('Imagenes', `${d.key} selfies de conexion`, `${items.length} conexiones, se esperaban ${esperadas}`); malas++; }
+        for (const it of items) await url200(it.photoUrl, `${d.key} selfie de conexion ${it.checkedInAt}`);
+      }
+    } catch (e) { fail('Imagenes', `${d.key} detalle de conductor`, e); }
+  }
+  // envios: fotos del paquete (2), recojo (principal + adicional) y entrega
+  for (const t of tripsLog.filter(x => x.delivery && x.tripId)) {
+    try {
+      const fotos = await get(`${API.trips}/trips/${t.tripId}/photos`, A);
+      const porTipo = k => (fotos ?? []).filter(f => f.kind === k);
+      const esperado = t.final === 'completado' ? { 0: 2, 1: 1, 2: 1, 3: 1 } : { 0: 2 };
+      for (const [k, n] of Object.entries(esperado)) {
+        const lista = porTipo(Number(k));
+        if (lista.length < n) { fail('Imagenes', `envio ${t.p}->${t.d} fotos tipo ${k}`, `${lista.length} de ${n}`); malas++; }
+        for (const f of lista) await url200(f.url, `envio ${t.p}->${t.d} foto tipo ${k}`);
+      }
+    } catch (e) { fail('Imagenes', `envio ${t.p}->${t.d} fotos`, e); }
+  }
+  if (malas === 0) ok('Imagenes', `${urls} URLs de imagenes verificadas (todas responden 200)`);
+  else fail('Imagenes', `${malas} imagen(es) faltan o no responden`, `${urls} URLs probadas`);
+}
+
 // ================================================================== main
 const t0 = Date.now();
+let vencimientos = null;
 try {
   generarImagenes();
   await faseAdmin();
   const raffles = await faseRewardsConfig();
   await fasePasajeros();
   await faseConductores();
-  console.log('\n== Viajes (tanda 1)');
-  for (const s of TRIPS_A) await runTrip(s);
-  await faseCanjes();
-  console.log('\n== Viajes (tanda 2, con cupones)');
-  for (const s of TRIPS_B) await runTrip(s);
+  await runTanda(TRIPS_A, 'Viajes (tanda 1)');
+  await faseCanjes(raffles);
+  await runTanda(TRIPS_B, 'Viajes (tanda 2, con cupones)');
+  await faseNegociacion();
+  // g) y h) corren en paralelo con las fases de admin (ninguna crea viajes)
+  vencimientos = faseVencimientos().catch(e => fail('Vencimientos', 'error no controlado', e));
   await sleep(8000);
   await faseAdminFinal(raffles);
   await faseEstadosConductor();
   await faseLibro();
   await faseCuentas();
-  console.log('\n== Estados finales para la demo');
-  for (const s of TRIPS_FINAL) await runTrip(s);
+  await vencimientos;
+  await runTanda(TRIPS_FINAL, 'Estados finales para la demo (los pendientes inmediatos duran 10 min)');
   await faseBandeja();
+  await faseVerificacionImagenes();
 } catch (e) { fail('General', 'error no controlado', e); }
+finally {
+  // Pase lo que pase, nadie se queda con el alias del correo real
+  devolverCorreos([...passengers, ...drivers]);
+}
 
 const out = join(HERE, 'logs'); mkdirSync(out, { recursive: true });
-writeFileSync(join(out, 'seed-resultado.json'), JSON.stringify({ report, trips: tripsLog,
-  users: [...passengers, ...drivers].map(({ token, docs, ...u }) => u) }, null, 2));
+writeFileSync(join(out, 'seed-resultado.json'), JSON.stringify({ report, trips: tripsLog, correos,
+  users: [...passengers, ...drivers].map(({ token, docs, pos, currentEmail, ...u }) => u) }, null, 2));
 const bad = report.filter(r => !r.ok);
+console.log(`\nCorreos reales enviados (estimado): ${correos.estimados} de un maximo de ${MAX_CORREOS}`);
+for (const d of correos.detalle) console.log(`   - ${d}`);
 console.log(`\nListo en ${Math.round((Date.now() - t0) / 1000)} s — ${report.length - bad.length} OK, ${bad.length} con error.`);

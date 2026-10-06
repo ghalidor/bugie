@@ -1,5 +1,6 @@
 ﻿using Bugie.Trips.Application.Services;
 using Bugie.Trips.Domain.External;
+using Bugie.Trips.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,18 +29,24 @@ namespace Bugie.Trips.Api.Controllers;
 public class InternalNotifyController : ControllerBase
 {
     private readonly IAdminNotifier _notifier;
+    private readonly ITripRealtimeNotifier _realtime;
+    private readonly ITripRepository _trips;
     private readonly RouteDeviationService _deviations;
     private readonly IFcmSender _fcm;
     private readonly IConfiguration _cfg;
     private readonly ILogger<InternalNotifyController> _log;
 
     public InternalNotifyController(IAdminNotifier notifier,
+                                     ITripRealtimeNotifier realtime,
+                                     ITripRepository trips,
                                      RouteDeviationService deviations,
                                      IFcmSender fcm,
                                      IConfiguration cfg,
                                      ILogger<InternalNotifyController> log)
     {
         _notifier = notifier;
+        _realtime = realtime;
+        _trips = trips;
         _deviations = deviations;
         _fcm = fcm;
         _cfg = cfg;
@@ -80,10 +87,41 @@ public class InternalNotifyController : ControllerBase
     {
         if(!ValidateInternalToken(token, out var err)) return err!;
 
-        // Fire-and-forget: no esperamos a que el broadcast llegue.
-        // Pero awaitamos para que cualquier error se loguee.
+        // Viaje activo del conductor. Se resuelve aquí por el conductor; no se
+        // confía en un tripId que venga del cliente (evita inyectar posiciones
+        // en otro viaje). Sirve para el pasajero (hub de viajes) y para el
+        // monitoreo (recorrido en vivo por viaje).
+        Guid? tripId = null;
+        if(req.HasActiveTrip)
+        {
+            try
+            {
+                var trip = await _trips.GetActiveTripAsync(req.UserId, ct);
+                if(trip is not null && trip.DriverId == req.UserId) tripId = trip.Id;
+            }
+            catch(Exception ex)
+            {
+                _log.LogWarning(ex, "No se pudo resolver el viaje activo del conductor {UserId}.", req.UserId);
+            }
+        }
+
+        // Admins (grupo "admins" de /hubs/monitor): "driver:location" con tripId.
+        // Awaitamos para que cualquier error se loguee.
         await _notifier.NotifyDriverLocationAsync(
-            req.UserId, req.Lat, req.Lng, req.HasActiveTrip, ct);
+            req.UserId, req.Lat, req.Lng, req.HasActiveTrip, tripId, req.Heading, req.SpeedKmh, ct);
+
+        // Pasajero del viaje (grupo trip:{id} de /hubs/trips): "DriverLocation".
+        if(tripId is not null)
+        {
+            try
+            {
+                await _realtime.DriverLocationAsync(tripId.Value, req.Lat, req.Lng, req.Heading, req.SpeedKmh, ct);
+            }
+            catch(Exception ex)
+            {
+                _log.LogWarning(ex, "No se pudo emitir DriverLocation del conductor {UserId}.", req.UserId);
+            }
+        }
 
         // Detección de desvío de ruta (ver RouteDeviationService). Va después
         // del broadcast y con CancellationToken.None: Drivers corta a los 3s,
@@ -142,7 +180,9 @@ public class InternalNotifyController : ControllerBase
     }
 }
 
-public record NotifyDriverLocationRequest(Guid UserId, double Lat, double Lng, bool HasActiveTrip);
+/// <summary>GPS del conductor desde Drivers.Api. SpeedKmh y Heading son opcionales (solo para el pasajero).</summary>
+public record NotifyDriverLocationRequest(Guid UserId, double Lat, double Lng, bool HasActiveTrip,
+                                          double? SpeedKmh = null, double? Heading = null);
 public record NotifyDriverOfflineRequest(Guid UserId);
 public record SendPushRequest(Guid UserId, string Title, string? Body, string? Route,
                               Dictionary<string, string>? Data);

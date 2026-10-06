@@ -4,6 +4,7 @@ import TopNav from '../components/TopNav'
 import Sidebar from '../components/Sidebar'
 import RightPanel, { hasRightPanel } from '../components/RightPanel'
 import ProfileCompletionModal from '../components/ProfileCompletionModal'
+import RealtimeNotices from '../components/RealtimeNotices'
 import { getToken } from '../state/session'
 import { useAppViewTransitions } from '../hooks/useAppViewTransitions'
 import { ConfirmProvider, ToastProvider, storage, useLayer, useMediaQuery, useScrollLock } from '../components/ui'
@@ -87,6 +88,8 @@ export default function AppShell() {
         </div>
 
         {getToken() && <ProfileCompletionModal onCompleted={() => setProfileVersion(v => v + 1)} />}
+        {/* Avisos en tiempo real (hub /hubs/trips): toast por cada notificación al usuario. */}
+        {getToken() && <RealtimeNotices />}
       </ConfirmProvider>
     </ToastProvider>
   )

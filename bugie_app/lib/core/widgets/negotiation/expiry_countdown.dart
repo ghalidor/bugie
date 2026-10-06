@@ -5,20 +5,37 @@ import 'package:flutter/material.dart';
 import '../../theme/bugie_theme.dart';
 import 'motion.dart';
 
-/// Contador regresivo de una solicitud (lo ve el conductor).
+/// Contador regresivo de una solicitud / oferta.
 ///
-/// Solo informa: al llegar a cero cambia el texto a "Tiempo agotado" y no
-/// hace nada más (la lógica de la pantalla no depende de este widget).
+/// Al llegar a cero cambia el texto a "Tiempo agotado" y llama a
+/// [onExpired] (una sola vez, solo si llegó a cero mientras estaba en
+/// pantalla): la pantalla recarga y muestra lo que diga el backend.
 ///
 /// [reason] viene del backend (TripDto.expiresReason):
-///  - 'proposal_confirm': el pasajero aceptó tu propuesta → "Confirma en 12:30".
-///  - 'scheduled_time':   programado sin conductor → "Sale a las 14:00"
-///                        (o "Programado: empieza en 45:10" si falta < 1 h).
+///  - 'proposal_confirm':  el pasajero aceptó tu propuesta → "Confirma en 12:30".
+///  - 'no_driver_timeout': inmediato sin conductor → "Se cancela en 08:30".
+///  - 'scheduled_time':    programado sin conductor → "Sale a las 14:00"
+///                         (o "Programado: empieza en 45:10" si falta < 1 h).
+/// [textBuilder] reemplaza el texto (recibe el tiempo restante "mm:ss").
 class ExpiryCountdown extends StatefulWidget {
   final DateTime expiresAt;
   final String? reason;
+  final VoidCallback? onExpired;
+  final String Function(String clock)? textBuilder;
 
-  const ExpiryCountdown({super.key, required this.expiresAt, this.reason});
+  const ExpiryCountdown({
+    super.key,
+    required this.expiresAt,
+    this.reason,
+    this.onExpired,
+    this.textBuilder,
+  });
+
+  /// "mm:ss" (o "h:mm:ss") del tiempo que falta hasta [at].
+  static String clockUntil(DateTime at) {
+    final d = at.difference(DateTime.now());
+    return _ExpiryCountdownState._clock(d.isNegative ? Duration.zero : d);
+  }
 
   @override
   State<ExpiryCountdown> createState() => _ExpiryCountdownState();
@@ -41,6 +58,14 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
   @override
   void initState() {
     super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    // Ya vencido al aparecer: no se avisa (la pantalla ya recargó y el
+    // backend todavía no lo cerró; avisar otra vez sería recargar en bucle).
+    if (_left == Duration.zero) return;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final left = _remaining();
@@ -48,6 +73,7 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
       if (left == Duration.zero) {
         _timer?.cancel();
         _pulse.stop();
+        widget.onExpired?.call();
       }
     });
   }
@@ -69,6 +95,7 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
     super.didUpdateWidget(old);
     if (old.expiresAt != widget.expiresAt) {
       _left = _remaining();
+      _startTimer();
     }
   }
 
@@ -96,7 +123,11 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
     final String text;
     final IconData icon;
     Color color;
-    if (expired) {
+    if (!expired && widget.textBuilder != null) {
+      text = widget.textBuilder!(_clock(_left));
+      icon = Icons.timer_outlined;
+      color = BugieColors.primary;
+    } else if (expired) {
       text = 'Tiempo agotado';
       icon = Icons.timer_off_outlined;
       color = BugieColors.danger;
@@ -106,6 +137,10 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
           ? 'Programado: empieza en ${_clock(_left)}'
           : 'Sale a las ${_two(local.hour)}:${_two(local.minute)}';
       icon = Icons.event_outlined;
+      color = BugieColors.primary;
+    } else if (widget.reason == 'no_driver_timeout') {
+      text = 'Se cancela en ${_clock(_left)}';
+      icon = Icons.timer_outlined;
       color = BugieColors.primary;
     } else {
       text = 'Confirma en ${_clock(_left)}';
@@ -138,7 +173,7 @@ class _ExpiryCountdownState extends State<ExpiryCountdown>
               Flexible(
                 child: Text(
                   text,
-                  maxLines: 1,
+                  maxLines: widget.textBuilder != null ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12.5,

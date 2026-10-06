@@ -699,6 +699,10 @@ button.bx-stat { text-align: left; width: 100%; }
 .bx-toast-icon { color: var(--tone); margin-top: .1rem; }
 .bx-toast-title { font-weight: 700; font-size: .9rem; }
 .bx-toast-msg { font-size: .85rem; color: var(--bugie-muted); overflow-wrap: anywhere; }
+/* Aviso clicable (lleva a la pantalla relacionada): el cuerpo es un botón sin estilo. */
+.bx-toast-body { min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.bx-toast-body:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; border-radius: 6px; }
+.bx-toast.is-clickable:hover { border-color: var(--tone); }
 @keyframes bxToastIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 @keyframes bxToastOut { to { opacity: 0; transform: translateX(24px); } }
 
