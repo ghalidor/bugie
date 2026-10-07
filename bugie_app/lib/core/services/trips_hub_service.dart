@@ -6,6 +6,7 @@ import 'package:signalr_netcore/signalr_client.dart';
 
 import '../api/api_config.dart';
 import '../session/session.dart';
+import 'network_status_service.dart';
 
 /// Cambio de estado de un viaje (evento `TripChanged` del hub).
 class TripChangedEvent {
@@ -306,10 +307,13 @@ class TripsHubService with WidgetsBindingObserver {
     hub.onreconnecting(({error}) {
       _log('reconectando… ${error ?? ''}');
       _setConnected(false);
+      // ¿Se cayó la red? Se comprueba ya (franja "Sin conexión").
+      NetworkStatusService().checkNow();
     });
     hub.onreconnected(({connectionId}) {
       _log('reconectado');
       _retries = 0;
+      NetworkStatusService().reportSuccess();
       _rejoinAll();
     });
     hub.onclose(({error}) {
@@ -335,10 +339,12 @@ class TripsHubService with WidgetsBindingObserver {
       await hub.start();
       _retries = 0;
       _log('conectado');
+      NetworkStatusService().reportSuccess();
       await _rejoinAll();
     } catch (e) {
       _log('no se pudo conectar: $e');
       _setConnected(false);
+      NetworkStatusService().checkNow();
       if (_shouldBeConnected) _scheduleRetry();
     } finally {
       _starting = false;

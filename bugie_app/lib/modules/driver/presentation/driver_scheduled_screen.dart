@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/negotiation/action_buttons.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/schedule_picker.dart';
@@ -83,8 +84,8 @@ class _DriverScheduledScreenState extends State<DriverScheduledScreen> {
         content: Text('Avisaremos al ${t.isDelivery ? 'cliente' : 'pasajero'} que cancelaste.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: BugieColors.danger),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Sí, cancelar'),
           ),
@@ -216,18 +217,31 @@ class _ScheduledCard extends StatelessWidget {
             const SizedBox(height: 4),
             _Line(color: BugieColors.mapDestination, text: trip.destAddress),
             const SizedBox(height: 10),
+            // "Cancelar" (contorno rojo) junto a "Iniciar", mismo alto (46).
             Row(
               children: [
-                TextButton(
-                  onPressed: onCancel,
-                  style: TextButton.styleFrom(foregroundColor: BugieColors.danger),
-                  child: const Text('Cancelar'),
+                Expanded(
+                  flex: 2,
+                  child: SecondaryActionButton(
+                    label: 'Cancelar',
+                    color: BugieColors.danger,
+                    onPressed: onCancel,
+                  ),
                 ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: ready ? onStart : null,
-                  icon: const Icon(Icons.play_arrow, size: 18),
-                  label: Text(ready ? 'Iniciar' : 'Desde las $fromText'),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 3,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(0, 46),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                    ),
+                    onPressed: ready ? onStart : null,
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: Text(ready ? 'Iniciar' : 'Desde las $fromText',
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
                 ),
               ],
             ),

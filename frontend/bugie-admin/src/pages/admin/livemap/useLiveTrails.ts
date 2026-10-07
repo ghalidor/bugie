@@ -29,6 +29,8 @@ export interface LiveTrail {
   driverId: string | null;
   /** [[lat, lng], ...] en orden cronológico. */
   points: [number, number][];
+  /** Hora (ms) de cada punto, en paralelo a `points` (0 si no se conoce). */
+  times: number[];
   distanceKm: number;
   firstAt: string | null;
   lastAt: string | null;
@@ -42,7 +44,7 @@ export interface LiveTrail {
 interface TailPoint { lat: number; lng: number; atMs: number }
 
 /** Distancia (km) entre dos coordenadas. */
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371, rad = (d: number) => d * Math.PI / 180;
   const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
@@ -50,7 +52,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 const emptyTrail = (tripId: string, driverId: string | null): LiveTrail =>
-  ({ tripId, driverId, points: [], distanceKm: 0, firstAt: null, lastAt: null, loaded: false, planned: null });
+  ({ tripId, driverId, points: [], times: [], distanceKm: 0, firstAt: null, lastAt: null, loaded: false, planned: null });
 
 export function useLiveTrails(passengers: LivePassenger[]) {
   const [byTrip, setByTrip] = useState<Record<string, LiveTrail>>({});
@@ -68,19 +70,21 @@ export function useLiveTrails(passengers: LivePassenger[]) {
       tailsRef.current[tripId] = tail;
 
       const points = p.path.map(pt => [pt.lat, pt.lng] as [number, number]);
+      const times = p.path.map(pt => new Date(pt.recordedAt).getTime() || 0);
       let distanceKm = p.distanceKm;
       let last = points[points.length - 1];
       tail.forEach(t => {
         if (last) distanceKm += haversineKm(last[0], last[1], t.lat, t.lng);
         last = [t.lat, t.lng];
         points.push(last);
+        times.push(t.atMs);
       });
       const lastAt = tail.length ? new Date(tail[tail.length - 1].atMs).toISOString() : p.lastAt;
 
       setByTrip(prev => {
         const cur = prev[tripId];
         if (!cur) return prev; // el viaje terminó mientras cargaba
-        return { ...prev, [tripId]: { ...cur, points, distanceKm, firstAt: p.firstAt, lastAt, loaded: true } };
+        return { ...prev, [tripId]: { ...cur, points, times, distanceKm, firstAt: p.firstAt, lastAt, loaded: true } };
       });
     } catch {
       // Se mantiene lo que había; el siguiente refresco lo intenta de nuevo.
@@ -141,9 +145,10 @@ export function useLiveTrails(passengers: LivePassenger[]) {
     (tailsRef.current[tripId] ??= []).push({ lat, lng, atMs });
 
     const points = [...cur.points, [lat, lng] as [number, number]];
+    const times = [...cur.times, atMs];
     const distanceKm = last ? cur.distanceKm + haversineKm(last[0], last[1], lat, lng) : 0;
     const iso = new Date(atMs).toISOString();
-    const updated: LiveTrail = { ...cur, points, distanceKm, lastAt: iso, firstAt: cur.firstAt ?? iso };
+    const updated: LiveTrail = { ...cur, points, times, distanceKm, lastAt: iso, firstAt: cur.firstAt ?? iso };
     byTripRef.current = { ...byTripRef.current, [tripId]: updated };
     setByTrip(prev => (prev[tripId] ? { ...prev, [tripId]: updated } : prev));
   }, []);

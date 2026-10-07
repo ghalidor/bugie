@@ -32,7 +32,7 @@ public class OutboxRepository : IOutboxRepository
     public Task MarkSentAsync(long id, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE trips.OutboxEvents
-            SET Status = 'sent', SentAt = now(), LastError = NULL
+            SET Status = 'sent', SentAt = (now() AT TIME ZONE 'utc'), LastError = NULL
             WHERE Id = @Id",
             new { Id = id });
 

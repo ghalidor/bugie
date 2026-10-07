@@ -160,6 +160,20 @@ function pasos(poly, pasoKm) {
 const resultado = join(HERE, 'logs', 'seed-resultado.json');
 if (!existsSync(resultado)) { console.error(`No existe ${resultado}: corre primero seed.mjs`); process.exit(1); }
 const usuarios = JSON.parse(readFileSync(resultado, 'utf8')).users ?? [];
+// Si los conductores/pasajeros del seed estan ocupados (programados, viajes de la demo),
+// se suman algunas cuentas de la prueba de carga (cargacNNNN / cargapNNNN), si existen.
+try {
+  const { execFileSync } = await import('node:child_process');
+  const psql = 'C:/Program Files/PostgreSQL/18/bin/psql.exe';
+  const filas = execFileSync(psql, ['-U', 'postgres', '-d', 'bugie_test', '-Atc',
+    `SELECT email, role FROM auth.users WHERE email ~ '^carga[cp]00[0-1][0-9]@bugie\\.test$' ORDER BY email`],
+    { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD ?? '147896321', PGCLIENTENCODING: 'UTF8' } }).toString().trim();
+  for (const l of filas.split('\n').filter(Boolean)) {
+    const [email, role] = l.trim().split('|').map(x => x.trim());
+    usuarios.push({ key: email.slice(5, 10).toUpperCase(), email, role, status: 'approved' });
+  }
+  console.log(`Cuentas de la prueba de carga disponibles: ${usuarios.filter(u => u.email.startsWith('carga')).length}`);
+} catch (e) { console.log('Sin cuentas de carga (' + String(e.message ?? e).slice(0, 120) + '): se usan solo las del seed'); }
 const login = async email => (await post(`${API.auth}/auth/login`, { body: { email, password: PASSWORD } })).token;
 
 let detener = false;
@@ -238,6 +252,8 @@ async function unViaje(d) {
       destAddress: to.address, destLat: to.lat, destLng: to.lng,
       estimatedFare: fareFor(from, to), paymentMethod: azar(['cash', 'yape', 'plin']), waypoints: [], serviceType: 0 } });
     tripId = t.id;
+    // Como la app real: el pasajero que espera reporta su ubicacion (sin esto Monitoreo no lista el viaje).
+    await put(`${API.trips}/trips/passenger-location`, { ...P, body: { lat: from.lat, lng: from.lng } }).catch(() => {});
     const a = await post(`${API.trips}/trips/${tripId}/driver-accept`, D);
     await put(`${API.trips}/trips/${tripId}/confirm-driver-acceptance/${a.proposalId}`, P);
     activos.set(d.key, { tripId, p, estado: 'accepted', to });
@@ -301,6 +317,7 @@ async function buclePedidos() {
           originAddress: from.address, originLat: from.lat, originLng: from.lng,
           destAddress: to.address, destLat: to.lat, destLng: to.lng,
           estimatedFare: fareFor(from, to), paymentMethod: 'cash', waypoints: [], serviceType: 0 } });
+        await put(`${API.trips}/trips/passenger-location`, { token: p.token, body: { lat: from.lat, lng: from.lng } }).catch(() => {});
         pendientes.push({ tripId: t.id, p });
         log('PEDIDO', `${p.key} busca conductor: ${from.address} -> ${to.address} (vence ${t.expiresAt ?? 'en 10 min'})`);
       } catch (e) { log('PEDIDO', `error: ${e.message}`); if (e.status === 409) p.bloqueado = true; soltarPasajero(p); }

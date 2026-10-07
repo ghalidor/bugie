@@ -320,8 +320,7 @@ class _SummaryTabState extends State<_SummaryTab> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(describeReward(coupon.rewardType, coupon.amountSoles,
-                      coupon.quantity, coupon.percentage),
+              Text(describeCoupon(coupon),
                   style: TextStyle(fontSize: 13, color: c.textMuted)),
               const SizedBox(height: 12),
               InkWell(
@@ -1233,8 +1232,7 @@ class _CouponCard extends StatelessWidget {
                   Text(coupon.itemName,
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 14)),
-                  Text(describeReward(coupon.rewardType, coupon.amountSoles,
-                          coupon.quantity, coupon.percentage),
+                  Text(describeCoupon(coupon),
                       style: TextStyle(
                           fontSize: 12.5, color: c.textMuted)),
                   const SizedBox(height: 2),
@@ -2488,6 +2486,17 @@ IconData rewardIcon(String type) {
     case 'partner_benefit': return Icons.handshake_outlined;
     default:                return Icons.card_giftcard;
   }
+}
+
+/// Descripción de un cupón ya obtenido. El descuento % de un beneficio de
+/// nivel no dura "N días": vale hasta que vence el cupón (fin de mes).
+String describeCoupon(RewardRedemption c) {
+  if (c.rewardType == 'discount_period' &&
+      (c.isLevelBenefit || (c.quantity ?? 0) <= 0)) {
+    return '${_num(c.percentage ?? 0)}% de descuento hasta el '
+        '${formatDate(c.expiresAt)}';
+  }
+  return describeReward(c.rewardType, c.amountSoles, c.quantity, c.percentage);
 }
 
 /// Descripción corta de lo que entrega una recompensa.

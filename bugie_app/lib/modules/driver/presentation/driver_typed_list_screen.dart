@@ -268,18 +268,26 @@ class _DriverItemCard extends StatelessWidget {
                 children: [
                   Icon(_statusIcon(trip.status, trip.isDelivery), color: color),
                   const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                        trip.status == TripStatus.accepted && trip.isFutureScheduled
-                            ? 'Programado — aceptado'
-                            : _statusLabel(trip.status),
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: color, fontWeight: FontWeight.bold)),
+                  // Estado completo + tipo (el tipo baja si no entra).
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                            trip.status == TripStatus.accepted &&
+                                    trip.isFutureScheduled
+                                ? 'Programado — aceptado'
+                                : _statusLabel(trip.status),
+                            style: TextStyle(
+                                color: color, fontWeight: FontWeight.bold)),
+                        ServiceBadge(
+                            isDelivery: trip.isDelivery, compact: true),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 6),
-                  ServiceBadge(isDelivery: trip.isDelivery, compact: true),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   Text('S/ ${fare.toStringAsFixed(2)}',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,

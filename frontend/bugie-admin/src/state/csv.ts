@@ -11,8 +11,9 @@ export type CsvCell = string | number | boolean | null | undefined;
 
 const esc = (v: CsvCell) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
-export function downloadCsv(head: string[], rows: CsvCell[][], filename: string) {
-  const lines = [head.map(esc).join(';'), ...rows.map(r => r.map(esc).join(';'))];
+/** sep: ';' por defecto (Excel en español); ',' para archivos de datos (p. ej. GPS). */
+export function downloadCsv(head: string[], rows: CsvCell[][], filename: string, sep: ';' | ',' = ';') {
+  const lines = [head.map(esc).join(sep), ...rows.map(r => r.map(esc).join(sep))];
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

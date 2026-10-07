@@ -8,12 +8,32 @@
     {
       "selector": "[data-tour='monitor-map']",
       "title": "Mapa en vivo",
-      "text": "Los pines se mueven solos con el GPS de cada conductor y pasajero. Toca un conductor con viaje para ver la ruta y sus teléfonos. El botón de la mira encuadra todos los pines."
+      "text": "Cada viaje se dibuja según su estado. Buscando conductor: solo el pasajero en el punto de recojo. En camino: el auto, el pasajero esperando y una línea punteada del auto al recojo (lo ya recorrido va en gris). En viaje o SOS: solo el auto (el pasajero va dentro), la bandera del destino, la línea sólida de lo recorrido y la punteada de lo que falta."
+    },
+    {
+      "selector": "[data-tour='monitor-search']",
+      "title": "Buscar y seguir",
+      "text": "Escribe el nombre del conductor o del pasajero, la placa, el celular o los primeros caracteres del id del viaje. Al elegir un resultado, el mapa lo sigue en cada GPS. También puedes seguir a alguien tocando su pin o el botón de flecha de las listas."
+    },
+    {
+      "selector": "[data-tour='monitor-filters']",
+      "title": "Filtros",
+      "text": "Muestra solo lo que te interesa: disponibles, en camino, en viaje, buscando conductor, desviados, SOS o sin señal (con viaje y sin GPS hace más de 2 minutos). Puedes combinar varios; filtran el mapa y las listas y se recuerdan para la próxima vez. Las emergencias SOS siempre se ven en el mapa mientras la capa «SOS» esté activa."
+    },
+    {
+      "selector": "[data-tour='monitor-follow']",
+      "title": "Siguiendo a una unidad",
+      "text": "Velocidad, hace cuánto llegó su última posición, distancia y tiempo estimado al recojo o al destino, y botones para llamar, ver el viaje o abrir las fichas. Si mueves el mapa, el seguimiento se pausa: usa «Volver a seguir». «Ver todos» regresa a la vista completa."
     },
     {
       "selector": "[data-tour='monitor-layers']",
       "title": "Capas del mapa",
-      "text": "Oculta o muestra conductores, pasajeros o SOS para despejar el mapa. Las emergencias siguen visibles mientras la capa «SOS» esté activa."
+      "text": "Oculta o muestra conductores, pasajeros, SOS o recorridos (líneas y banderas de destino) para despejar el mapa."
+    },
+    {
+      "selector": "[data-tour='monitor-legend']",
+      "title": "Leyenda",
+      "text": "Qué significa cada color de auto, el pasajero esperando, la bandera de destino y cada tipo de línea. Al alejar el mapa, los conductores disponibles y los pasajeros que buscan conductor se juntan en un círculo con el número: acércate o tócalo para separarlos. Los viajes activos y los SOS nunca se agrupan."
     },
     {
       "selector": "[data-tour='monitor-lists']",

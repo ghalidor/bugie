@@ -22,7 +22,8 @@ export const NOTICE_COLORS: { value: NoticeColor; label: string }[] = [
 ];
 
 /** Avisos en tiempo real (llegan por SignalR). */
-export type LiveType = 'sos' | 'deviation' | 'contact_message' | 'complaint' | 'driver_review' | 'passenger_review';
+export type LiveType = 'sos' | 'deviation' | 'no_signal' | 'long_stop' | 'trip_delayed'
+  | 'contact_message' | 'complaint' | 'driver_review' | 'passenger_review';
 /** Recordatorios periódicos (conteos del resumen). */
 export type ReminderType = 'document_expiring' | 'pending_messages' | 'pending_complaints' | 'pending_registrations';
 export type NoticeType = LiveType | ReminderType;
@@ -54,6 +55,9 @@ export interface NoticeTypeMeta {
 export const NOTICE_TYPES: NoticeTypeMeta[] = [
   { type: 'sos',               kind: 'live', icon: 'fa-triangle-exclamation', label: 'Alerta SOS', description: 'Un pasajero o conductor activó el botón SOS durante un viaje.' },
   { type: 'deviation',         kind: 'live', icon: 'fa-route',          label: 'Desvío de ruta',           description: 'Un conductor se salió de la ruta planificada.' },
+  { type: 'no_signal',         kind: 'live', icon: 'fa-satellite-dish', label: 'Viaje sin señal',          description: 'Un conductor con viaje en curso dejó de enviar su GPS.' },
+  { type: 'long_stop',         kind: 'live', icon: 'fa-circle-pause',   label: 'Conductor detenido',       description: 'Un conductor con viaje en curso está detenido más de lo normal.' },
+  { type: 'trip_delayed',      kind: 'live', icon: 'fa-stopwatch',      label: 'Viaje demorado',           description: 'Un viaje está tardando bastante más de lo estimado.' },
   { type: 'contact_message',   kind: 'live', icon: 'fa-envelope',       label: 'Mensaje de contacto',      description: 'Llegó un mensaje nuevo desde el sitio web.' },
   { type: 'complaint',         kind: 'live', icon: 'fa-book',           label: 'Reclamación nueva',        description: 'Alguien registró una reclamación en el libro.' },
   { type: 'driver_review',     kind: 'live', icon: 'fa-id-card',        label: 'Conductor por revisar',    description: 'Un conductor envió sus documentos a revisión o pidió revisar su suspensión o rechazo.' },
@@ -70,6 +74,9 @@ const base = { enabled: true, duration: 6, onLogin: false, mode: 'none' as Sched
 export const DEFAULT_CONFIG: Record<NoticeType, NoticeConfig> = {
   sos:                   { ...base, color: 'bad', duration: 10 },
   deviation:             { ...base, color: 'bad' },
+  no_signal:             { ...base, color: 'warn', duration: 8 },
+  long_stop:             { ...base, color: 'warn', duration: 8 },
+  trip_delayed:          { ...base, color: 'warn', duration: 8 },
   contact_message:       { ...base, color: 'info' },
   complaint:             { ...base, color: 'warn' },
   driver_review:         { ...base, color: 'primary' },

@@ -308,14 +308,22 @@ class _TripCard extends StatelessWidget {
               children: [
                 Icon(_statusIcon(trip.status, trip.isDelivery), color: color),
                 const SizedBox(width: 8),
-                Flexible(
-                  child: Text(TripStatus.labelForPassenger(trip.status),
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                // Estado completo + tipo: si no entran en una línea, el
+                // tipo baja a la siguiente (sin cortar el estado).
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(TripStatus.labelForPassenger(trip.status),
+                          style: TextStyle(
+                              color: color, fontWeight: FontWeight.bold)),
+                      ServiceBadge(isDelivery: trip.isDelivery, compact: true),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 6),
-                ServiceBadge(isDelivery: trip.isDelivery, compact: true),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Text(
                   'S/ ${(trip.finalFare ?? trip.estimatedFare).toStringAsFixed(2)}',
                   style: const TextStyle(
@@ -569,8 +577,11 @@ class _IncidentSheetState extends State<_IncidentSheet> {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: TextButton(
+              child: OutlinedButton(
                 onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
                 child: const Text('Cerrar'),
               ),
             ),

@@ -11,6 +11,10 @@ public class AuthClient : IAuthClient
     private readonly IHttpContextAccessor _httpContext;
     private readonly IConfiguration _cfg;
 
+    // Auth devuelve las fechas en hora de Peru sin zona: se leen como UTC (ver BugieTime).
+    private static readonly System.Text.Json.JsonSerializerOptions Json =
+        new(System.Text.Json.JsonSerializerDefaults.Web) { Converters = { new Bugie.Drivers.Infrastructure.Time.PeruDateTimeJsonConverter() } };
+
     public AuthClient(HttpClient http, IHttpContextAccessor httpContext, IConfiguration cfg)
     {
         _http = http;
@@ -36,7 +40,7 @@ public class AuthClient : IAuthClient
         {
             using var res = await _http.SendAsync(req, ct);
             if (!res.IsSuccessStatusCode) return new Dictionary<Guid, UserInfoDto>();
-            var users = await res.Content.ReadFromJsonAsync<List<UserInfoDto>>(cancellationToken: ct);
+            var users = await res.Content.ReadFromJsonAsync<List<UserInfoDto>>(Json, ct);
             return users?.ToDictionary(u => u.Id) ?? new Dictionary<Guid, UserInfoDto>();
         }
         catch

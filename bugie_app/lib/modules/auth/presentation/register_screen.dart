@@ -1,6 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
@@ -36,6 +39,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _sigController = SignatureController();
   final _sigKey = GlobalKey(); // aceptó términos y condiciones
   String? _error;
+
+  // Toques en "Términos y Condiciones" / "Política de Privacidad": abren
+  // la página de la web (no marcan la casilla).
+  late final _termsTap = TapGestureRecognizer()
+    ..onTap = () => _openLegalPage('terminos');
+  late final _privacyTap = TapGestureRecognizer()
+    ..onTap = () => _openLegalPage('privacidad');
+
+  /// Abre /terminos o /privacidad de la web pública en el navegador.
+  Future<void> _openLegalPage(String path) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = Uri.parse('${ApiConfig.webBase}/$path');
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No pudimos abrir la página. Revisa que tengas '
+              'un navegador instalado e inténtalo de nuevo.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // Validadores. Cada uno devuelve null si está OK, o un mensaje de
@@ -134,12 +165,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _passwordCtrl.dispose();
     _referralCtrl.dispose();
     _sigController.dispose();
+    _termsTap.dispose();
+    _privacyTap.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.bugie; // tokens adaptativos (claro/oscuro)
+    // Enlaces a Términos / Privacidad: azul más claro en modo oscuro y
+    // subrayados para que se lean como enlace.
+    final linkColor = Theme.of(context).brightness == Brightness.dark
+        ? BugieColors.primaryLight
+        : BugieColors.primary;
+    final linkStyle = TextStyle(
+      color: linkColor,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+      decorationColor: linkColor,
+    );
     return Scaffold(
       backgroundColor: c.bg,
       appBar: AppBar(
@@ -288,22 +332,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             TextSpan(
                               style: TextStyle(
                                   fontSize: 13, color: context.bugie.text),
-                              children: const [
-                                TextSpan(text: 'Acepto los '),
+                              children: [
+                                const TextSpan(text: 'Acepto los '),
                                 TextSpan(
                                   text: 'Términos y Condiciones',
-                                  style: TextStyle(
-                                      color: BugieColors.primary,
-                                      fontWeight: FontWeight.w600),
+                                  style: linkStyle,
+                                  recognizer: _termsTap,
                                 ),
-                                TextSpan(text: ' y la '),
+                                const TextSpan(text: ' y la '),
                                 TextSpan(
                                   text: 'Política de Privacidad',
-                                  style: TextStyle(
-                                      color: BugieColors.primary,
-                                      fontWeight: FontWeight.w600),
+                                  style: linkStyle,
+                                  recognizer: _privacyTap,
                                 ),
-                                TextSpan(text: '.'),
+                                const TextSpan(text: '.'),
                               ],
                             ),
                           ),

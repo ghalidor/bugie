@@ -46,3 +46,25 @@ public record RaffleInput(
     string    TargetUserType,
     int       WinnersCount,
     bool      Open);
+
+/// <summary>Admin: un ticket del sorteo con su propietario.</summary>
+public record RaffleTicketAdminDto(
+    string   TicketNumber,
+    Guid     UserId,
+    string?  UserName,
+    string?  UserRole,
+    string   Source,
+    DateTime CreatedAt,
+    bool     IsWinner);
+
+/// <summary>
+/// GET /api/rewards/admin/raffles/{raffleId}/tickets.
+/// Total = tickets que cumplen el filtro (para paginar); Participants,
+/// TotalTickets y BySource son de todo el sorteo.
+/// </summary>
+public record RaffleTicketsPageDto(
+    List<RaffleTicketAdminDto> Items,
+    int                        Total,
+    int                        Participants,
+    int                        TotalTickets,
+    Dictionary<string, int>    BySource);

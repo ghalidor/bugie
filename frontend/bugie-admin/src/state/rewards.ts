@@ -155,6 +155,38 @@ export interface RaffleVerification {
   storedTickets:       string[];
 }
 
+/** Ticket de un sorteo (lista de participantes). */
+export interface RaffleTicketRow {
+  ticketNumber: string;
+  userId:       string;
+  userName:     string | null;
+  userRole:     string | null;
+  /** level_benefit | monthly_points | points_redemption | promotion | manual */
+  source:       string;
+  createdAt:    string;
+  isWinner:     boolean;
+}
+
+export interface RaffleTicketsPage {
+  items:        RaffleTicketRow[];
+  total:        number;
+  /** Personas distintas con al menos un ticket. */
+  participants: number;
+  totalTickets: number;
+  /** Tickets por origen: { level_benefit: 10, ... }. */
+  bySource:     Record<string, number>;
+}
+
+/** Origen de un ticket de sorteo, en español. */
+export const TICKET_SOURCE_LABEL: Record<string, string> = {
+  level_benefit:     'Por nivel',
+  monthly_points:    'Por puntos del mes',
+  points_redemption: 'Cupón de ticket',
+  promotion:         'Promoción',
+  manual:            'Manual',
+};
+export const ticketSourceLabel = (s: string) => TICKET_SOURCE_LABEL[s] ?? s;
+
 export interface RaffleMaintenanceResult {
   ticketsGranted: number;
   rafflesDrawn:   number;
@@ -427,6 +459,9 @@ export const rewardsAdminApi = {
 
   drawRaffle: (id: string) =>
     apiFetch<Raffle>(`${base()}/raffles/${id}/draw`, { method: 'POST' }),
+
+  raffleTickets: (raffleId: string, page: number, pageSize: number, search?: string) =>
+    apiFetch<RaffleTicketsPage>(`${base()}/raffles/${raffleId}/tickets${qs({ page, pageSize, search: search?.trim() || null })}`),
 
   verifyRaffle: (id: string) =>
     apiFetch<RaffleVerification>(`${base()}/raffles/${id}/verify`),

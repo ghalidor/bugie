@@ -169,6 +169,8 @@ public record UpdatePassengerLocationRequest(double Lat, double Lng);
 /// <summary>
 /// Vista admin de un viaje activo. Incluye lo necesario para el mapa de monitoreo:
 /// posiciones, origen/destino para la ruta, y nombres para mostrar en la lista.
+/// Si el pasajero nunca envió su ubicación (p.ej. pidió desde la web), Lat/Lng
+/// son las del origen y PassengerLocationKnown = false.
 /// </summary>
 public record LivePassengerDto(
     Guid TripId,
@@ -188,7 +190,10 @@ public record LivePassengerDto(
     string? PassengerPhone,
     string? PassengerPhotoUrl,
     string? DriverName,
-    string? DriverPhone);
+    string? DriverPhone,
+    int ServiceType = 0,
+    DateTime? StartedAt = null,
+    bool PassengerLocationKnown = false);
 public record ProposeFareRequest(decimal ProposedFare);
 public record CompleteTripRequest(decimal FinalFare);
 public record CancelTripRequest(string? Reason);

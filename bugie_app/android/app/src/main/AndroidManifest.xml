@@ -21,7 +21,7 @@
          muestra notificaciones aunque Firebase reciba el mensaje. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="bugie_app"
+        android:label="Bugie"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

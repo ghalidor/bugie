@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/services/in_app_alert_service.dart';
 import '../../../core/services/push_routes.dart';
+import '../../../core/services/trips_hub_service.dart';
 import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/alert_banner.dart';
@@ -35,17 +38,63 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _markingAll = false;
   String? _error;
 
+  /// Junta en una sola recarga los avisos que llegan casi a la vez (el
+  /// mismo aviso puede llegar por push y por el hub).
+  Timer? _arrivalDebounce;
+  bool _refreshingTop = false;
+
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    // Con la bandeja abierta, un aviso nuevo (push en primer plano o su
+    // espejo por el hub) la refresca sola.
+    NotificationsBadge().arrivals.addListener(_onArrival);
+    TripsHubService().userNotification.addListener(_onArrival);
     _loadPage(reset: true);
   }
 
   @override
   void dispose() {
+    NotificationsBadge().arrivals.removeListener(_onArrival);
+    TripsHubService().userNotification.removeListener(_onArrival);
+    _arrivalDebounce?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _onArrival() {
+    if (!mounted) return;
+    _arrivalDebounce?.cancel();
+    _arrivalDebounce =
+        Timer(const Duration(milliseconds: 600), _refreshTop);
+  }
+
+  /// Trae la primera página y agrega arriba solo los avisos que aún no
+  /// están (sin duplicar ni perder las páginas ya cargadas).
+  Future<void> _refreshTop() async {
+    if (!mounted || _refreshingTop || _initialLoading) return;
+    _refreshingTop = true;
+    try {
+      final res = await context
+          .read<NotificationsRepository>()
+          .getMine(page: 1, pageSize: _pageSize);
+      if (!mounted) return;
+      final ids = _items.map((e) => e.id).toSet();
+      final fresh = res.items.where((e) => !ids.contains(e.id)).toList();
+      if (fresh.isEmpty) return;
+      setState(() {
+        _items.insertAll(0, fresh);
+        _unread = res.unread;
+        _error = null;
+      });
+      NotificationsBadge().set(res.unread);
+      _markSeen(fresh);
+    } catch (_) {
+      // Sin red: se verá al volver a abrir o al deslizar para recargar.
+    } finally {
+      _refreshingTop = false;
+    }
   }
 
   /// Carga la siguiente página cuando faltan ~300 px para el final.
@@ -150,7 +199,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancelar')),
-          ElevatedButton(
+          FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Sí, marcar')),
         ],
@@ -460,7 +509,12 @@ class _ErrorView extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: BugieColors.danger)),
             const SizedBox(height: 12),
-            ElevatedButton(onPressed: onRetry, child: const Text('Reintentar')),
+            OutlinedButton.icon(
+              style: BugieButtons.compactOutlinedStyle(context),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Reintentar'),
+            ),
           ],
         ),
       ),

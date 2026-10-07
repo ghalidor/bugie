@@ -61,6 +61,12 @@ builder.Services.Configure<Bugie.Trips.Api.Realtime.DriverLocationRelayOptions>(
     builder.Configuration.GetSection(Bugie.Trips.Api.Realtime.DriverLocationRelayOptions.Section));
 builder.Services.AddSingleton<Bugie.Trips.Api.Realtime.DriverLocationRelayState>();
 builder.Services.AddScoped<Bugie.Trips.Api.Realtime.DriverLocationRelayService>();
+// Alertas de monitoreo (sin señal, detenido, viaje demorado): el relay guarda el
+// último GPS de cada conductor en DriverGpsTracker y el servicio revisa cada 30 s.
+builder.Services.AddSingleton<Bugie.Trips.Application.Services.DriverGpsTracker>();
+builder.Services.AddScoped<IMonitorAlertRepository, MonitorAlertRepository>();
+builder.Services.AddScoped<Bugie.Trips.Application.Services.MonitorAlertsService>();
+builder.Services.AddHostedService<MonitorAlertsBackgroundService>();
 
 builder.Services.AddHttpClient<IRoutingService, GraphHopperRoutingService>(client =>
 {
@@ -86,17 +92,17 @@ builder.Services.AddHttpClient<IDriversClient, DriversClient>(c =>
 builder.Services.AddHttpClient<IRewardsClient, RewardsClient>(c =>
 {
     c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"]
-                            ?? "http://localhost:5006/");
+                            ?? "http://127.0.0.1:5006/");
     c.Timeout = TimeSpan.FromSeconds(10);
 });
 
 // Cliente HTTP a Landing — sólo para leer settings administrables
 // (por ej. max_radius_km que el admin configura en el panel).
 // Si falta la URL en appsettings, usamos el default conocido del proyecto
-// (localhost:5005). Sin esto, Trips.Api crasheaba con ArgumentNullException
+// (127.0.0.1:5005). Sin esto, Trips.Api crasheaba con ArgumentNullException
 // al construir la URI cuando appsettings no tenía Services:LandingApi.
 var landingApiUrl = builder.Configuration["Services:LandingApi"]
-    ?? "http://localhost:5005";
+    ?? "http://127.0.0.1:5005";
 builder.Services.AddHttpClient<ILandingClient, LandingClient>(c =>
 {
     c.BaseAddress = new Uri(landingApiUrl);

@@ -16,6 +16,9 @@ namespace Bugie.Trips.Api.Realtime;
 ///   - "driver:offline"    — un conductor se desconectó (no más broadcasts)
 ///   - "deviation:new" / "deviation:closed" / "deviation:reviewed"
 ///                         — alerta de desvío de ruta (detectada en el backend)
+///   - "monitor:alert" / "monitor:alert-resolved"
+///                         — alertas sin señal, detenido y viaje demorado
+///                           (MonitorAlertsService, cada 30 s)
 ///
 /// Estrategia: al conectarse, el admin se agrega automáticamente al grupo
 /// "admins" en OnConnectedAsync. Al desconectarse, se remueve.

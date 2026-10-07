@@ -126,7 +126,8 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>,
             _ = NotifyDriversAsync(trip, cmd.EstimatedFare, deliveryDrivers, CancellationToken.None);
         }
 
-        return ToDto(trip);
+        // expiresAt / expiresReason: misma regla que GET /api/trips/active.
+        return await Bugie.Trips.Application.Services.TripSearchExpiry.ApplyAsync(ToDto(trip), trip, _landing, ct);
     }
 
     // Aviso a conductores cuando el viaje ya existe (envios: tras guardar las fotos).

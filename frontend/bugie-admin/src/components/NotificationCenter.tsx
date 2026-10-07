@@ -18,7 +18,8 @@ import './notificationCenter.scss';
 
    - Avisos en vivo por SignalR: "admin:event" (mensajes de contacto,
      reclamaciones, conductores y pasajeros por revisar), el desvío de ruta
-     ("deviation:new"), que se muestra aunque estés en Monitoreo, y la alerta
+     ("deviation:new"), las alertas de seguimiento ("monitor:alert": sin señal,
+     detenido, demorado), que se muestran aunque estés en Monitoreo, y la alerta
      SOS ("sos:new", solo con permiso del Centro SOS o del Monitoreo).
    - Recordatorios periódicos (solo conteos): consulta el resumen de Trips al
      iniciar sesión y según la periodicidad de cada tipo (Sistema > Avisos).
@@ -164,6 +165,21 @@ export default function NotificationCenter() {
         message: `Se alejó ${Math.round(d.distanceM).toLocaleString('es-PE')} m de la ruta planificada.`,
         link: '/admin/monitoreo',
         permission: PERMS.ViewLiveMap,
+      });
+    },
+    // Alertas de seguimiento: sin señal, detenido o demorado.
+    onMonitorAlert: a => {
+      if (!['no_signal', 'long_stop', 'trip_delayed'].includes(a.type)) return;
+      // Igual que en el historial: basta el permiso del Monitoreo o del Centro SOS.
+      if (!hasRef.current(PERMS.ViewLiveMap) && !hasRef.current(PERMS.ViewSosCenter)) return;
+      if (a.notificationId) adminInbox.notifyLive();
+      const meta = NOTICE_TYPES.find(t => t.type === a.type);
+      push({
+        notificationId: a.notificationId ?? null,
+        type: a.type,
+        title: a.title || meta?.label || 'Alerta de seguimiento',
+        message: a.message || meta?.description || '',
+        link: '/admin/monitoreo',
       });
     },
   });

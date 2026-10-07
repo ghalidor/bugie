@@ -10,6 +10,7 @@ import '../../../core/widgets/support_contact_sheet.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../notifications/presentation/notifications_bell.dart';
 import 'home_shared.dart';
+import '../../../core/widgets/confirm_logout.dart';
 
 /// "Mi cuenta" — menú del pasajero (mockup Perfil / Cuenta).
 /// El contenido de datos personales vive en "Mis datos" (/passenger/profile).
@@ -111,6 +112,7 @@ class AccountScreen extends StatelessWidget {
                 color: BugieColors.danger,
                 showChevron: false,
                 onTap: () async {
+                  if (!await confirmLogout(context) || !context.mounted) return;
                   // logout() quita el token push de este celular en el
                   // backend y luego borra la sesión local.
                   await context.read<AuthRepository>().logout();

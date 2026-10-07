@@ -13,6 +13,7 @@ import 'core/services/admin_settings_service.dart';
 import 'core/services/fcm_service.dart';
 import 'core/services/in_app_alert_service.dart';
 import 'core/services/location_tracking_service.dart';
+import 'core/services/network_status_service.dart';
 import 'core/services/notification_prefs.dart';
 import 'core/services/request_alert_service.dart';
 import 'core/services/trips_hub_service.dart';
@@ -21,6 +22,7 @@ import 'core/theme/bugie_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/widgets/active_trip_strip.dart';
 import 'core/widgets/alert_banner.dart';
+import 'core/widgets/offline_banner.dart';
 import 'core/widgets/request_alert_panel.dart';
 import 'modules/auth/data/auth_repository.dart';
 import 'modules/driver/data/driver_repository.dart';
@@ -143,7 +145,7 @@ class BugieApp extends StatelessWidget {
           InAppAlertService().attachRouter(router, session: session);
           // Panel grande de "solicitud nueva" (conductor).
           RequestAlertService().attachRouter(router);
-          // Viaje activo del conductor (franja "Viaje en curso · Volver").
+          // Viaje activo del conductor o pasajero (franja "Viaje en curso · Volver").
           ActiveTripService().attach(
             router: router,
             session: session,
@@ -154,6 +156,10 @@ class BugieApp extends StatelessWidget {
           // viaje se suscriben; se desconecta al cerrar sesión y en segundo
           // plano.
           TripsHubService().attach(session: session);
+
+          // Franja "Sin conexión. Reintentando…" (fallas de red del
+          // ApiClient y del hub).
+          NetworkStatusService().attach();
 
           // Contador de notificaciones sin leer (campana). Antes de FCM para
           // que un push tocado con la app cerrada pueda marcarse como leído.
@@ -187,8 +193,12 @@ class BugieApp extends StatelessWidget {
                 return Stack(
                   children: [
                     // Franja "Viaje en curso · Volver" arriba de todas las
-                    // pantallas del conductor mientras tenga un viaje activo.
-                    ActiveTripFrame(child: child ?? const SizedBox.shrink()),
+                    // pantallas mientras el usuario tenga un viaje activo y,
+                    // debajo, "Sin conexión. Reintentando…" si no hay red.
+                    ActiveTripFrame(
+                      child: OfflineFrame(
+                          child: child ?? const SizedBox.shrink()),
+                    ),
                     const AlertOverlay(),
                     const RequestAlertPanel(),
                   ],

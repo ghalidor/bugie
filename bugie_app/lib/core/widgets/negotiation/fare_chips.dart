@@ -30,11 +30,15 @@ Future<bool> confirmQuickFare(
   required double fare,
   required String recipient,
 }) async {
+  // "a el pasajero" → "al pasajero" (contracción obligatoria).
+  final to = recipient.startsWith('el ')
+      ? 'al ${recipient.substring(3)}'
+      : 'a $recipient';
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text('¿Enviar ${formatSoles(fare)}?'),
-      content: Text('Le enviaremos esta oferta a $recipient.'),
+      content: Text('Le enviaremos esta oferta $to.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),

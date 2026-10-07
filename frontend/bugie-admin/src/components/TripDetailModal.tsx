@@ -4,6 +4,7 @@ import { API, ApiError, apiFetch } from '../state/api';
 import { PlannedRoute, RouteLegend, TripPath, buildRouteLines, fetchPlannedRoute, fetchTripPath } from './tripRoutes';
 import { IconButton, Modal, Skeleton, StatusBadge } from './ui';
 import { DriverLink, PassengerLink } from './EntityLinks';
+import RawGpsDownload from './RawGpsDownload';
 
 /** Lo que el modal necesita del viaje (TripDto del backend). */
 export interface TripDetail {
@@ -184,6 +185,7 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
                       {path!.firstAt && path!.lastAt && <> · de {fmt(path!.firstAt)} a {fmt(path!.lastAt)}</>}</>}
               </div>
             )}
+            {trip.driverId && <div><RawGpsDownload tripId={trip.id} /></div>}
           </section>
 
           <div className="bx-trip-side">

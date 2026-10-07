@@ -21,7 +21,7 @@ public class AdminEventsPublisher : IAdminEventsPublisher
 
     public AdminEventsPublisher(IConfiguration cfg, ILogger<AdminEventsPublisher> log)
     {
-        _baseUrl = (cfg["Services:TripsApi"] ?? "http://localhost:5002").TrimEnd('/');
+        _baseUrl = (cfg["Services:TripsApi"] ?? "http://127.0.0.1:5002").TrimEnd('/');
         _token = cfg["InternalToken"] ?? "";
         _log = log;
     }

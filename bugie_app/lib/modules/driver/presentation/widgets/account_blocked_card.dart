@@ -307,7 +307,7 @@ class _ReviewRequestSheetState extends State<_ReviewRequestSheet> {
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancelar'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Enviar'),
           ),
@@ -431,8 +431,18 @@ class _ReviewRequestSheetState extends State<_ReviewRequestSheet> {
               ),
               onPressed: _busy ? null : _send,
             ),
-            const SizedBox(height: 4),
-            TextButton(
+            const SizedBox(height: 10),
+            // Contorno neutro, mismo alto y radio que "Enviar solicitud".
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: c.text,
+                side: BorderSide(color: c.inputBorder, width: 1.4),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                textStyle: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700),
+              ),
               onPressed: _busy ? null : () => Navigator.of(context).pop(false),
               child: const Text('Cancelar'),
             ),

@@ -236,4 +236,74 @@ public class SignalRAdminNotifier : IAdminNotifier
             _log.LogWarning(ex, "No se pudo notificar desvío de ruta vía SignalR (no crítico).");
         }
     }
+
+    /// <summary>
+    /// Alerta de monitoreo nueva (no_signal, long_stop, trip_delayed). Se guarda
+    /// en el historial de avisos con el mismo tipo, link /admin/monitoreo y
+    /// permiso "view:live_map,view:sos_center" (como el SOS), y se empuja
+    /// "monitor:alert" { id, tripId, driverId, type, title, message, minutes, at,
+    /// notificationId }. Si guardar el aviso falla, igual se empuja (notificationId null).
+    /// </summary>
+    public async Task NotifyMonitorAlertAsync(MonitorAlert a, string title, string message, int minutes,
+                                              CancellationToken ct = default)
+    {
+        Guid? notificationId = null;
+        try
+        {
+            var data = JsonSerializer.Serialize(new
+            {
+                alertId = a.Id,
+                tripId = a.TripId,
+                driverId = a.DriverId,
+                type = a.Type,
+                minutes,
+            });
+            notificationId = await _history.AddAsync(
+                a.Type, title, message, "/admin/monitoreo",
+                "view:live_map,view:sos_center", data, ct);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo guardar la alerta de monitoreo en el historial de avisos (no crítico).");
+        }
+
+        try
+        {
+            await _hub.Clients.Group("admins").SendAsync("monitor:alert", new
+            {
+                id = a.Id,
+                tripId = a.TripId,
+                driverId = a.DriverId,
+                type = a.Type,
+                title,
+                message,
+                minutes,
+                at = DateTime.UtcNow,
+                notificationId,
+            }, ct);
+            _log.LogInformation("SignalR: 'monitor:alert' ({Type}) empujado. Trip={TripId}", a.Type, a.TripId);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo notificar la alerta de monitoreo vía SignalR (no crítico).");
+        }
+    }
+
+    /// <summary>Alerta de monitoreo resuelta: "monitor:alert-resolved" { id, tripId, type }.</summary>
+    public async Task NotifyMonitorAlertResolvedAsync(MonitorAlert a, CancellationToken ct = default)
+    {
+        try
+        {
+            await _hub.Clients.Group("admins").SendAsync("monitor:alert-resolved", new
+            {
+                id = a.Id,
+                tripId = a.TripId,
+                type = a.Type,
+            }, ct);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo notificar la alerta de monitoreo resuelta vía SignalR (no crítico).");
+        }
+    }
 }

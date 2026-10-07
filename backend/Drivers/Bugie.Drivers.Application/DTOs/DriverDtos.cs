@@ -47,7 +47,11 @@ public record DriverDto(
     DateTime? DeletedAt = null,
     string? DeletedReason = null,
     // Placa del vehiculo activo (listado admin de conductores)
-    string? ActivePlate = null);
+    string? ActivePlate = null,
+    // Solo GET /online (mapa del admin): celular del usuario y hora de la
+    // ultima posicion (memoria si existe; si no, drivers.CurrentLocationAt).
+    string? Phone = null,
+    DateTime? LastLocationAt = null);
 
 /// <summary>Solicitud de revisión abierta del conductor (rechazado o suspendido).</summary>
 public record ReviewRequestDto(Guid Id, string Message, DateTime CreatedAt);

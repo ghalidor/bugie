@@ -275,9 +275,13 @@ class _PassengerVerificationScreenState
                               child: Text('No se pudieron cargar los requisitos.',
                                   style: TextStyle(color: c.textMuted)),
                             ),
-                            TextButton(
-                                onPressed: _load,
-                                child: const Text('Reintentar')),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              style: BugieButtons.compactOutlinedStyle(context),
+                              onPressed: _load,
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Reintentar'),
+                            ),
                           ],
                         ),
                       ),

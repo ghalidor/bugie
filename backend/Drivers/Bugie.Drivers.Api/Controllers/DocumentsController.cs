@@ -173,14 +173,15 @@ public class DocumentsController : ControllerBase
             {
                 var expiresAtUtc = existing.ExpiresAt.Value;
                 var isExpired = expiresAtUtc <= now;
-                var daysUntilExpiry = (expiresAtUtc.Date - now.Date).TotalDays;
+                // Dias de calendario de Peru (la fecha se guarda en UTC).
+                var daysUntilExpiry = (BugieTime.ToPeru(expiresAtUtc).Date - BugieTime.Today).TotalDays;
                 var insideRenewalWindow = daysUntilExpiry <= windowDays;
 
                 if(!isExpired && !insideRenewalWindow)
                 {
                     return BadRequest(new
                     {
-                        error = $"Este documento solo se puede actualizar desde {windowDays} días antes de su caducidad ({existing.ExpiresAt:dd/MM/yyyy}).",
+                        error = $"Este documento solo se puede actualizar desde {windowDays} días antes de su caducidad ({BugieTime.ToPeru(expiresAtUtc):dd/MM/yyyy}).",
                     });
                 }
             }
@@ -400,8 +401,8 @@ public class DocumentsController : ControllerBase
                 });
             }
 
-            var now = DateTime.UtcNow;
-            var daysUntilExpiry = (int)Math.Floor((existing.ExpiresAt.Value.Date - now.Date).TotalDays);
+            // Dias de calendario de Peru (la fecha se guarda en UTC).
+            var daysUntilExpiry = (int)Math.Floor((BugieTime.ToPeru(existing.ExpiresAt.Value).Date - BugieTime.Today).TotalDays);
             var isExpired = daysUntilExpiry < 0;
             var insideWindow = daysUntilExpiry <= windowDays;
 

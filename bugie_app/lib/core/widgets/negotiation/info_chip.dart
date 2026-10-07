@@ -9,12 +9,16 @@ class InfoChip extends StatelessWidget {
   final IconData icon;
   final String text;
   final Color? color;
+  /// Líneas máximas del texto. Con 2, un texto largo baja de línea en vez
+  /// de cortarse con "…".
+  final int maxLines;
 
   const InfoChip({
     super.key,
     required this.icon,
     required this.text,
     this.color,
+    this.maxLines = 1,
   });
 
   @override
@@ -25,7 +29,9 @@ class InfoChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: (color ?? c.textMuted).withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
+        // Con varias líneas, esquinas redondeadas (en una línea se ve igual
+        // a una píldora).
+        borderRadius: BorderRadius.circular(maxLines > 1 ? 14 : 999),
         border: Border.all(color: (color ?? c.border).withValues(alpha: 0.35)),
       ),
       child: Row(
@@ -36,7 +42,7 @@ class InfoChip extends StatelessWidget {
           Flexible(
             child: Text(
               text,
-              maxLines: 1,
+              maxLines: maxLines,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 12.5, fontWeight: FontWeight.w600, color: fg),

@@ -8,7 +8,8 @@ export interface MapMarker extends LatLng {
   /// Sin id se usa tipo + etiqueta como clave.
   id?: string;
   label?: string;
-  type?:  'origin' | 'destination' | 'driver' | 'passenger' | 'default';
+  /// 'flag' = bandera de destino de un viaje en curso (usa `color`).
+  type?:  'origin' | 'destination' | 'driver' | 'passenger' | 'flag' | 'default';
   /// Si true, el conductor se pinta rojo y se le agrega circunferencia roja.
   deviated?: boolean;
   /// Si true, el usuario (conductor o pasajero) tiene una alerta SOS activa.
@@ -20,6 +21,16 @@ export interface MapMarker extends LatLng {
   /// un anillo dorado destacado para que el admin lo identifique fácil entre
   /// los demás pines del mapa.
   highlighted?: boolean;
+  /// Pin atenuado (opacidad baja): p. ej. las demás unidades mientras se sigue a una.
+  dimmed?: boolean;
+  /// Alerta de seguimiento abierta (sin señal, detenido, demorado): anillo ámbar.
+  /// SOS y desvío tienen prioridad.
+  warned?: boolean;
+  /// Color del pin cuando el tipo lo admite (bandera de destino).
+  color?: string;
+  /// Grupo de agrupación. Solo los pines con grupo se juntan en un círculo con
+  /// el número al alejar el mapa (ver prop `cluster`). Sin grupo, siempre visible.
+  clusterGroup?: string;
   extra?: {
     fullName?:      string;
     rating?:        number;
@@ -32,6 +43,16 @@ export interface MapMarker extends LatLng {
   };
 }
 
+/// Agrupación de pines por cuadrícula en píxeles (sin librerías).
+export interface MapClusterOptions {
+  /// Tamaño de la celda en píxeles de pantalla (por defecto 64).
+  gridPx?: number;
+  /// Hasta este zoom se agrupa; más cerca se ven todos los pines (por defecto 15).
+  maxZoom?: number;
+  /// Texto accesible por grupo, en plural: { drivers: 'conductores disponibles' }.
+  labels?: Record<string, string>;
+}
+
 interface BugieMapAdminProps {
   center?:  LatLng;
   zoom?:    number;
@@ -42,7 +63,13 @@ interface BugieMapAdminProps {
   /// para mostrar TODOS los markers en pantalla (fitBounds). Sin animación
   /// para evitar tiles rotos. Útil para botones de "autofoco".
   onFitBoundsRef?: MutableRefObject<(() => void) | null>;
+  /// Ref para desplazar el mapa a un punto SIN cambiar el zoom (seguir una unidad).
+  onPanToRef?: MutableRefObject<((lat: number, lng: number) => void) | null>;
+  /// El usuario empezó a arrastrar el mapa con el mouse o el dedo.
+  onUserDrag?: () => void;
   onMarkerClick?: (marker: MapMarker) => void;
+  /// Agrupa los pines con `clusterGroup` al alejar el mapa.
+  cluster?: MapClusterOptions;
   /// Polyline a dibujar sobre el mapa, en formato GraphHopper:
   /// array de [lng, lat]. Si está presente, se dibuja con un trazo grueso
   /// azul que sigue las calles reales (en lugar de línea recta).
@@ -75,88 +102,124 @@ export const ROUTE_COLORS = {
   pickup:  '#94a3b8',  // tramo de recogida (gris tenue)
 } as const;
 
+/// Colores del pin del conductor según su estado (los usa también la leyenda).
+export const DRIVER_COLORS = {
+  available: '#34d399', // disponible
+  enRoute:   '#0ea5e9', // en camino al recojo
+  inTrip:    '#818cf8', // viaje en curso
+  deviated:  '#dc2626', // fuera de la ruta
+  sos:       '#f87171', // SOS
+} as const;
+
 /// Duración del movimiento suave de un pin entre dos posiciones GPS.
 const MOVE_ANIM_MS = 1000;
 /// Si el salto es mayor a esto (m), el pin se mueve de golpe (no tiene
 /// sentido "deslizar" un auto 5 km por un GPS atrasado).
 const MOVE_ANIM_MAX_M = 3000;
+/// Opacidad de un pin atenuado.
+const DIM_OPACITY = 0.25;
 
 // ── Iconos ─────────────────────────────────────────────────────────────
+// Se guardan en caché por variante: con cientos de pines y un GPS por
+// segundo no se vuelve a armar el SVG de cada pin.
 
-function makeDriverIcon(hasActiveTrip: boolean, deviated: boolean): string {
-  const color = deviated ? '#dc2626' : (hasActiveTrip ? '#818cf8' : '#34d399');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+const iconCache = new Map<string, string>();
+function cachedIcon(key: string, build: () => string): string {
+  let url = iconCache.get(key);
+  if (!url) { url = build(); iconCache.set(key, url); }
+  return url;
+}
+const svgUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+function makeDriverIcon(color: string): string {
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
     <circle cx="18" cy="18" r="17" fill="${color}" opacity="0.2"/>
     <circle cx="18" cy="18" r="13" fill="${color}"/>
     <text x="18" y="23" text-anchor="middle" font-size="13" fill="#fff">🚗</text>
     <line x1="18" y1="31" x2="18" y2="42" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  </svg>`);
 }
 
 function makeSosIcon(): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
     <circle cx="18" cy="18" r="17" fill="#f87171" opacity="0.25"/>
     <circle cx="18" cy="18" r="13" fill="#f87171"/>
     <text x="18" y="23" text-anchor="middle" font-size="14" fill="#fff">🚨</text>
     <line x1="18" y1="31" x2="18" y2="42" stroke="#f87171" stroke-width="3" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  </svg>`);
 }
 
 function makePassengerIcon(): string {
   const color = '#f97316';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
     <circle cx="18" cy="18" r="17" fill="${color}" opacity="0.2"/>
     <circle cx="18" cy="18" r="13" fill="${color}"/>
     <text x="18" y="23" text-anchor="middle" font-size="13" fill="#fff">🧍</text>
     <line x1="18" y1="31" x2="18" y2="42" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  </svg>`);
 }
 
 /// Pin verde para "Origen" del viaje (punto de recogida).
 function makeOriginIcon(): string {
   const color = '#10b981';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
     <circle cx="18" cy="18" r="17" fill="${color}" opacity="0.2"/>
     <circle cx="18" cy="18" r="13" fill="${color}"/>
     <text x="18" y="23" text-anchor="middle" font-size="13" fill="#fff" font-weight="bold">A</text>
     <line x1="18" y1="31" x2="18" y2="42" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  </svg>`);
 }
 
 /// Pin rojo oscuro para "Destino" del viaje (a dónde se va).
 function makeDestinationIcon(): string {
   const color = '#1e293b';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
     <circle cx="18" cy="18" r="17" fill="${color}" opacity="0.2"/>
     <circle cx="18" cy="18" r="13" fill="${color}"/>
     <text x="18" y="23" text-anchor="middle" font-size="13" fill="#fff" font-weight="bold">B</text>
     <line x1="18" y1="31" x2="18" y2="42" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  </svg>`);
+}
+
+/// Bandera de destino (mástil con borde blanco para que se vea en tema oscuro).
+function makeFlagIcon(color: string): string {
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40">
+    <ellipse cx="8" cy="37.5" rx="5" ry="2" fill="#000" opacity="0.25"/>
+    <line x1="8" y1="37" x2="8" y2="4" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <line x1="8" y1="37" x2="8" y2="4" stroke="#1e293b" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M9 4 H27 L22.5 10.5 L27 17 H9 Z" fill="${color}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`);
+}
+
+/// Color del pin de un conductor según su estado.
+function driverColor(m: MapMarker): string {
+  if (m.deviated) return DRIVER_COLORS.deviated;
+  if (m.extra?.tripStatus === 2) return DRIVER_COLORS.enRoute;
+  return m.extra?.hasActiveTrip ? DRIVER_COLORS.inTrip : DRIVER_COLORS.available;
 }
 
 /// URL del ícono según tipo y estado del pin.
 function iconUrlFor(m: MapMarker): string {
-  const isDriver    = m.type === 'driver';
-  const isPassenger = m.type === 'passenger';
-  const isOrigin    = m.type === 'origin';
-  const isDest      = m.type === 'destination' && !m.label?.includes('SOS');
-  const isSosLabel  = m.label?.includes('SOS');
+  const isDest     = m.type === 'destination' && !m.label?.includes('SOS');
+  const isSosLabel = m.label?.includes('SOS');
 
   // Si el usuario tiene SOS activo, su ícono se reemplaza por el de SOS
   // (rojo + emoji 🚨) sin importar si era conductor o pasajero. Es la
   // forma de mostrar emergencia sin agregar un pin extra encima.
-  if (m.sosActive)  return makeSosIcon();
-  if (isDriver)     return makeDriverIcon(m.extra?.hasActiveTrip ?? false, m.deviated ?? false);
-  if (isPassenger)  return makePassengerIcon();
-  if (isSosLabel)   return makeSosIcon();
-  if (isOrigin)     return makeOriginIcon();
-  if (isDest)       return makeDestinationIcon();
-  return makeDriverIcon(false, false);
+  if (m.sosActive)            return cachedIcon('sos', makeSosIcon);
+  if (m.type === 'driver')    { const c = driverColor(m); return cachedIcon(`driver:${c}`, () => makeDriverIcon(c)); }
+  if (m.type === 'passenger') return cachedIcon('passenger', makePassengerIcon);
+  if (m.type === 'flag')      { const c = m.color ?? '#1e293b'; return cachedIcon(`flag:${c}`, () => makeFlagIcon(c)); }
+  if (isSosLabel)             return cachedIcon('sos', makeSosIcon);
+  if (m.type === 'origin')    return cachedIcon('origin', makeOriginIcon);
+  if (isDest)                 return cachedIcon('destination', makeDestinationIcon);
+  return cachedIcon(`driver:${DRIVER_COLORS.available}`, () => makeDriverIcon(DRIVER_COLORS.available));
+}
+
+/// Tamaño y ancla del ícono (la bandera se apoya en la base del mástil).
+function iconGeometry(m: MapMarker) {
+  if (m.type === 'flag' && !m.sosActive) return { iconSize: [30, 40], iconAnchor: [8, 38], popupAnchor: [6, -36] };
+  return { iconSize: [36, 44], iconAnchor: [18, 44], popupAnchor: [0, -44] };
 }
 
 /// HTML del popup del pin.
@@ -184,14 +247,18 @@ function popupHtmlFor(m: MapMarker): string {
   if (isDriver && m.extra) {
     const status = m.deviated
       ? '<span style="color:#dc2626;font-weight:700">⚠️ Fuera de la ruta</span>'
-      : m.extra.hasActiveTrip
-        ? '<span style="color:#818cf8;font-weight:600">🚗 En viaje</span>'
-        : '<span style="color:#34d399;font-weight:600">✅ Disponible</span>';
+      : m.extra.tripStatus === 2
+        ? '<span style="color:#0284c7;font-weight:600">🚗 En camino al recojo</span>'
+        : m.extra.hasActiveTrip
+          ? '<span style="color:#6366f1;font-weight:600">🚗 En viaje</span>'
+          : '<span style="color:#059669;font-weight:600">✅ Disponible</span>';
+    const plate = m.extra.vehiclePlate ? `<div style="font-size:0.8rem;color:#555;margin-bottom:2px">${m.extra.vehiclePlate}</div>` : '';
     return `
       <div style="font-family:sans-serif;min-width:160px;padding:4px">
         <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
           ${m.extra.fullName || 'Conductor'}
         </div>
+        ${plate}
         <div style="font-size:0.82rem;margin-bottom:4px">${status}</div>
         <div style="font-size:0.82rem;color:#555">⭐ ${m.extra.rating?.toFixed(1) ?? '—'}</div>
       </div>`;
@@ -199,7 +266,7 @@ function popupHtmlFor(m: MapMarker): string {
   if (isPassenger) {
     const labelMap: Record<number, string> = {
       1: '⏳ Buscando conductor',
-      2: '🚗 Conductor en camino',
+      2: '🚗 Esperando al conductor',
       3: '🚦 Viaje en curso',
       6: '🚨 SOS activo',
       7: '💬 Negociando tarifa',
@@ -210,10 +277,20 @@ function popupHtmlFor(m: MapMarker): string {
         <div style="font-size:0.95rem;font-weight:700;margin-bottom:4px;color:#1a1730">
           ${m.label || 'Pasajero'}
         </div>
-        <div style="font-size:0.82rem;color:#f97316;font-weight:600">${status}</div>
+        <div style="font-size:0.82rem;color:#c2410c;font-weight:600">${status}</div>
       </div>`;
   }
   return `<div style="font-family:sans-serif;padding:4px;font-weight:600;color:#1a1730">${m.label ?? ''}</div>`;
+}
+
+/// Firma de lo que cambia el aspecto de un pin (no la posición). Si no
+/// cambia, el pin no se toca (solo se mueve si llegó otro GPS).
+function markerSig(m: MapMarker): string {
+  const x = m.extra;
+  return [
+    m.type, m.label, m.deviated ? 1 : 0, m.sosActive ? 1 : 0, m.highlighted ? 1 : 0, m.dimmed ? 1 : 0, m.warned ? 1 : 0, m.color, m.clusterGroup,
+    x?.fullName, x?.rating, x?.hasActiveTrip ? 1 : 0, x?.tripStatus, x?.vehiclePlate,
+  ].join('|');
 }
 
 /* Teselas del mapa.
@@ -237,13 +314,15 @@ const DARK_TILE_FILTER = 'invert(1) hue-rotate(180deg) brightness(.92) contrast(
 
 // ── Estado interno por pin / línea (capas Leaflet vivas) ───────────────
 
-/// Anillos alrededor de un pin: SOS (rojo grande), desvío (rojo) y selección (dorado).
-type RingKind = 'sos' | 'dev' | 'hl';
+/// Anillos alrededor de un pin: SOS (rojo grande), desvío (rojo), alerta de
+/// seguimiento (ámbar) y selección (dorado).
+type RingKind = 'sos' | 'dev' | 'warn' | 'hl';
 const RING_STYLE: Record<RingKind, { radius: number; color: string; fillOpacity: number; weight: number }> = {
   // Anillo de SOS: más ancho que el de "desviado" para que se note que es
   // una emergencia, no un desvío. Tiene prioridad sobre el de desvío.
   sos: { radius: 120, color: '#dc2626', fillOpacity: 0.18, weight: 3 },
   dev: { radius: 80,  color: '#dc2626', fillOpacity: 0.15, weight: 2 },
+  warn: { radius: 75, color: '#f59e0b', fillOpacity: 0.14, weight: 3 },
   // Anillo dorado de selección. Se dibuja ADEMÁS del de SOS/desvío para que
   // un pin pueda estar en SOS Y seleccionado y se vean ambos estados.
   hl:  { radius: 60,  color: '#fbbf24', fillOpacity: 0.18, weight: 4 },
@@ -252,11 +331,23 @@ const RING_STYLE: Record<RingKind, { radius: number; color: string; fillOpacity:
 interface MarkerEntry {
   data: MapMarker;
   marker: any;
+  sig: string;
   iconUrl: string;
   popupHtml: string;
   rings: Partial<Record<RingKind, any>>;
   /// requestAnimationFrame activo del movimiento suave (0 = ninguno).
   raf: number;
+  /// Fuera del mapa porque está dentro de un grupo (cluster).
+  hidden: boolean;
+  dimmed: boolean;
+}
+
+interface ClusterEntry {
+  marker: any;
+  count: number;
+  dimmed: boolean;
+  /// Claves de los pines que agrupa (para acercar al tocarlo).
+  members: string[];
 }
 
 interface LineEntry {
@@ -285,12 +376,17 @@ function distanceM(a: LatLng, b: LatLng): number {
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
 export default function BugieMapAdmin({
   center, zoom,
   markers = [], height = 320,
   onFocusRef,
   onFitBoundsRef,
+  onPanToRef,
+  onUserDrag,
   onMarkerClick,
+  cluster,
   routeCoordinates,
   lines,
 }: BugieMapAdminProps) {
@@ -303,19 +399,127 @@ export default function BugieMapAdmin({
   // Observa el cambio de tema para invertir las teselas en oscuro.
   const themeObserverRef = useRef<MutationObserver | null>(null);
   // Pines y líneas vivos, por clave. Se actualizan en sitio: solo se toca lo que cambió.
-  const markerEntries = useRef<Map<string, MarkerEntry>>(new Map());
-  const lineEntries   = useRef<Map<string, LineEntry>>(new Map());
+  const markerEntries  = useRef<Map<string, MarkerEntry>>(new Map());
+  const clusterEntries = useRef<Map<string, ClusterEntry>>(new Map());
+  const lineEntries    = useRef<Map<string, LineEntry>>(new Map());
   const didFitOnce   = useRef<boolean>(false);
   // Si las líneas llegan después del primer encuadre, se reencuadra una vez.
   const didFitLines  = useRef<boolean>(false);
   // El click usa siempre el handler más reciente sin recrear los pines.
   const onMarkerClickRef = useRef(onMarkerClick);
   onMarkerClickRef.current = onMarkerClick;
+  const onUserDragRef = useRef(onUserDrag);
+  onUserDragRef.current = onUserDrag;
+  const clusterRef = useRef(cluster);
+  clusterRef.current = cluster;
 
   const fitLayers = () => [
     ...Array.from(markerEntries.current.values()).map(e => e.marker),
     ...Array.from(lineEntries.current.values()).map(e => e.layer),
   ];
+
+  // ── Visibilidad / atenuado de un pin (y sus anillos) ─────────────────
+  const setHidden = (map: any, e: MarkerEntry, hidden: boolean) => {
+    if (e.hidden === hidden) return;
+    e.hidden = hidden;
+    const layers = [e.marker, ...Object.values(e.rings)];
+    layers.forEach(l => {
+      if (!l) return;
+      try { if (hidden) map.removeLayer(l); else l.addTo(map); } catch {}
+    });
+  };
+
+  const setDimmed = (e: MarkerEntry, dimmed: boolean) => {
+    if (e.dimmed === dimmed) return;
+    e.dimmed = dimmed;
+    try { e.marker.setOpacity(dimmed ? DIM_OPACITY : 1); } catch {}
+    (Object.keys(e.rings) as RingKind[]).forEach(kind => {
+      try { e.rings[kind]?.setStyle({ opacity: dimmed ? 0.25 : 1, fillOpacity: dimmed ? 0.04 : RING_STYLE[kind].fillOpacity }); } catch {}
+    });
+  };
+
+  /// Agrupa por cuadrícula en píxeles los pines con `clusterGroup`. Se llama
+  /// al cambiar los pines y al terminar un zoom (O(n), sin librerías).
+  const applyClusters = () => {
+    const map = mapRef.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+    const opts = clusterRef.current;
+    const z = map.getZoom();
+    const enabled = !!opts && z <= (opts.maxZoom ?? 15);
+    const grid = opts?.gridPx ?? 64;
+
+    const groups = new Map<string, string[]>();
+    markerEntries.current.forEach((e, key) => {
+      const g = e.data.clusterGroup;
+      if (!enabled || !g) { setHidden(map, e, false); return; }
+      const p = map.project([e.data.lat, e.data.lng], z);
+      const cell = `${g}|${Math.floor(p.x / grid)}|${Math.floor(p.y / grid)}`;
+      const list = groups.get(cell);
+      if (list) list.push(key); else groups.set(cell, [key]);
+    });
+
+    const wanted = new Set<string>();
+    groups.forEach((keys, cell) => {
+      const members = keys.map(k => markerEntries.current.get(k)!);
+      if (members.length < 2) { setHidden(map, members[0], false); return; }
+      members.forEach(e => setHidden(map, e, true));
+      wanted.add(cell);
+
+      const lat = members.reduce((s, e) => s + e.data.lat, 0) / members.length;
+      const lng = members.reduce((s, e) => s + e.data.lng, 0) / members.length;
+      const dimmed = members.every(e => e.data.dimmed);
+      const group = cell.split('|')[0];
+      const n = members.length;
+      const label = `${n} ${opts?.labels?.[group] ?? 'pines'}. Toca para acercar.`;
+      const cur = clusterEntries.current.get(cell);
+      if (!cur) {
+        const size = n < 10 ? 34 : n < 50 ? 40 : 46;
+        const icon = L.divIcon({
+          className: 'bx-map-cluster-icon',
+          html: `<span class="bx-map-cluster is-${escapeHtml(group)}" style="width:${size}px;height:${size}px">${n}</span>`,
+          iconSize: [size, size],
+        });
+        const marker = L.marker([lat, lng], { icon, keyboard: true, title: label, alt: label, zIndexOffset: -200 }).addTo(map);
+        const entry: ClusterEntry = { marker, count: n, dimmed: false, members: keys };
+        marker.on('click', () => zoomToMembers(entry.members));
+        if (dimmed) { marker.setOpacity(DIM_OPACITY); entry.dimmed = true; }
+        clusterEntries.current.set(cell, entry);
+      } else {
+        cur.members = keys;
+        cur.marker.setLatLng([lat, lng]);
+        if (cur.count !== n) {
+          const size = n < 10 ? 34 : n < 50 ? 40 : 46;
+          cur.marker.setIcon(L.divIcon({
+            className: 'bx-map-cluster-icon',
+            html: `<span class="bx-map-cluster is-${escapeHtml(group)}" style="width:${size}px;height:${size}px">${n}</span>`,
+            iconSize: [size, size],
+          }));
+          const el = cur.marker.getElement?.();
+          if (el) { el.setAttribute('title', label); el.setAttribute('aria-label', label); }
+          cur.count = n;
+        }
+        if (cur.dimmed !== dimmed) { cur.marker.setOpacity(dimmed ? DIM_OPACITY : 1); cur.dimmed = dimmed; }
+      }
+    });
+    clusterEntries.current.forEach((c, cell) => {
+      if (!wanted.has(cell)) { try { map.removeLayer(c.marker); } catch {} clusterEntries.current.delete(cell); }
+    });
+  };
+
+  /// Al tocar un grupo: acerca el mapa hasta que sus pines se separen.
+  const zoomToMembers = (keys: string[]) => {
+    const map = mapRef.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+    const pts = keys.map(k => markerEntries.current.get(k)).filter(Boolean).map(e => [e!.data.lat, e!.data.lng]);
+    if (pts.length === 0) return;
+    const bounds = L.latLngBounds(pts);
+    const maxZ = (clusterRef.current?.maxZoom ?? 15) + 1;
+    const fitZ = map.getBoundsZoom(bounds, false, L.point(60, 60));
+    const z = Math.min(Math.max(fitZ, map.getZoom() + 1), Math.max(maxZ, map.getZoom() + 1));
+    map.setView(bounds.getCenter(), z, { animate: !prefersReducedMotion() });
+  };
 
   // ResizeObserver para invalidateSize cuando cambia tamaño del contenedor.
   useEffect(() => {
@@ -350,6 +554,18 @@ export default function BugieMapAdmin({
     };
     return () => { if (onFocusRef) onFocusRef.current = null; };
   }, [onFocusRef]);
+
+  // Exponer "desplazar a" (sin cambiar el zoom) para seguir una unidad.
+  useEffect(() => {
+    if (!onPanToRef) return;
+    onPanToRef.current = (lat: number, lng: number) => {
+      const m = mapRef.current;
+      if (!m) return;
+      const reduce = prefersReducedMotion();
+      m.panTo([lat, lng], { animate: !reduce, duration: 0.6 });
+    };
+    return () => { if (onPanToRef) onPanToRef.current = null; };
+  }, [onPanToRef]);
 
   // Exponer fitBounds al padre. Reencaja todos los markers visibles en el
   // mapa con padding. Útil para botón "autofoco" que vuelve a mostrar todo.
@@ -412,7 +628,7 @@ export default function BugieMapAdmin({
       };
       const from = e.marker.getLatLng() as LatLng;
       const dist = distanceM(from, to);
-      if (!animate || dist < 0.5 || dist > MOVE_ANIM_MAX_M || prefersReducedMotion()) { setAll(to.lat, to.lng); return; }
+      if (!animate || e.hidden || dist < 0.5 || dist > MOVE_ANIM_MAX_M || prefersReducedMotion()) { setAll(to.lat, to.lng); return; }
       const start = performance.now();
       const step = (now: number) => {
         const t = Math.min(1, (now - start) / MOVE_ANIM_MS);
@@ -433,7 +649,12 @@ export default function BugieMapAdmin({
       const cur = e.rings[kind];
       if (wanted && !cur) {
         const s = RING_STYLE[kind];
-        e.rings[kind] = L.circle([at.lat, at.lng], { radius: s.radius, color: s.color, fillColor: s.color, fillOpacity: s.fillOpacity, weight: s.weight }).addTo(map);
+        const ring = L.circle([at.lat, at.lng], {
+          radius: s.radius, color: s.color, fillColor: s.color, weight: s.weight,
+          fillOpacity: e.dimmed ? 0.04 : s.fillOpacity, opacity: e.dimmed ? 0.25 : 1,
+        });
+        if (!e.hidden) ring.addTo(map);
+        e.rings[kind] = ring;
       } else if (!wanted && cur) {
         try { map.removeLayer(cur); } catch {}
         delete e.rings[kind];
@@ -454,34 +675,44 @@ export default function BugieMapAdmin({
       entries.forEach((e, key) => { if (!wanted.has(key)) { removeEntry(map, e); entries.delete(key); } });
 
       wanted.forEach((m, key) => {
-        const iconUrl = iconUrlFor(m);
-        const popupHtml = popupHtmlFor(m);
-        const makeIcon = () => L.icon({ iconUrl, iconSize: [36, 44], iconAnchor: [18, 44], popupAnchor: [0, -44] });
+        const sig = markerSig(m);
         let e = entries.get(key);
         if (!e) {
-          const marker = L.marker([m.lat, m.lng], { icon: makeIcon() }).addTo(map);
+          const iconUrl = iconUrlFor(m);
+          const popupHtml = popupHtmlFor(m);
+          const marker = L.marker([m.lat, m.lng], { icon: L.icon({ iconUrl, ...iconGeometry(m) }), alt: m.label ?? '' }).addTo(map);
           marker.bindPopup(popupHtml);
-          const entry: MarkerEntry = { data: m, marker, iconUrl, popupHtml, rings: {}, raf: 0 };
+          const entry: MarkerEntry = { data: m, marker, sig, iconUrl, popupHtml, rings: {}, raf: 0, hidden: false, dimmed: false };
           marker.on('click', () => onMarkerClickRef.current?.(entry.data));
           entries.set(key, entry);
           e = entry;
         } else {
-          if (e.iconUrl !== iconUrl) { e.marker.setIcon(makeIcon()); e.iconUrl = iconUrl; }
-          if (e.popupHtml !== popupHtml) { e.marker.setPopupContent(popupHtml); e.popupHtml = popupHtml; }
+          const moved = e.data.lat !== m.lat || e.data.lng !== m.lng;
+          // Mismo aspecto y misma posición: nada que hacer con este pin.
+          if (!moved && e.sig === sig) { e.data = m; return; }
+          if (e.sig !== sig) {
+            const iconUrl = iconUrlFor(m);
+            const popupHtml = popupHtmlFor(m);
+            if (e.iconUrl !== iconUrl) { e.marker.setIcon(L.icon({ iconUrl, ...iconGeometry(m) })); e.iconUrl = iconUrl; }
+            if (e.popupHtml !== popupHtml) { e.marker.setPopupContent(popupHtml); e.popupHtml = popupHtml; }
+            e.sig = sig;
+          }
           // Se compara contra la última posición pedida (no la visual, que
           // puede estar a mitad de animación).
-          if (e.data.lat !== m.lat || e.data.lng !== m.lng) {
-            moveEntry(e, { lat: m.lat, lng: m.lng }, m.type === 'driver' || m.type === 'passenger');
-          }
+          if (moved) moveEntry(e, { lat: m.lat, lng: m.lng }, m.type === 'driver' || m.type === 'passenger');
           e.data = m;
         }
 
+        setDimmed(e, m.dimmed === true);
         const at = e.raf ? (e.marker.getLatLng() as LatLng) : { lat: m.lat, lng: m.lng };
         const inSos = m.sosActive === true;
         syncRing(map, e, 'sos', inSos, at);
         // Solo dibujamos el círculo de desvío si NO está en SOS (SOS gana).
         syncRing(map, e, 'dev', !inSos && m.type === 'driver' && m.deviated === true, at);
+        syncRing(map, e, 'warn', !inSos && !(m.type === 'driver' && m.deviated === true) && m.warned === true, at);
         syncRing(map, e, 'hl', m.highlighted === true, at);
+        // El pin seguido / seleccionado queda por encima de los demás.
+        try { e.marker.setZIndexOffset(m.highlighted ? 1000 : m.sosActive ? 500 : 0); } catch {}
       });
     };
 
@@ -553,6 +784,9 @@ export default function BugieMapAdmin({
           observer.observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
           themeObserverRef.current = observer;
         }
+        // Reagrupar al cambiar el zoom; avisar cuando el usuario arrastra.
+        mapRef.current.on('zoomend', () => applyClusters());
+        mapRef.current.on('dragstart', () => onUserDragRef.current?.());
         // Por si el container tenía tamaño justo en el borde de detección
         setTimeout(() => mapRef.current?.invalidateSize(), 100);
       }
@@ -560,6 +794,7 @@ export default function BugieMapAdmin({
       const map = mapRef.current;
       syncMarkers(map);
       syncLines(map);
+      applyClusters();
 
       // Fit inicial (solo primera vez con markers o líneas)
       const hasLines = lineEntries.current.size > 0;
@@ -598,6 +833,7 @@ export default function BugieMapAdmin({
     try { mapRef.current?.remove(); } catch {}
     mapRef.current = null;
     markerEntries.current = new Map();
+    clusterEntries.current = new Map();
     lineEntries.current = new Map();
     didFitOnce.current = false;
     didFitLines.current = false;

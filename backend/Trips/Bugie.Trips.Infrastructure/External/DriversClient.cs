@@ -11,6 +11,10 @@ public class DriversClient : IDriversClient
     private readonly IHttpContextAccessor _httpContext;
     private readonly IConfiguration _cfg;
 
+    // Drivers devuelve las fechas en hora de Peru sin zona: se leen como UTC (ver BugieTime).
+    private static readonly System.Text.Json.JsonSerializerOptions Json =
+        new(System.Text.Json.JsonSerializerDefaults.Web) { Converters = { new Bugie.Trips.Infrastructure.Time.PeruDateTimeJsonConverter() } };
+
     public DriversClient(HttpClient http, IHttpContextAccessor httpContext, IConfiguration cfg)
     {
         _http = http;
@@ -130,7 +134,7 @@ public class DriversClient : IDriversClient
             if(!res.IsSuccessStatusCode) return null;
 
             var payload = await res.Content
-                .ReadFromJsonAsync<DriverLocationDto>(cancellationToken: ct);
+                .ReadFromJsonAsync<DriverLocationDto>(Json, ct);
             // El backend devuelve null si no hay posición. Lo propagamos.
             return payload;
         }
@@ -239,7 +243,7 @@ public class DriversClient : IDriversClient
             req.Headers.Add("X-Internal-Token", _cfg["InternalToken"] ?? "");
             using var res = await _http.SendAsync(req, ct);
             if(!res.IsSuccessStatusCode) return new List<TripPathPointDto>();
-            return await res.Content.ReadFromJsonAsync<List<TripPathPointDto>>(cancellationToken: ct)
+            return await res.Content.ReadFromJsonAsync<List<TripPathPointDto>>(Json, ct)
                 ?? new List<TripPathPointDto>();
         }
         catch(Exception e)

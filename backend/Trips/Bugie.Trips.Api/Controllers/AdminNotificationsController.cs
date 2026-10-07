@@ -55,13 +55,13 @@ public class AdminNotificationsController : ControllerBase
         var canPassengers = perms.Has(Perm.ViewPassengers);
         var skip = Task.FromResult<JsonElement?>(null);
 
-        var drivers = !(canDrivers || canReview) ? skip : GetJsonAsync(_cfg["Services:DriversApi"] ?? "http://localhost:5003",
+        var drivers = !(canDrivers || canReview) ? skip : GetJsonAsync(_cfg["Services:DriversApi"] ?? "http://127.0.0.1:5003",
                                    "api/drivers/admin/notifications/summary", ct);
-        var landing = !canMessages ? skip : GetJsonAsync(_cfg["Services:LandingApi"] ?? "http://localhost:5005",
+        var landing = !canMessages ? skip : GetJsonAsync(_cfg["Services:LandingApi"] ?? "http://127.0.0.1:5005",
                                    "api/landing/admin/notifications/summary", ct);
-        var complaints = !canComplaints ? skip : GetJsonAsync(_cfg["Services:LandingApi"] ?? "http://localhost:5005",
+        var complaints = !canComplaints ? skip : GetJsonAsync(_cfg["Services:LandingApi"] ?? "http://127.0.0.1:5005",
                                       "api/landing/admin/complaints/summary", ct);
-        var passengers = !canPassengers ? skip : GetJsonAsync(_cfg["Services:AuthApi"] ?? "http://localhost:5001",
+        var passengers = !canPassengers ? skip : GetJsonAsync(_cfg["Services:AuthApi"] ?? "http://127.0.0.1:5001",
                                       "api/auth/admin/passengers/pending-review/count", ct);
 
         await Task.WhenAll(drivers, landing, complaints, passengers);

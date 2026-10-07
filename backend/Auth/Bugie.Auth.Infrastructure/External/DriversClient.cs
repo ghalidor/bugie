@@ -11,7 +11,7 @@ namespace Bugie.Auth.Infrastructure.External;
 /// </summary>
 public class DriversClientOptions
 {
-    public string BaseUrl { get; set; } = "http://localhost:5003";
+    public string BaseUrl { get; set; } = "http://127.0.0.1:5003";
     public string InternalToken { get; set; } = string.Empty;
 }
 

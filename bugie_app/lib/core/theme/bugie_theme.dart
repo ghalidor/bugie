@@ -19,6 +19,9 @@ class BugieColors {
   // ── Marca (iguales en claro y oscuro) ──────────────────────────────────
   static const primary  = Color(0xFF2563EB); // Azul Bugie
   static const primary2 = Color(0xFF5B7CEC); // Azul intermedio (para gradientes suaves)
+  // Azul claro para TEXTO/ENLACES en modo oscuro: el azul de marca sobre
+  // la superficie oscura (#141A24) no llega a 4.5:1; este da ~6.8:1.
+  static const primaryLight = Color(0xFF6EA0FF);
   static const accent   = Color(0xFFFF5BD6); // Rosa Bugie
   static const accent2  = Color(0xFFB85BE0); // Violeta intermedio del gradiente
 
@@ -338,6 +341,35 @@ class BugieButtons {
     backgroundColor: BugieColors.success, foregroundColor: Colors.white,
     elevation: 2, shadowColor: BugieColors.success.withOpacity(0.35), height: height,
   );
+
+  /// Estilo de botón con contorno PEQUEÑO para acciones de apoyo
+  /// ("Reintentar", "Subir", "Elegir"). Alto 36, radio 10, texto w700 13.
+  /// Sin [color] usa el azul de marca (más claro en modo oscuro).
+  static ButtonStyle compactOutlinedStyle(BuildContext context,
+      {Color? color}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = color ??
+        (isDark ? BugieColors.primaryLight : BugieColors.primary);
+    final disabledBorder = context.bugie.border;
+    return OutlinedButton.styleFrom(
+      foregroundColor: fg,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      visualDensity: VisualDensity.compact,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      textStyle: const TextStyle(
+          fontFamily: kFontBody, fontSize: 13, fontWeight: FontWeight.w700),
+    ).copyWith(
+      side: WidgetStateProperty.resolveWith(
+        (states) => BorderSide(
+          color: states.contains(WidgetState.disabled)
+              ? disabledBorder
+              : fg.withValues(alpha: 0.7),
+          width: 1.2,
+        ),
+      ),
+    );
+  }
 }
 
 class _BugieButton extends StatelessWidget {
@@ -618,8 +650,31 @@ class BugieTheme {
               borderRadius: BorderRadius.circular(BugieRadius.pill)),
         ),
       ),
+      // Botón de confirmar en diálogos ("Sí, guardar", "Entendido"...).
+      // Mismo radio que los botones de acción (12) y alto 46.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: BugieColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(64, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(BugieRadius.sm)),
+          textStyle: const TextStyle(
+              fontFamily: kFontBody, fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+      ),
+      // Enlace / acción terciaria: texto w600. En modo oscuro el azul es
+      // más claro para leerse bien sobre la superficie oscura.
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: BugieColors.primary),
+        style: TextButton.styleFrom(
+          foregroundColor:
+              isDark ? BugieColors.primaryLight : BugieColors.primary,
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          textStyle: const TextStyle(
+              fontFamily: kFontBody, fontSize: 14, fontWeight: FontWeight.w600),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

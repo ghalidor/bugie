@@ -57,4 +57,15 @@ public interface IAdminNotifier
     /// </summary>
     Task NotifyRouteDeviationAsync(Entities.RouteDeviation deviation, string kind,
                                    CancellationToken ct = default);
+
+    /// <summary>
+    /// Se abrió una alerta de monitoreo (no_signal, long_stop, trip_delayed):
+    /// la guarda en el historial de avisos (mismo tipo, permiso
+    /// view:live_map / view:sos_center) y empuja "monitor:alert". Nunca lanza.
+    /// </summary>
+    Task NotifyMonitorAlertAsync(Entities.MonitorAlert alert, string title, string message, int minutes,
+                                 CancellationToken ct = default);
+
+    /// <summary>Una alerta de monitoreo se resolvió: empuja "monitor:alert-resolved". Nunca lanza.</summary>
+    Task NotifyMonitorAlertResolvedAsync(Entities.MonitorAlert alert, CancellationToken ct = default);
 }

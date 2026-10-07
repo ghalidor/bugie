@@ -28,6 +28,9 @@ const MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
 const PREVIEW_TEXT: Record<NoticeType, { title: string; message: string }> = {
   sos:                   { title: 'Alerta SOS', message: 'Juan Pérez (pasajero) activó el botón SOS en el viaje 3f2a9c1d.' },
   deviation:             { title: 'Un conductor se desvió de la ruta', message: 'Se alejó 420 m de la ruta planificada.' },
+  no_signal:             { title: 'Viaje sin señal', message: 'Juan Pérez no envía su GPS hace 4 min.' },
+  long_stop:             { title: 'Conductor detenido', message: 'Juan Pérez está detenido hace 6 min con el pasajero a bordo.' },
+  trip_delayed:          { title: 'Viaje demorado', message: 'El viaje lleva 32 min (estimado 18).' },
   contact_message:       { title: 'Nuevo mensaje de contacto', message: 'Llegó un mensaje nuevo desde el sitio web.' },
   complaint:             { title: 'Nueva reclamación', message: 'Se registró una reclamación en el libro.' },
   driver_review:         { title: 'Conductor por revisar', message: 'Un conductor envió sus documentos a revisión.' },

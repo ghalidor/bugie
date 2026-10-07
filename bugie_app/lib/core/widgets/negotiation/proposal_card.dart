@@ -191,7 +191,11 @@ class ProposalCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              // Los chips llevan más espacio que el precio (que se achica
+              // solo si no entra) para que "Aceptó tu precio S/ X" se lea
+              // completo en pantallas de 360 dp.
               Expanded(
+                flex: 3,
                 child: Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -200,6 +204,7 @@ class ProposalCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Flexible(
+                flex: 2,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,

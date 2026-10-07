@@ -41,4 +41,10 @@ public class PassengerLiveLocation
     public string? DriverName { get; set; }
     /// <summary>Teléfono del conductor (null si no hay conductor asignado).</summary>
     public string? DriverPhone { get; set; }
+
+    /// <summary>0 = viaje, 1 = envío.</summary>
+    public int ServiceType { get; set; }
+
+    /// <summary>Inicio del viaje (pasajero a bordo), en UTC. Null si aún no empieza.</summary>
+    public DateTime? StartedAt { get; set; }
 }

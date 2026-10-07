@@ -446,6 +446,10 @@ async function faseRewardsConfig() {
       drawDate: new Date(now + 5 * 864e5).toISOString(), targetUserType: 'driver', winnersCount: 1, open: true },
     { name: 'Sorteo especial aniversario', raffleType: 'special', prizeDescription: 'Smartphone gama media', prizeValue: 900,
       drawDate: new Date(now + 25 * 864e5).toISOString(), targetUserType: 'both', winnersCount: 2, open: true },
+    // Este NO se sortea en el seed: queda abierto para la demo (tickets, "Usar mi cupon de ticket").
+    // Los tres de arriba se sortean antes de tiempo con "Sortear ahora" (quedan drawn con drawnAt de hoy).
+    { name: 'Sorteo mensual de noviembre', raffleType: 'monthly', prizeDescription: 'S/ 150 en viajes Bugie', prizeValue: 150,
+      drawDate: new Date(now + 28 * 864e5).toISOString(), targetUserType: 'both', winnersCount: 1, open: true },
   ];
   const created = [];
   for (const r of raffles) {
@@ -1280,7 +1284,7 @@ async function faseAdminFinal(raffles) {
   try {
     const list = await get(`${API.rewards}/rewards/admin/raffles`, A);
     for (const r of list) ok('Sorteo', `"${r.name}"`, `${r.ticketsNow} tickets`);
-    const monthly = list.find(r => r.raffleType === 'monthly');
+    const monthly = list.find(r => r.raffleType === 'monthly' && r.name !== 'Sorteo mensual de noviembre');
     if (monthly) {
       await post(`${API.rewards}/rewards/admin/raffles/${monthly.id}/draw`, A);
       const after = (await get(`${API.rewards}/rewards/admin/raffles`, A)).find(r => r.id === monthly.id);
@@ -1320,7 +1324,7 @@ async function faseAdminFinal(raffles) {
     }
   } catch (e) { fail('Sorteo', 'sortear / entregar', e); }
   // bono sin cancelaciones (usa endpoint interno de Trips)
-  try { const today = new Date().toISOString().slice(0, 10); const r = await post(`${API.rewards}/rewards/admin/no-cancellations/run?date=${today}`, A); ok('Rewards', 'bono sin cancelaciones', JSON.stringify(r).slice(0, 150)); }
+  try { const today = peruToday(); const r = await post(`${API.rewards}/rewards/admin/no-cancellations/run?date=${today}`, A); ok('Rewards', 'bono sin cancelaciones', JSON.stringify(r).slice(0, 150)); }
   catch (e) { fail('Rewards', 'bono sin cancelaciones', e); }
   // referidos: invitacion por correo (va directo al correo real)
   try { await post(`${API.rewards}/rewards/me/referral/invite`, { token: byKey.P1.token, body: { email: REAL_EMAIL } }); correoDirecto('invitacion de referido'); ok('Referido', 'P1 invita por correo', `correo de invitacion a ${REAL_EMAIL}`); }
@@ -1340,7 +1344,7 @@ async function faseAdminFinal(raffles) {
 
   // reportes del admin
   for (const [name, url] of [
-    ['viajes stats', `${API.trips}/trips/admin/stats`], ['ranking conductores', `${API.trips}/trips/admin/reports/driver-ranking?year=${new Date().getFullYear()}&month=${new Date().getMonth() + 1}`],
+    ['viajes stats', `${API.trips}/trips/admin/stats`], ['ranking conductores', `${API.trips}/trips/admin/reports/driver-ranking?year=${peruToday().slice(0, 4)}&month=${Number(peruToday().slice(5, 7))}`],
     ['pagos stats', `${API.payments}/payments/stats`], ['usuarios stats', `${API.auth}/auth/users/stats`],
     ['conductores stats', `${API.drivers}/drivers/stats`], ['uso de cupones', `${API.rewards}/rewards/admin/coupon-usage`],
     ['balance de puntos', `${API.rewards}/rewards/admin/balance`], ['SOS', `${API.trips}/sos`],

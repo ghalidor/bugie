@@ -335,7 +335,12 @@ class FcmService {
 
     // Conductor: cualquier aviso puede cambiar su viaje activo (confirmado,
     // cancelado...). Se vuelve a consultar para la franja "Viaje en curso".
-    if (_session?.role == UserRole.driver) ActiveTripService().refresh();
+    // Pasajero: igual (un viaje creado desde la web, cancelado, terminado...).
+    if (_session?.role == UserRole.driver) {
+      ActiveTripService().refresh();
+    } else if (_session?.role == UserRole.passenger) {
+      ActiveTripService().refresh(force: true);
+    }
 
     // Las pantallas de negociación recargan si es su viaje.
     _emitTripEvent(msg);

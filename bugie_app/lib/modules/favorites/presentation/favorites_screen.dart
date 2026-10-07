@@ -114,7 +114,11 @@ class _AddressesTabState extends State<_AddressesTab> {
         content: Text('¿Quitar "${fav.label}" de tus favoritos?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true),  child: const Text('Borrar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Borrar'),
+          ),
         ],
       ),
     );
@@ -328,7 +332,11 @@ class _DriversTabState extends State<_DriversTab> {
         content: const Text('¿Quitar este conductor de tus favoritos?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true),  child: const Text('Quitar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Quitar'),
+          ),
         ],
       ),
     );

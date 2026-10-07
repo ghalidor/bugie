@@ -1,4 +1,4 @@
-import { ReactNode, useId } from 'react';
+import { ReactNode } from 'react';
 import { Tabs } from '../../../components/ui';
 
 export type PanelTab = 'drivers' | 'trips' | 'alerts';
@@ -7,8 +7,6 @@ interface Props {
   tab: PanelTab;
   onTabChange: (t: PanelTab) => void;
   counts: { drivers: number; trips: number; alerts: number };
-  search: string;
-  onSearchChange: (v: string) => void;
   drivers: ReactNode;
   trips: ReactNode;
   alerts: ReactNode;
@@ -17,9 +15,9 @@ interface Props {
 /**
  * Panel del monitoreo con pestañas Conductores · Viajes · Alertas.
  * En escritorio va al costado del mapa; en pantallas chicas, dentro de un Drawer.
+ * La búsqueda está arriba del mapa (buscador único) y los filtros en los chips.
  */
-export default function MonitorPanel({ tab, onTabChange, counts, search, onSearchChange, drivers, trips, alerts }: Props) {
-  const searchId = useId();
+export default function MonitorPanel({ tab, onTabChange, counts, drivers, trips, alerts }: Props) {
   return (
     <div className="lm-panel">
       <div className="lm-panel-tabs" data-tour="monitor-tabs">
@@ -35,24 +33,7 @@ export default function MonitorPanel({ tab, onTabChange, counts, search, onSearc
         />
       </div>
       <div className="lm-panel-body" role="tabpanel" aria-label={tab === 'drivers' ? 'Conductores' : tab === 'trips' ? 'Viajes' : 'Alertas'}>
-        {tab === 'drivers' && (
-          <>
-            <div className="lm-panel-search">
-              <div className="bx-search">
-                <label htmlFor={searchId} className="bx-sr">Buscar conductor</label>
-                <i className="fa-solid fa-magnifying-glass" aria-hidden="true" />
-                <input id={searchId} type="search" className="form-control form-control-sm" placeholder="Buscar conductor…"
-                       value={search} onChange={e => onSearchChange(e.target.value)} />
-                {search && (
-                  <button type="button" className="bx-search-clear" onClick={() => onSearchChange('')} aria-label="Borrar búsqueda">
-                    <i className="fa-solid fa-xmark" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            </div>
-            {drivers}
-          </>
-        )}
+        {tab === 'drivers' && drivers}
         {tab === 'trips' && trips}
         {tab === 'alerts' && alerts}
       </div>

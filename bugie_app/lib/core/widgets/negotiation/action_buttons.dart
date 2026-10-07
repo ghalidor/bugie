@@ -6,7 +6,7 @@ import 'motion.dart';
 /// Sistema de botones de negociación (igual para pasajero y conductor):
 ///  - [PrimaryActionButton]: verde, grande, ancho completo. La acción principal.
 ///  - [SecondaryActionButton]: con borde. Acciones alternativas.
-///  - [DestructiveTextButton]: texto rojo. Rechazar / cancelar.
+///  - [DestructiveTextButton]: contorno rojo. Rechazar / cancelar.
 ///
 /// Todos dan feedback al tocar (se encogen un poco) y muestran un spinner
 /// cuando [loading] es true, con transición animada entre estados.
@@ -191,7 +191,7 @@ class SecondaryActionButton extends StatelessWidget {
   }
 }
 
-/// Acción destructiva como texto rojo ("Rechazar", "Cancelar viaje").
+/// Acción destructiva con contorno rojo ("Rechazar", "Cancelar viaje").
 class DestructiveTextButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -211,11 +211,20 @@ class DestructiveTextButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final btn = TextButton(
-      style: TextButton.styleFrom(
+    final enabled = onPressed != null && !loading;
+    // Botón con contorno rojo (mismo estilo que "Rechazar" del conductor).
+    // Alto y radio iguales a [SecondaryActionButton] para que en fila
+    // ("Rechazar" + "Contraofertar") queden alineados.
+    final btn = OutlinedButton(
+      style: OutlinedButton.styleFrom(
         foregroundColor: BugieColors.danger,
-        minimumSize: const Size(0, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        disabledForegroundColor: BugieColors.danger.withValues(alpha: 0.45),
+        side: BorderSide(
+          color: BugieColors.danger.withValues(alpha: enabled ? 0.6 : 0.3),
+          width: 1.4,
+        ),
+        minimumSize: const Size(0, 46),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       onPressed: loading ? null : onPressed,
@@ -233,12 +242,17 @@ class DestructiveTextButton extends StatelessWidget {
             Icon(icon, size: 18),
             const SizedBox(width: 6),
           ],
+          // Si no entra (pantalla angosta / letra grande), se achica un
+          // poco en vez de cortarse ("Recha…").
           Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style:
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ],

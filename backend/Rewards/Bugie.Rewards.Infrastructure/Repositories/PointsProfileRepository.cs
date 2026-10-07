@@ -95,7 +95,7 @@ public class PointsProfileRepository : IPointsProfileRepository
             SELECT * FROM rewards.PointsProfiles
             WHERE AvailablePoints > 0
               AND PointsExpiryDate IS NOT NULL
-              AND PointsExpiryDate < now()
+              AND PointsExpiryDate < (now() AT TIME ZONE 'utc')
             ORDER BY PointsExpiryDate
             LIMIT @Limit",
             new { Limit = limit });
@@ -112,8 +112,8 @@ public class PointsProfileRepository : IPointsProfileRepository
             SELECT * FROM rewards.PointsProfiles
             WHERE AvailablePoints > 0
               AND PointsExpiryDate IS NOT NULL
-              AND PointsExpiryDate > now()
-              AND PointsExpiryDate <= now() + (@Days * INTERVAL '1 day')
+              AND PointsExpiryDate > (now() AT TIME ZONE 'utc')
+              AND PointsExpiryDate <= (now() AT TIME ZONE 'utc') + (@Days * INTERVAL '1 day')
             ORDER BY PointsExpiryDate
             LIMIT @Limit",
             new { Days = withinDays, Limit = limit });
@@ -182,7 +182,7 @@ public class PointsProfileRepository : IPointsProfileRepository
                 INSERT INTO rewards.PointsAdjustments
                     (ProfileId, TransactionId, Points, Reason, AdminId, CreatedAt)
                 VALUES
-                    (@ProfileId, @TransactionId, @Points, @Reason, @AdminId, now())",
+                    (@ProfileId, @TransactionId, @Points, @Reason, @AdminId, (now() AT TIME ZONE 'utc'))",
                 new
                 {
                     ProfileId     = profile.Id,
@@ -229,7 +229,7 @@ public class PointsProfileRepository : IPointsProfileRepository
                 WHERE Id = @Id
                   AND AvailablePoints = @ExpectedBalance
                   AND PointsExpiryDate IS NOT NULL
-                  AND PointsExpiryDate < now()",
+                  AND PointsExpiryDate < (now() AT TIME ZONE 'utc')",
                 new
                 {
                     profile.Id,

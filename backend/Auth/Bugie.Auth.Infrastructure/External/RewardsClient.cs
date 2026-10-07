@@ -7,7 +7,7 @@ namespace Bugie.Auth.Infrastructure.External;
 
 public class RewardsClientOptions
 {
-    public string BaseUrl       { get; set; } = "http://localhost:5006/";
+    public string BaseUrl       { get; set; } = "http://127.0.0.1:5006/";
     public string InternalToken { get; set; } = string.Empty;
 }
 

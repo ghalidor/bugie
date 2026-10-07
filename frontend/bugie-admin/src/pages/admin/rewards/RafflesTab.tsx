@@ -12,6 +12,7 @@ import {
   useConfirm, useToast,
 } from '../../../components/ui';
 import { errMsg, FormSection, LoadError, optNum } from './common';
+import RaffleParticipants from './RaffleParticipants';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Sorteos.
@@ -55,6 +56,7 @@ export default function RafflesTab() {
   const [error,   setError]   = useState<string | null>(null);
   const [editing, setEditing] = useState<Raffle | 'new' | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [participantsId, setParticipantsId] = useState<string | null>(null);
   const [busy,    setBusy]    = useState<string | null>(null);
   const [filter,  setFilter]  = useState('all');
 
@@ -70,6 +72,7 @@ export default function RafflesTab() {
 
   const levelNames = useMemo(() => Object.fromEntries(levels.map(l => [l.name, l.displayName])), [levels]);
   const detail = items.find(r => r.id === detailId) ?? null;
+  const participantsOf = items.find(r => r.id === participantsId) ?? null;
 
   async function draw(r: Raffle) {
     const ok = await confirm({
@@ -168,6 +171,7 @@ export default function RafflesTab() {
     const sorteado = r.status === 'drawn';
     return [
       { label: 'Ver detalle', icon: 'fa-eye', onClick: () => setDetailId(r.id) },
+      { label: 'Ver participantes', icon: 'fa-users', onClick: () => setParticipantsId(r.id) },
       { label: 'Sortear', icon: 'fa-dice', hidden: sorteado, disabled: busy !== null || r.ticketsNow === 0, onClick: () => draw(r) },
       { label: 'Editar', icon: 'fa-pen', hidden: sorteado, onClick: () => setEditing(r) },
       { label: 'Borrar', icon: 'fa-trash', danger: true, separator: true, hidden: sorteado, disabled: busy !== null, onClick: () => remove(r) },
@@ -223,7 +227,10 @@ export default function RafflesTab() {
         onEdit={r => { setDetailId(null); setEditing(r); }}
         onDelete={remove}
         onChanged={load}
+        onParticipants={r => { setDetailId(null); setParticipantsId(r.id); }}
       />
+
+      <RaffleParticipants raffle={participantsOf} onClose={() => setParticipantsId(null)} />
 
       <RaffleDrawer
         editing={editing}
@@ -236,10 +243,10 @@ export default function RafflesTab() {
 }
 
 /* ── Detalle: ganadores, entregas y comprobación ───────────────────────── */
-function RaffleDetail({ raffle: r, levelNames, busy, onClose, onDraw, onEdit, onDelete, onChanged }: {
+function RaffleDetail({ raffle: r, levelNames, busy, onClose, onDraw, onEdit, onDelete, onChanged, onParticipants }: {
   raffle: Raffle | null; levelNames: Record<string, string>; busy: boolean;
   onClose: () => void; onDraw: (r: Raffle) => void; onEdit: (r: Raffle) => void;
-  onDelete: (r: Raffle) => void; onChanged: () => void;
+  onDelete: (r: Raffle) => void; onChanged: () => void; onParticipants: (r: Raffle) => void;
 }) {
   const toast = useToast();
   const [verification, setVerification] = useState<RaffleVerification | null>(null);
@@ -298,6 +305,12 @@ function RaffleDetail({ raffle: r, levelNames, busy, onClose, onDraw, onEdit, on
             <div><dt>{sorteado ? 'Sorteado el' : 'Se sortea el'}</dt><dd>{fmtDate(sorteado ? r.drawnAt : r.drawDate, true)}</dd></div>
             <div><dt>Tickets</dt><dd>{fmtPoints(sorteado ? (r.ticketsAtDraw ?? 0) : r.ticketsNow)}</dd></div>
           </dl>
+
+          <div>
+            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => onParticipants(r)}>
+              <i className="fa-solid fa-users me-1" aria-hidden="true" />Ver participantes y tickets
+            </button>
+          </div>
 
           {!sorteado && r.ticketsNow === 0 && (
             <div className="alert alert-info small mb-0">

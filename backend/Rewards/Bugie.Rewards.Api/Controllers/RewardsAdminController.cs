@@ -384,6 +384,23 @@ public class RewardsAdminController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>
+    /// GET /api/rewards/admin/raffles/{raffleId}/tickets?page=1&amp;pageSize=50&amp;search=
+    /// Tickets del sorteo con nombre y rol del usuario. search: nombre o numero
+    /// de ticket. Orden: ganadores primero, luego por numero de ticket.
+    /// </summary>
+    [HttpGet("raffles/{raffleId:guid}/tickets")]
+    public async Task<IActionResult> GetRaffleTickets(
+        Guid raffleId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null,
+        CancellationToken ct = default)
+    {
+        try   { return Ok(await _mediator.Send(new GetRaffleTicketsQuery(raffleId, page, pageSize, search), ct)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { error = ex.Message }); }
+    }
+
     public record DeliverPrizeRequest(string? Note);
 
     /// <summary>PUT /api/rewards/admin/raffles/winners/{winnerId}/deliver</summary>

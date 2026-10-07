@@ -9,6 +9,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../notifications/presentation/notifications_bell.dart';
 import '../../passenger/presentation/home_shared.dart';
 import '../../trips/data/trips_repository.dart';
+import '../../../core/widgets/confirm_logout.dart';
 
 /// "Cuenta" del conductor, ordenada en grupos:
 ///   Trabajo · Mi perfil · App · Cerrar sesión.
@@ -139,6 +140,7 @@ class _DriverAccountScreenState extends State<DriverAccountScreen> {
           color: BugieColors.danger,
           showChevron: false,
           onTap: () async {
+            if (!await confirmLogout(context) || !context.mounted) return;
             await context.read<AuthRepository>().logout();
             if (context.mounted) context.go('/');
           },

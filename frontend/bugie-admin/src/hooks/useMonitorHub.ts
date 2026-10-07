@@ -67,6 +67,27 @@ export interface RouteDeviationEvent {
   reviewNote: string | null;
 }
 
+/// Alerta de seguimiento nueva (sin señal, detenido o demorado) del monitoreo.
+export interface MonitorAlertEvent {
+  /// Id del aviso guardado en el historial (si el backend lo manda).
+  notificationId?: string | null;
+  id: string;
+  tripId: string;
+  driverId: string;
+  type: string;
+  title: string;
+  message: string;
+  minutes: number;
+  at: string;
+}
+
+/// La alerta de seguimiento se cerró sola (volvió la señal, se movió, terminó el viaje).
+export interface MonitorAlertResolvedEvent {
+  id: string;
+  tripId: string;
+  type: string;
+}
+
 /// Aviso para el Centro de avisos (POST /api/internal/admin-events en Trips).
 export interface AdminEvent {
   /// Id del aviso guardado en el historial (null si no se guardó).
@@ -95,6 +116,10 @@ interface UseMonitorHubOpts {
   onDeviation?: (kind: 'new' | 'closed' | 'reviewed', payload: RouteDeviationEvent) => void;
   /// Aviso general para el Centro de avisos ("admin:event").
   onAdminEvent?: (payload: AdminEvent) => void;
+  /// Alerta de seguimiento nueva ("monitor:alert").
+  onMonitorAlert?: (payload: MonitorAlertEvent) => void;
+  /// Alerta de seguimiento resuelta ("monitor:alert-resolved").
+  onMonitorAlertResolved?: (payload: MonitorAlertResolvedEvent) => void;
 }
 
 /// Hook que mantiene una conexión SignalR al hub /hubs/monitor.
@@ -191,6 +216,34 @@ export function useMonitorHub(opts: UseMonitorHubOpts) {
           createdAt:  String(payload?.createdAt ?? ''),
         });
       } catch (e) { console.warn('Error procesando admin:event', e); }
+    });
+
+    conn.on('monitor:alert', (payload: any) => {
+      try {
+        if (!payload?.id) return;
+        optsRef.current.onMonitorAlert?.({
+          notificationId: payload?.notificationId ? String(payload.notificationId) : null,
+          id:       String(payload.id),
+          tripId:   String(payload?.tripId ?? ''),
+          driverId: String(payload?.driverId ?? ''),
+          type:     String(payload?.type ?? ''),
+          title:    String(payload?.title ?? ''),
+          message:  String(payload?.message ?? ''),
+          minutes:  typeof payload?.minutes === 'number' ? payload.minutes : 0,
+          at:       String(payload?.at ?? new Date().toISOString()),
+        });
+      } catch (e) { console.warn('Error procesando monitor:alert', e); }
+    });
+
+    conn.on('monitor:alert-resolved', (payload: any) => {
+      try {
+        if (!payload?.id) return;
+        optsRef.current.onMonitorAlertResolved?.({
+          id:     String(payload.id),
+          tripId: String(payload?.tripId ?? ''),
+          type:   String(payload?.type ?? ''),
+        });
+      } catch (e) { console.warn('Error procesando monitor:alert-resolved', e); }
     });
 
     conn.start()

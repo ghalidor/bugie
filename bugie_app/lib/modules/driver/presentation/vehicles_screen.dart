@@ -418,10 +418,19 @@ class _PhotoSlot extends StatelessWidget {
         Text(label,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        TextButton(
+        const SizedBox(height: 6),
+        OutlinedButton(
+          style: BugieButtons.compactOutlinedStyle(context).copyWith(
+            padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 6, vertical: 4)),
+            minimumSize: const WidgetStatePropertyAll(Size(0, 32)),
+          ),
           onPressed: disabled ? null : onTap,
-          child: Text(url != null ? 'Reemplazar' : 'Subir',
-              style: const TextStyle(fontSize: 12)),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(url != null ? 'Reemplazar' : 'Subir',
+                maxLines: 1, style: const TextStyle(fontSize: 12)),
+          ),
         ),
       ],
     );
@@ -670,7 +679,8 @@ class _AddVehicleDialogState extends State<_AddVehicleDialog> {
                   _photoPaths[p.type] != null ? 'Foto lista' : 'Sin foto',
                   style: const TextStyle(fontSize: 12),
                 ),
-                trailing: TextButton(
+                trailing: OutlinedButton(
+                  style: BugieButtons.compactOutlinedStyle(context),
                   onPressed: _saving ? null : () => _pick(p.type),
                   child: Text(_photoPaths[p.type] != null ? 'Cambiar' : 'Elegir'),
                 ),
@@ -687,7 +697,7 @@ class _AddVehicleDialogState extends State<_AddVehicleDialog> {
         TextButton(
             onPressed: _saving ? null : () => Navigator.pop(context),
             child: const Text('Cancelar')),
-        ElevatedButton(
+        FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(

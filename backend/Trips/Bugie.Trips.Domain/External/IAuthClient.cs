@@ -13,6 +13,7 @@ namespace Bugie.Trips.Domain.External
         /// <summary>
         /// Devuelve los tokens FCM de los usuarios pasados. Endpoint INTERNO
         /// (requiere X-Internal-Token). Lo usa FcmSender para mandar push.
+        /// Lanza excepcion si Auth no responde (FcmSender la captura).
         /// </summary>
         Task<List<FcmTokenInfo>> GetFcmTokensAsync(
             IEnumerable<Guid> userIds, CancellationToken ct = default);

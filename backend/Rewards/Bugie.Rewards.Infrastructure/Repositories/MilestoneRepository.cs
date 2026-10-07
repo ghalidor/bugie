@@ -50,7 +50,7 @@ public class MilestoneRepository : IMilestoneRepository
                 INSERT INTO rewards.MilestoneAwards
                     (ProfileId, Type, PeriodKey, Points, Detail, CreatedAt)
                 VALUES
-                    (@ProfileId, @Type, @PeriodKey, @Points, @Detail, now())",
+                    (@ProfileId, @Type, @PeriodKey, @Points, @Detail, (now() AT TIME ZONE 'utc'))",
                 a);
             return true;
         }

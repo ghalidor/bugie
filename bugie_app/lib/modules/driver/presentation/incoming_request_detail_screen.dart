@@ -94,6 +94,21 @@ class _IncomingRequestDetailScreenState
   Trip? _lastNewTrip;
   double? _lastNewDistanceKm;
 
+  /// La solicitud se cerró mientras la mirabas (el pasajero la canceló, la
+  /// tomó otro conductor o venció): se avisa UNA vez y se vuelve a la lista.
+  bool _closed = false;
+  /// Por qué se cerró, según el último evento del hub o push de este viaje,
+  /// y cuándo llegó ese evento.
+  _ClosedReason? _closedHint;
+  DateTime? _closedHintAt;
+
+  /// Guarda el motivo probable. [weak]: no pisa uno que ya se sabía.
+  void _hint(_ClosedReason reason, {bool weak = false}) {
+    if (weak && _closedHint != null) return;
+    _closedHint = reason;
+    _closedHintAt = DateTime.now();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +121,9 @@ class _IncomingRequestDetailScreenState
     // oferté), se reintenta al tener oferta; mientras, sigue el polling.
     final hub = TripsHubService();
     hub.joinTrip(widget.tripId);
+    // Grupo de solicitudes: avisa al instante si esta se cancela, la toma
+    // otro o vence, aunque se haya abierto sin pasar por la lista.
+    hub.joinDriverRequests();
     hub.connected.addListener(_onHubState);
     hub.tripChanged.addListener(_onHubTripChanged);
     hub.proposalsChanged.addListener(_onHubProposalsChanged);
@@ -126,7 +144,16 @@ class _IncomingRequestDetailScreenState
 
   void _onHubTripChanged() {
     final e = TripsHubService().tripChanged.value;
-    if (mounted && e != null && e.tripId == widget.tripId) _load();
+    if (!mounted || e == null || e.tripId != widget.tripId) return;
+    if (e.reason == 'cancelled' || e.status == TripStatus.cancelled) {
+      // "cancelled" llega igual si lo canceló el pasajero o si venció.
+      _hint(_expiredByClock ? _ClosedReason.expired : _ClosedReason.cancelled,
+          weak: true);
+    } else if (e.reason == 'accepted') {
+      // Asignado: si no fui yo, lo tomó otro (se verifica al recargar).
+      _hint(_ClosedReason.taken, weak: true);
+    }
+    _load();
   }
 
   void _onHubProposalsChanged() {
@@ -135,10 +162,33 @@ class _IncomingRequestDetailScreenState
   }
 
   /// La solicitud se tomó, retiró o canceló (grupo de solicitudes, al que
-  /// entra la lista): recargar para mostrar "ya no está disponible".
+  /// entra la lista): recargar y, si ya no está, avisar el motivo.
   void _onHubRequestsChanged() {
     final e = TripsHubService().requestsChanged.value;
-    if (mounted && e != null && e.tripId == widget.tripId) _load();
+    if (!mounted || e == null || e.tripId != widget.tripId) return;
+    switch (e.reason) {
+      case 'withdrawn':
+        _hint(_ClosedReason.cancelled);
+        break;
+      case 'taken':
+        _hint(_ClosedReason.taken);
+        break;
+      case 'cancelled': // Bugie la canceló por vencimiento.
+        _hint(_ClosedReason.expired);
+        break;
+    }
+    _load();
+  }
+
+  /// La solicitud tenía un vencimiento (sin conductor / hora del programado)
+  /// y ya llegó.
+  bool get _expiredByClock {
+    final t = _trip;
+    final at = t?.expiresAt;
+    if (t == null || at == null || t.expiresReason == 'proposal_confirm') {
+      return false;
+    }
+    return !DateTime.now().isBefore(at.subtract(const Duration(seconds: 5)));
   }
 
   Future<void> _loadRules() async {
@@ -153,6 +203,16 @@ class _IncomingRequestDetailScreenState
   void _onTripPush() {
     final e = FcmService.tripEvent.value;
     if (!mounted || e == null || e.tripId != widget.tripId) return;
+    if (e.type == 'trip_cancelled') {
+      final by = e.data['cancelled_by'];
+      _hint(by == 'system'
+          ? _ClosedReason.expired
+          : (by == 'passenger'
+              ? _ClosedReason.cancelled
+              : _ClosedReason.unknown));
+    } else if (e.type == 'offer_not_chosen') {
+      _hint(_ClosedReason.taken);
+    }
     if (e.type == 'driver_chosen') {
       // Al tocar el aviso ya navega su ruta; con la app abierta, aquí.
       if (!e.opened) {
@@ -190,6 +250,7 @@ class _IncomingRequestDetailScreenState
     hub.proposalsChanged.removeListener(_onHubProposalsChanged);
     hub.requestsChanged.removeListener(_onHubRequestsChanged);
     hub.leaveTrip(widget.tripId);
+    hub.leaveDriverRequests();
     _pollingTimer?.cancel();
     _proposeCtrl.dispose();
     super.dispose();
@@ -208,16 +269,32 @@ class _IncomingRequestDetailScreenState
   }
 
   Future<void> _load() async {
-    if (!_isForeground) return;
+    if (!_isForeground || _closed) return;
     final repo = context.read<TripsRepository>();
+    final startedAt = DateTime.now();
     try {
       // 1) Pending list: para encontrar este trip y detectar nuevos.
       final list = await repo.getPending();
+      if (!mounted || _closed) return;
 
       // Buscamos nuestro trip. Si no está en pending ya no se puede tomar.
       Trip? me;
       for (final t in list) {
         if (t.id == widget.tripId) { me = t; break; }
+      }
+
+      // La estaba viendo y ya no está (cancelada, tomada o vencida): avisar
+      // el motivo y volver a Solicitudes.
+      if (me == null && _trip != null) {
+        await _onRequestClosed();
+        return;
+      }
+      // Sigue abierta con datos pedidos DESPUÉS del aviso (era de otra cosa,
+      // p. ej. se reabrió): la pista ya no aplica.
+      final hintAt = _closedHintAt;
+      if (me != null && hintAt != null && hintAt.isBefore(startedAt)) {
+        _closedHint = null;
+        _closedHintAt = null;
       }
 
       // Primera carga: snapshot inicial de IDs.
@@ -316,7 +393,7 @@ class _IncomingRequestDetailScreenState
   /// respaldo.
   void _scheduleNext() {
     _pollingTimer?.cancel();
-    if (!_isForeground || !mounted) return;
+    if (!_isForeground || !mounted || _closed) return;
     final hasActive = _counter?.isMyPending == true ||
         _counter?.isCounterFromPassenger == true ||
         _myOffer != null;
@@ -332,7 +409,7 @@ class _IncomingRequestDetailScreenState
   /// Ejecuta una acción de negociación. Devuelve true si salió bien.
   Future<bool> _run(String kind, Future<void> Function() action,
       {double? sendingFare}) async {
-    if (_isActing) return false;
+    if (_isActing || _closed) return false;
     setState(() {
       _isActing = true;
       _actingKind = kind;
@@ -373,6 +450,55 @@ class _IncomingRequestDetailScreenState
       return;
     }
     await _load();
+  }
+
+  /// La solicitud desapareció de las pendientes mientras la veías. Si me la
+  /// asignaron a mí, voy al viaje; si no, aviso el motivo con un diálogo y
+  /// vuelvo a Solicitudes (que se recarga al volver).
+  Future<void> _onRequestClosed() async {
+    if (_closed || !mounted) return;
+    _closed = true;
+    _pollingTimer?.cancel();
+    final repo = context.read<TripsRepository>();
+    final myId = context.read<Session>().user?.userId;
+    try {
+      // Solo responde si soy parte del viaje (p. ej. el conductor asignado).
+      final t = await repo.getById(widget.tripId);
+      if (!mounted) return;
+      final mine = myId != null &&
+          t.driverId == myId &&
+          (t.status == TripStatus.accepted ||
+              t.status == TripStatus.inProgress ||
+              t.status == TripStatus.sosActive);
+      if (mine) {
+        _goToAssigned(t);
+        return;
+      }
+    } catch (_) {/* sin acceso: el viaje no es mío */}
+    if (!mounted) return;
+
+    final reason = _closedHint ??
+        (_expiredByClock ? _ClosedReason.expired : _ClosedReason.unknown);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(reason.icon, color: reason.color, size: 36),
+        title: Text(reason.message, textAlign: TextAlign.center),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/driver/requests');
+    }
   }
 
   /// Viaje asignado: al viaje en curso o, si es un programado que todavía
@@ -1160,6 +1286,23 @@ class _IncomingRequestDetailScreenState
     }
     return const SizedBox(width: double.infinity);
   }
+}
+
+/// Motivo por el que se cerró la solicitud que el conductor estaba viendo.
+enum _ClosedReason {
+  cancelled('El pasajero canceló esta solicitud.', Icons.cancel_outlined,
+      BugieColors.danger),
+  taken('Otro conductor tomó este viaje.', Icons.person_off_outlined,
+      BugieColors.warning),
+  expired('Esta solicitud venció.', Icons.timer_off_outlined,
+      BugieColors.warning),
+  unknown('Esta solicitud ya no está disponible.', Icons.info_outline,
+      BugieColors.textMuted);
+
+  final String message;
+  final IconData icon;
+  final Color color;
+  const _ClosedReason(this.message, this.icon, this.color);
 }
 
 /// Origen, paradas y destino con íconos y una línea que los une.

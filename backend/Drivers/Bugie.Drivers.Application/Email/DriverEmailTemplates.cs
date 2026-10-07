@@ -97,7 +97,7 @@ public static class DriverEmailTemplates
         string fullName, string docType, DateTime expiresAt, int daysBefore, string city)
     {
         var docLabel = DocLabels.GetValueOrDefault(docType, docType);
-        var dateStr = expiresAt.ToString("dd/MM/yyyy");
+        var dateStr = Bugie.Drivers.Domain.Common.BugieTime.ToPeru(expiresAt).ToString("dd/MM/yyyy");
 
         var (title, urgencia) = daysBefore switch
         {
@@ -138,7 +138,7 @@ public static class DriverEmailTemplates
         string docType, DateTime expiresAt, int daysBefore, string city)
     {
         var docLabel = DocLabels.GetValueOrDefault(docType, docType);
-        var dateStr = expiresAt.ToString("dd/MM/yyyy");
+        var dateStr = Bugie.Drivers.Domain.Common.BugieTime.ToPeru(expiresAt).ToString("dd/MM/yyyy");
 
         var (title, urgencia) = daysBefore switch
         {

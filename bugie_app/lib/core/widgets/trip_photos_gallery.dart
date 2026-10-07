@@ -111,7 +111,13 @@ class _TripPhotosGalleryState extends State<TripPhotosGallery> {
             child: Text(_error!,
                 style: TextStyle(color: c.textMuted, fontSize: 13)),
           ),
-          TextButton(onPressed: _load, child: const Text('Reintentar')),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            style: BugieButtons.compactOutlinedStyle(context),
+            onPressed: _load,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Reintentar'),
+          ),
         ],
       );
     } else if (_photos == null || _photos!.isEmpty) {

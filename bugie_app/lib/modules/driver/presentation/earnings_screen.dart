@@ -176,12 +176,26 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 ),
               ),
             )),
+      // Mismo estilo que "Ver más" del historial del pasajero.
       if (w.hasMore)
-        TextButton(
-          onPressed: _loadingMore ? null : _loadMoreMovements,
-          child: _loadingMore
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Ver más movimientos'),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: OutlinedButton(
+            onPressed: _loadingMore ? null : _loadMoreMovements,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            child: _loadingMore
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.expand_more, size: 18),
+                      SizedBox(width: 8),
+                      Text('Ver más movimientos'),
+                    ],
+                  ),
+          ),
         ),
     ];
   }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' show SocketException;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import '../services/network_status_service.dart';
 import '../session/session.dart';
 import '../ui/app_messenger.dart';
 import 'api_exception.dart';
@@ -150,16 +151,29 @@ class ApiClient {
     Future<http.Response> Function() request, {
     required Duration timeout,
   }) async {
+    final net = NetworkStatusService();
     try {
       final res = await request().timeout(timeout);
+      // 502/503/504: el servidor no responde (para la franja "Sin conexión").
+      final down = res.statusCode == 502 ||
+          res.statusCode == 503 ||
+          res.statusCode == 504;
+      if (down) {
+        net.reportFailure();
+      } else {
+        net.reportSuccess();
+      }
       return _handle(res);
     } on TimeoutException {
+      net.reportFailure();
       throw ApiException.network(
           'La conexión está tardando demasiado. Verifica tu internet.');
     } on SocketException {
+      net.reportFailure();
       throw ApiException.network('Sin conexión a internet.');
     } on http.ClientException catch (e) {
       // Errores del paquete http (DNS falla, conexión cerrada, etc.)
+      net.reportFailure();
       throw ApiException.network('Error de red: ${e.message}');
     }
   }

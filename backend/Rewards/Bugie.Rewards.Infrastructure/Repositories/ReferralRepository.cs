@@ -216,7 +216,7 @@ public class ReferralRepository : IReferralRepository
     public Task MarkInvitationAcceptedAsync(string email, string code, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE rewards.ReferralInvitations
-            SET AcceptedAt = now()
+            SET AcceptedAt = (now() AT TIME ZONE 'utc')
             WHERE lower(Email) = lower(@Email)
               AND upper(Code)  = upper(@Code)
               AND AcceptedAt IS NULL",

@@ -24,7 +24,10 @@ public class DriverProposalsController : ControllerBase
     /// Para cada tripId, devuelve el estado relevante para el conductor (prioridad):
     ///   - pending  + role='passenger' : contrapropuesta del pasajero (banner naranja).
     ///   - pending  + role='driver'    : mi propia propuesta vigente esperando al pasajero (banner azul).
+    ///   - driver_accepted             : acepté la tarifa y espero que el pasajero me elija.
     ///   - rejected                    : el pasajero rechazó mi última propuesta (banner rojo, 24h).
+    /// En todos los casos isMyDriverAccepted / myAcceptedFare indican si tengo una
+    /// aceptación a tarifa vigente (driver_accepted) en ese viaje y con qué monto.
     /// Nunca devuelve dos a la vez. La contrapropuesta del pasajero siempre tiene prioridad
     /// porque exige acción inmediata del conductor.
     /// </summary>
@@ -40,6 +43,13 @@ public class DriverProposalsController : ControllerBase
         {
             var all = await _proposals.GetByTripAsync(tripId, ct);
 
+            // Mi aceptación a tarifa vigente (driver_accepted), si la tengo.
+            var myAccepted = all.FirstOrDefault(p =>
+                p.DriverId == CurrentUserId &&
+                p.Status == "driver_accepted");
+            var isMyAccepted = myAccepted is not null;
+            var myAcceptedFare = myAccepted?.Fare;
+
             // 0) MÁXIMA PRIORIDAD: propuesta del conductor que el pasajero ya
             //    aceptó y está esperando que el conductor confirme.
             //    El conductor debe ver banner ÁMBAR/VERDE con botón
@@ -53,7 +63,8 @@ public class DriverProposalsController : ControllerBase
             {
                 result[tripId] = new CounterProposalDto(
                     waitingConfirm.Id, waitingConfirm.Fare, waitingConfirm.CreatedAt,
-                    "accepted_by_passenger", waitingConfirm.ProposedByRole);
+                    "accepted_by_passenger", waitingConfirm.ProposedByRole,
+                    isMyAccepted, myAcceptedFare);
                 continue;
             }
 
@@ -66,7 +77,8 @@ public class DriverProposalsController : ControllerBase
             if(counter is not null)
             {
                 result[tripId] = new CounterProposalDto(
-                    counter.Id, counter.Fare, counter.CreatedAt, "pending", "passenger");
+                    counter.Id, counter.Fare, counter.CreatedAt, "pending", "passenger",
+                    isMyAccepted, myAcceptedFare);
                 continue;
             }
 
@@ -79,11 +91,21 @@ public class DriverProposalsController : ControllerBase
             if(myPending is not null)
             {
                 result[tripId] = new CounterProposalDto(
-                    myPending.Id, myPending.Fare, myPending.CreatedAt, "pending", "driver");
+                    myPending.Id, myPending.Fare, myPending.CreatedAt, "pending", "driver",
+                    isMyAccepted, myAcceptedFare);
                 continue;
             }
 
-            // 3) Feedback de rechazo: última rechazada por el pasajero (24h).
+            // 3) Solo mi aceptación a tarifa, esperando que el pasajero me elija.
+            if(myAccepted is not null)
+            {
+                result[tripId] = new CounterProposalDto(
+                    myAccepted.Id, myAccepted.Fare, myAccepted.CreatedAt, "driver_accepted",
+                    myAccepted.ProposedByRole, true, myAccepted.Fare);
+                continue;
+            }
+
+            // 4) Feedback de rechazo: última rechazada por el pasajero (24h).
             var lastRejected = await _proposals.GetLastRejectedByPassengerAsync(
                 tripId, CurrentUserId, ct);
 
@@ -98,5 +120,10 @@ public class DriverProposalsController : ControllerBase
     }
 }
 
+/// <summary>
+/// Estado de la negociación del conductor en un viaje. IsMyDriverAccepted /
+/// MyAcceptedFare: aceptación a tarifa vigente (driver_accepted) y su monto.
+/// </summary>
 public record CounterProposalDto(
-    Guid Id, decimal Fare, DateTime CreatedAt, string Status, string ProposedByRole);
+    Guid Id, decimal Fare, DateTime CreatedAt, string Status, string ProposedByRole,
+    bool IsMyDriverAccepted = false, decimal? MyAcceptedFare = null);

@@ -236,9 +236,13 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                                     color: BugieColors.danger, fontSize: 13)),
                           ),
                         if (_profile == null) ...[
-                          BugieButtons.secondary(
-                            text: 'Reintentar',
-                            onPressed: _load,
+                          Center(
+                            child: OutlinedButton.icon(
+                              style: BugieButtons.compactOutlinedStyle(context),
+                              onPressed: _load,
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Reintentar'),
+                            ),
                           ),
                         ] else ...[
                           DocumentFormFields(

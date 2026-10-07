@@ -14,6 +14,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/user_model.dart';
 import '../../auth/presentation/widgets/identity_info_card.dart';
 import '../../emergency_contact/presentation/emergency_contact_card.dart';
+import '../../../core/widgets/confirm_logout.dart';
 
 /// Perfil del pasajero.
 /// Datos que muestra (todos vienen de GET /api/auth/me):
@@ -325,6 +326,7 @@ class _PassengerProfileScreenState extends State<PassengerProfileScreen> {
                       icon: const Icon(Icons.logout),
                       label: const Text('Cerrar sesión'),
                       onPressed: () async {
+                        if (!await confirmLogout(context) || !context.mounted) return;
                         await context.read<AuthRepository>().logout();
                         if (context.mounted) context.go('/');
                       },

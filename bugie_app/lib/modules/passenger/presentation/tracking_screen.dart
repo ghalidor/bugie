@@ -8,6 +8,7 @@ import 'package:vibration/vibration.dart';
 
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/active_trip_service.dart';
 import '../../../core/services/admin_settings_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
@@ -165,6 +166,9 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Mientras el seguimiento esté abierto se oculta la franja
+    // "Viaje en curso · Volver".
+    ActiveTripService().tripScreens.value++;
     // Push "tu conductor llegó" (app abierta o al tocar la notificación).
     FcmService.driverArrived.addListener(_onDriverArrivedPush);
     // Push "viaje cancelado": refrescar ya (el aviso sale en _handleTripFinished).
@@ -251,6 +255,11 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
     hub.driverLocation.removeListener(_onHubDriverLocation);
     hub.userNotification.removeListener(_onHubNotification);
     _syncHubTrip(null);
+    // Vuelve la franja si el viaje sigue vigente (se consulta de nuevo por
+    // si terminó o se canceló).
+    final active = ActiveTripService();
+    active.tripScreens.value = (active.tripScreens.value - 1).clamp(0, 99);
+    active.refresh(force: true);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _staleTickTimer?.cancel();
@@ -602,7 +611,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
           textAlign: TextAlign.center,
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Entendido'),
           ),
@@ -954,9 +963,9 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Seguir esperando'),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: BugieColors.warning),
+            style: FilledButton.styleFrom(backgroundColor: BugieColors.warning),
             child: const Text('Sí, deshacer'),
           ),
         ],
@@ -990,7 +999,8 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('No')),
-          ElevatedButton(
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: BugieColors.danger),
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Rechazar todas')),
         ],
@@ -1153,7 +1163,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
           TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('No, esperar')),
-          ElevatedButton(
+          FilledButton(
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Sí, republicar')),
         ],
@@ -1228,8 +1238,8 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
                 child: const Text('Volver')),
-            ElevatedButton(
-                style: ElevatedButton.styleFrom(
+            FilledButton(
+                style: FilledButton.styleFrom(
                     backgroundColor: BugieColors.danger),
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('Sí, cancelar')),
@@ -1677,36 +1687,44 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                         );
                       },
                       // El handle visual: barrita gris al centro. Le damos
-                      // padding amplio para que sea fácil de "agarrar".
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        alignment: Alignment.center,
-                        color: Colors.transparent,
-                        child: Container(
-                          width: 44,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: BugieColors.textMuted.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(2),
+                      // padding amplio para que sea fácil de "agarrar". La
+                      // línea de distancia de abajo también arrastra.
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            alignment: Alignment.center,
+                            color: Colors.transparent,
+                            child: Container(
+                              width: 44,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: BugieColors.textMuted
+                                    .withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
                           ),
-                        ),
+                          // Info de la ruta (distancia/duración) si hay
+                          if (_routeInfo != null &&
+                              _routeInfo!.options.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km · '
+                                '${_routeInfo!.options.first.durationMinutes.round()} min'
+                                '${_routeInfo!.isFallback ? " (aproximado)" : ""}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: BugieColors.textMuted,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    // Info de la ruta (distancia/duración) si hay
-                    if (_routeInfo != null && _routeInfo!.options.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km · '
-                          '${_routeInfo!.options.first.durationMinutes.round()} min'
-                          '${_routeInfo!.isFallback ? " (aproximado)" : ""}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: BugieColors.textMuted,
-                          ),
-                        ),
-                      ),
                     // Contenido scrolleable: TODO lo que antes estaba en el
                     // ListView de la pantalla. Mismo orden, mismas cards,
                     // mismas alertas. Solo cambió el contenedor.
@@ -1715,6 +1733,11 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                         onRefresh: _load,
                         child: ListView(
                           controller: scrollController,
+                          // Siempre arrastrable: aunque el contenido entre
+                          // completo (sin scroll), arrastrar sobre él contrae
+                          // o expande la hoja, no solo desde el asa. Con
+                          // contenido largo primero se desplaza la lista.
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(20, 4, 20, 48),
                           children: [
               // Banner "sin conexión" — aparece tras 2+ fallos seguidos.
@@ -1808,7 +1831,7 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                         loading: _republishing,
                         onPressed: _republishing ? null : _republish,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       DestructiveTextButton(
                         expand: true,
                         label: 'Cancelar sin penalidad',
@@ -2207,12 +2230,14 @@ class _ProposalCardState extends State<_ProposalCard> {
           icon: Icons.check_circle,
           text: 'Aceptó tu precio ${formatSoles(p.fare)}',
           color: BugieColors.success,
+          maxLines: 2,
         )
       else if (!isMine && !isWaiting)
         InfoChip(
           icon: Icons.local_offer_outlined,
           text: 'Ofrece ${formatSoles(p.fare)}',
           color: BugieColors.proposal,
+          maxLines: 2,
         ),
       InfoChip(icon: Icons.access_time, text: _timeAgo(p.createdAt)),
       if (!isDirect && !isMine && !isWaiting && p.trend != ProposalTrend.isNew)
@@ -2865,16 +2890,22 @@ class _OfflineBanner extends StatelessWidget {
               ],
             ),
           ),
+          // Botón tonal (como la acción de AlertBanner): fondo del color
+          // del aviso, radio 8, alto 32.
           TextButton.icon(
             onPressed: onRetry,
             style: TextButton.styleFrom(
-              foregroundColor: Colors.orange,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              foregroundColor: Colors.orange.shade800,
+              backgroundColor: Colors.orange.withValues(alpha: 0.18),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               minimumSize: const Size(0, 32),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             icon: const Icon(Icons.refresh, size: 16),
             label: const Text('Reintentar',
-                style: TextStyle(fontSize: 12)),
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -3574,10 +3605,20 @@ class _TripCompletedDialogState extends State<_TripCompletedDialog> {
               Row(
                 children: [
                   Expanded(
-                    child: TextButton(
+                    // Contorno neutro, mismo alto que "Enviar".
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: c.textMuted,
+                        side: BorderSide(color: c.inputBorder, width: 1.4),
+                        minimumSize: const Size(0, 54),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
                       onPressed: _busy ? null : () => _finish(rate: false),
-                      child: Text('Omitir',
-                          style: TextStyle(color: c.textMuted)),
+                      child: const Text('Omitir',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
                     ),
                   ),
                   const SizedBox(width: 8),

@@ -90,17 +90,9 @@ public class GetActiveTripHandler : IRequestHandler<GetActiveTripQuery, TripDto?
             vehiclePhotoUrl: vehiclePhotoUrl);
 
         // Pasajero buscando conductor: hasta cuando sigue la busqueda
-        // (mismas reglas que ProposalExpirationService / ScheduledTripReminderService).
-        if(trip.PassengerId == q.UserId && trip.DriverId is null &&
-           (trip.Status == TripStatus.Pending || trip.Status == TripStatus.Negotiating))
-        {
-            if(trip.ScheduledAt.HasValue)
-                return dto with { ExpiresAt = trip.ScheduledAt.Value, ExpiresReason = "scheduled_time" };
-            var rules = await NegotiationRules.LoadAsync(_landing, ct);
-            var at = rules.NoDriverDeadline(trip);
-            if(at.HasValue)
-                return dto with { ExpiresAt = at.Value, ExpiresReason = "no_driver_timeout" };
-        }
+        // (misma regla que POST /api/trips: TripSearchExpiry).
+        if(trip.PassengerId == q.UserId)
+            return await Bugie.Trips.Application.Services.TripSearchExpiry.ApplyAsync(dto, trip, _landing, ct);
         return dto;
     }
 }

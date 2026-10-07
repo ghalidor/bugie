@@ -53,29 +53,44 @@ class TripRequestCardCompact extends StatelessWidget {
     final c = context.bugie;
 
     // ── Estado de negociación (pill + color del borde) ──
+    // Prioridad: Confirmar > Te ofrece > Aceptaste la tarifa > Esperando.
+    final waitingConfirm = counter?.isWaitingMyConfirmation == true;
+    final passengerOffer = counter?.isCounterFromPassenger == true;
+    final iAcceptedFare =
+        !waitingConfirm && !passengerOffer && counter?.isMyDriverAccepted == true;
     _Pill? statusPill;
     Color? borderTint;
-    if (counter?.isMyPending == true) {
-      statusPill = const _Pill(
-        icon: Icons.hourglass_top,
-        text: 'Esperando al pasajero',
-        color: BugieColors.warning,
-      );
-      borderTint = BugieColors.warning;
-    } else if (counter?.isCounterFromPassenger == true) {
-      statusPill = _Pill(
-        icon: Icons.swap_horiz,
-        text: 'Te ofrece ${formatSoles(counter!.fare)}',
-        color: BugieColors.primary,
-      );
-      borderTint = BugieColors.primary;
-    } else if (counter?.isWaitingMyConfirmation == true) {
+    if (waitingConfirm) {
       statusPill = _Pill(
         icon: Icons.check_circle,
         text: trip.isDelivery ? 'Confirmar envío' : 'Confirmar viaje',
         color: BugieColors.success,
       );
       borderTint = BugieColors.success;
+    } else if (passengerOffer) {
+      statusPill = _Pill(
+        icon: Icons.swap_horiz,
+        text: 'Te ofrece ${formatSoles(counter!.fare)}',
+        color: BugieColors.primary,
+      );
+      borderTint = BugieColors.primary;
+    } else if (iAcceptedFare) {
+      final accepted = counter!.myAcceptedFare;
+      statusPill = _Pill(
+        icon: Icons.thumb_up_alt_outlined,
+        text: accepted != null
+            ? 'Aceptaste la tarifa · ${formatSoles(accepted)}'
+            : 'Aceptaste la tarifa',
+        color: BugieColors.info,
+      );
+      borderTint = BugieColors.info;
+    } else if (counter?.isMyPending == true) {
+      statusPill = const _Pill(
+        icon: Icons.hourglass_top,
+        text: 'Esperando al pasajero',
+        color: BugieColors.warning,
+      );
+      borderTint = BugieColors.warning;
     } else if (counter?.isRejected == true) {
       statusPill = const _Pill(
         icon: Icons.block,
@@ -87,14 +102,23 @@ class TripRequestCardCompact extends StatelessWidget {
     // Tarifa: si hay negociación usa counter.fare, sino lo que ofrece el
     // pasajero (estimatedFare). proposedFare es la primera propuesta de
     // algún conductor: no es lo que ofrece el pasajero.
-    final fare = counter?.fare ?? trip.estimatedFare;
-    final fareLabel = counter?.isMyPending == true
-        ? 'Tu propuesta'
-        : counter?.isCounterFromPassenger == true
+    // Si solo acepté la tarifa se muestra el monto aceptado; un monto 0
+    // (no vino del backend) cae a la tarifa del viaje.
+    final counterFare = iAcceptedFare
+        ? (counter!.myAcceptedFare ?? counter!.fare)
+        : counter?.fare;
+    final fare = (counterFare != null && counterFare > 0)
+        ? counterFare
+        : trip.estimatedFare;
+    final fareLabel = waitingConfirm
+        ? 'Aceptó'
+        : passengerOffer
             ? 'Te propone'
-            : counter?.isWaitingMyConfirmation == true
-                ? 'Aceptó'
-                : 'Ofrece';
+            : iAcceptedFare
+                ? 'Aceptaste'
+                : counter?.isMyPending == true
+                    ? 'Tu propuesta'
+                    : 'Ofrece';
 
     String? distText;
     if (distanceToOriginKm != null) {

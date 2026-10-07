@@ -75,10 +75,15 @@ class NotificationsBadge with WidgetsBindingObserver {
     }
   }
 
+  /// Sube cada vez que llega un aviso guardado en la bandeja (app en primer
+  /// plano). La bandeja abierta lo escucha para refrescarse sola.
+  final ValueNotifier<int> arrivals = ValueNotifier(0);
+
   /// Llegó un push guardado en la bandeja (app en primer plano).
   void onPushReceived() {
     if (!_canUse) return;
     unread.value = unread.value + 1;
+    arrivals.value = arrivals.value + 1;
     refresh();
   }
 

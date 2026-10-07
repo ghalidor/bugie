@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import { API, ApiError, apiFetch } from '../../../state/api';
 import { useConfirm, useToast } from '../../../components/ui';
-import { fmtDateTime, roleLabel } from './types';
+import { authHeaders } from '../../../state/session';
+import { fmtDateTime, MonitorAlert, monitorAlertMeta, monitorAlertText, roleLabel } from './types';
 
 const MIN_TEXT = 3;
 
@@ -90,4 +91,41 @@ export function useReviewDeviation() {
       return false;
     }
   }, [ask, toast]);
+}
+
+/** PUT que responde 204 (apiFetch espera JSON). */
+async function putNoContent(url: string, body: unknown): Promise<void> {
+  const res = await fetch(url, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, (b as { error?: string }).error ?? `Error ${res.status}`);
+  }
+}
+
+/** Marcar una alerta de seguimiento como revisada (nota opcional). Devuelve true si se guardó. */
+export function useReviewMonitorAlert() {
+  const confirm = useConfirm();
+  const toast = useToast();
+  return useCallback(async (a: MonitorAlert, driverName: string): Promise<boolean> => {
+    const meta = monitorAlertMeta(a.type);
+    const r = await confirm({
+      title: `Revisar alerta: ${meta.label.toLowerCase()}`,
+      tone: 'warning',
+      message: <><strong>{driverName}</strong> · {monitorAlertText(a)}, desde el {fmtDateTime(a.startedAt)}.</>,
+      reason: 'optional',
+      reasonLabel: 'Nota de revisión (opcional)',
+      reasonPlaceholder: 'Ej: Llamé al conductor, estaba en un túnel / en tráfico.',
+      confirmText: 'Marcar revisada',
+    });
+    if (!r) return false;
+    try {
+      const note = r.reason.trim();
+      await putNoContent(`${API.trips}/trips/admin/monitor-alerts/${a.id}/review`, note ? { note } : {});
+      toast.success('Alerta marcada como revisada.');
+      return true;
+    } catch (err) {
+      toast.error(`No se pudo marcar como revisada: ${errMsg(err)}`);
+      return false;
+    }
+  }, [confirm, toast]);
 }

@@ -80,7 +80,8 @@ public class DriverLocationRelayState
 ///   * viaje activo del conductor resuelto aqui (no se confia en el tripId del
 ///     cliente) y recordado ActiveTripCacheSeconds para no ir a la base por punto;
 ///   * revision de desvio (RouteDeviationService) solo cada DeviationMinMeters o
-///     DeviationMinSeconds por viaje.
+///     DeviationMinSeconds por viaje;
+///   * ultimo GPS de cada conductor en DriverGpsTracker (alertas de monitoreo).
 /// Nada de aqui lanza excepcion hacia el llamador: cada paso se registra en el log.
 /// </summary>
 public class DriverLocationRelayService
@@ -90,12 +91,14 @@ public class DriverLocationRelayService
     private readonly ITripRealtimeNotifier _realtime;
     private readonly RouteDeviationService _deviations;
     private readonly DriverLocationRelayState _state;
+    private readonly DriverGpsTracker _gps;
     private readonly DriverLocationRelayOptions _opts;
     private readonly ILogger<DriverLocationRelayService> _log;
 
     public DriverLocationRelayService(ITripRepository trips, IAdminNotifier admin,
                                       ITripRealtimeNotifier realtime, RouteDeviationService deviations,
                                       DriverLocationRelayState state,
+                                      DriverGpsTracker gps,
                                       IOptions<DriverLocationRelayOptions> opts,
                                       ILogger<DriverLocationRelayService> log)
     {
@@ -104,6 +107,7 @@ public class DriverLocationRelayService
         _realtime = realtime;
         _deviations = deviations;
         _state = state;
+        _gps = gps;
         _opts = opts.Value;
         _log = log;
     }
@@ -114,6 +118,9 @@ public class DriverLocationRelayService
 
         foreach(var p in points)
         {
+            // Ultimo GPS por conductor (alertas "sin senal" y "detenido", ver MonitorAlertsService).
+            _gps.Record(p.UserId, p.Lat, p.Lng, DateTime.UtcNow);
+
             Trip? trip = null;
             if(p.HasActiveTrip)
             {

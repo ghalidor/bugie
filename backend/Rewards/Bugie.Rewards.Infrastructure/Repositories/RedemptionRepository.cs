@@ -60,7 +60,7 @@ public class RedemptionRepository : IRedemptionRepository
             {
                 var stockUpdated = await _db.ExecuteAsync(@"
                     UPDATE rewards.CatalogItems
-                    SET Stock = Stock - 1, UpdatedAt = now()
+                    SET Stock = Stock - 1, UpdatedAt = (now() AT TIME ZONE 'utc')
                     WHERE Id = @Id AND Stock IS NOT NULL AND Stock > 0",
                     new { Id = redemption.CatalogItemId }, trx);
 
@@ -147,7 +147,7 @@ public class RedemptionRepository : IRedemptionRepository
             if (redemption.CatalogItemId is not null)
                 await _db.ExecuteAsync(@"
                     UPDATE rewards.CatalogItems
-                    SET Stock = Stock + 1, UpdatedAt = now()
+                    SET Stock = Stock + 1, UpdatedAt = (now() AT TIME ZONE 'utc')
                     WHERE Id = @Id AND Stock IS NOT NULL",
                     new { Id = redemption.CatalogItemId }, trx);
 
@@ -280,5 +280,5 @@ public class RedemptionRepository : IRedemptionRepository
         await _db.ExecuteAsync(@"
             UPDATE rewards.Redemptions
             SET Status = 'expired'
-            WHERE Status = 'active' AND ExpiresAt < now()");
+            WHERE Status = 'active' AND ExpiresAt < (now() AT TIME ZONE 'utc')");
 }

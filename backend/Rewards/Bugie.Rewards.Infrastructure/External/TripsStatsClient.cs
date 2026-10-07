@@ -7,7 +7,7 @@ namespace Bugie.Rewards.Infrastructure.External;
 
 public class TripsClientOptions
 {
-    public string BaseUrl       { get; set; } = "http://localhost:5002/";
+    public string BaseUrl       { get; set; } = "http://127.0.0.1:5002/";
     public string InternalToken { get; set; } = string.Empty;
 }
 

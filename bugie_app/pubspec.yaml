@@ -86,30 +86,24 @@ dev_dependencies:
 # ─────────────────────────────────────────────────────────────────────────
 # Generador de íconos de app (paquete: flutter_launcher_icons)
 #
-# Usamos logo_splash.png como icono porque es cuadrado (1024x1024) y tiene
-# el logo Bugie centrado con buen padding — funciona bien con máscaras
-# circulares, cuadradas y de gota de Android.
+# Icono: la "b" del logo en blanco sobre el degradado de la marca
+# (azul → violeta → rosa), elegido el 2026-10-06. Se lee bien aunque el
+# icono sea pequeño y resalta en la pantalla de inicio.
+#   - assets/icon/app_icon.png    1024x1024 completo (Android antiguo e iOS)
+#   - assets/icon/app_icon_bg.png fondo degradado del icono adaptativo
+#   - assets/icon/app_icon_fg.png "b" blanca con transparencia, dentro de la
+#     zona segura (el launcher recorta los bordes según la máscara)
+# El splash sigue usando logo_app_icon.png / logo_splash.png (no cambia).
 #
-# Para regenerar después de cambiar la imagen:
-#   dart run flutter_launcher_icons
-# ─────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────
-# Generador de íconos de app (paquete: flutter_launcher_icons)
-#
-# Usamos logo_app_icon.png — cuadrado 1024x1024 con el wordmark "bugie"
-# centrado. Mismo asset que usa el splash nativo y el animado, para que
-# todo se vea consistente: icono en la lista de apps → splash al abrir →
-# splash animado en Flutter → Welcome.
-#
-# Para regenerar (después de cambiar este config):
+# Para regenerar (después de cambiar estas imágenes o este config):
 #   dart run flutter_launcher_icons
 # ─────────────────────────────────────────────────────────────────────────
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: true
-  image_path: "assets/logo_app_icon.png"
-  adaptive_icon_background: "#5B5BD6"
-  adaptive_icon_foreground: "assets/logo_app_icon.png"
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "assets/icon/app_icon_bg.png"
+  adaptive_icon_foreground: "assets/icon/app_icon_fg.png"
   remove_alpha_ios: true
   # min_sdk_android: 21 # (default)
 

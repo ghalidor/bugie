@@ -376,16 +376,21 @@ class _NotifPrefsSection extends StatelessWidget {
                 'de Bugie.',
                 style: TextStyle(color: c.textMuted, fontSize: 12.5),
               ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
+              const SizedBox(height: 10),
+              // Mismo estilo que "Abrir ajustes del celular".
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
                   onPressed: onOpenSettings,
-                  style: TextButton.styleFrom(
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: const Text('Abrir ajustes de notificaciones'),
+                  style: OutlinedButton.styleFrom(
                     foregroundColor: BugieColors.primary,
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 36),
+                    side: const BorderSide(color: BugieColors.primary),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Abrir ajustes de notificaciones'),
                 ),
               ),
             ],

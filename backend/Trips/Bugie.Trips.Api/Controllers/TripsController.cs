@@ -261,8 +261,8 @@ public class TripsController : ControllerBase
     /// las del conductor en otros viajes inmediatos (driver_busy).
     /// Si algo cambio en medio (otro conductor, el pasajero cancelo...) no queda
     /// nada a medias y se responde 409.
-    /// Avisa a los conductores cuya oferta aceptada se cerro y a los pasajeros
-    /// cuyo conductor elegido quedo ocupado.
+    /// Avisa a los conductores con oferta abierta en el viaje que se cerro y a los
+    /// pasajeros cuyo conductor elegido quedo ocupado.
     /// </summary>
     private async Task<(IActionResult? Error, int Cascaded)> AssignAsync(
         Trip trip, TripProposal proposal, string[] fromStatuses, string staleMessage, CancellationToken ct)
@@ -301,8 +301,10 @@ public class TripsController : ControllerBase
         trip.ProposedFare = null;
         trip.ProposedDriverId = null;
 
-        foreach(var o in others.Where(o => o.OldStatus == "accepted_by_passenger"))
-            _ = _notify.NotifyDriverNotChosenAsync(o.DriverId, trip.Id, trip.ServiceType);
+        // Todos los conductores con oferta abierta en el viaje (pending, driver_accepted
+        // o accepted_by_passenger) reciben "El pasajero eligió otra oferta": uno por conductor.
+        foreach(var driverId in others.Select(o => o.DriverId).Distinct().Where(d => d != proposal.DriverId))
+            _ = _notify.NotifyDriverNotChosenAsync(driverId, trip.Id, trip.ServiceType);
         foreach(var c in cascaded.Where(c => c.OldStatus == "accepted_by_passenger"))
             _ = _notify.NotifyPassengerChosenDriverBusyAsync(c.PassengerId, c.TripId, c.ServiceType);
 
@@ -922,7 +924,7 @@ public class TripsController : ControllerBase
                 // demas servicios. En el servidor se cambia ahi.
                 var paymentsUrl = (HttpContext.RequestServices.GetRequiredService<IConfiguration>()["Services:PaymentsApi"]
                                   ?? Environment.GetEnvironmentVariable("PAYMENTS_API_URL")
-                                  ?? "http://localhost:5004").TrimEnd('/');
+                                  ?? "http://127.0.0.1:5004").TrimEnd('/');
                 var token = Request.Headers["Authorization"].ToString();
                 using var req2 = new HttpRequestMessage(HttpMethod.Post,
                     $"{paymentsUrl}/api/payments");
@@ -1110,7 +1112,8 @@ public class TripsController : ControllerBase
     }
 
     /// <summary>
-    /// Admin: lista de viajes en curso con la última posición del pasajero.
+    /// Admin: lista de viajes en curso con la última posición del pasajero
+    /// (o el origen si no envió GPS; ver PassengerLocationKnown).
     /// Devuelve solo lo necesario para pintar el mapa de monitoreo. NO incluye
     /// rutas, waypoints, ni datos pesados. Polling sugerido: cada 5-10s.
     /// </summary>
@@ -1120,13 +1123,18 @@ public class TripsController : ControllerBase
     public async Task<IActionResult> LivePassengers(CancellationToken ct)
     {
         var list = await _trips.GetLivePassengerLocationsAsync(ct);
-        return Ok(list.Select(p => new LivePassengerDto(
-            p.TripId, p.PassengerId, p.DriverId, p.Status,
-            p.Lat ?? 0, p.Lng ?? 0, p.UpdatedAt,
-            p.OriginLat, p.OriginLng, p.DestLat, p.DestLng,
-            p.DriverLat, p.DriverLng,
-            p.PassengerName, p.PassengerPhone, p.PassengerPhotoUrl,
-            p.DriverName, p.DriverPhone)));
+        // Sin ubicacion del pasajero (viaje pedido desde la web): se muestra en el origen.
+        return Ok(list.Select(p =>
+        {
+            var known = p.Lat.HasValue && p.Lng.HasValue;
+            return new LivePassengerDto(
+                p.TripId, p.PassengerId, p.DriverId, p.Status,
+                known ? p.Lat!.Value : p.OriginLat, known ? p.Lng!.Value : p.OriginLng, p.UpdatedAt,
+                p.OriginLat, p.OriginLng, p.DestLat, p.DestLng,
+                p.DriverLat, p.DriverLng,
+                p.PassengerName, p.PassengerPhone, p.PassengerPhotoUrl,
+                p.DriverName, p.DriverPhone, p.ServiceType, p.StartedAt, known);
+        }));
     }
 
     // ── Endpoints SOS REMOVIDOS de aquí ──────────────────────────────────

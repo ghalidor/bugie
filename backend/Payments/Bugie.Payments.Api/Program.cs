@@ -30,7 +30,7 @@ builder.Services.AddScoped<ITripLookup, TripLookup>();
 builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutNotifier,
                                Bugie.Payments.Infrastructure.External.RewardsPayoutNotifier>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://localhost:5006");
+    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://127.0.0.1:5006");
     c.DefaultRequestHeaders.Add("X-Internal-Token", builder.Configuration["InternalToken"] ?? "");
     c.Timeout = TimeSpan.FromSeconds(10);
 });
@@ -39,7 +39,7 @@ builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutNotifier,
 builder.Services.AddHttpClient<Bugie.Payments.Domain.External.IPayoutCodeClient,
                                Bugie.Payments.Infrastructure.External.RewardsPayoutCodeClient>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://localhost:5006");
+    c.BaseAddress = new Uri(builder.Configuration["Services:RewardsApi"] ?? "http://127.0.0.1:5006");
     c.DefaultRequestHeaders.Add("X-Internal-Token", builder.Configuration["InternalToken"] ?? "");
     c.Timeout = TimeSpan.FromSeconds(10);
 });

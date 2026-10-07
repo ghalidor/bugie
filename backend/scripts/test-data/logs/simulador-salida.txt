@@ -1,0 +1,21 @@
+Cuentas de la prueba de carga disponibles: 40
+Simulador de viajes en curso · 3 conductores · 1 posicion cada 3 s a ~22 km/h · GraphHopper http://localhost:8989
+Ctrl+C para detener dejando todo coherente.
+
+05:21:06 [D1] ya tiene un viaje activo (d23b7fc8-1ceb-4948-93e7-ef3f7c138b4d): no se usa
+05:21:07 [D3] ya tiene un viaje activo (6f45ddb3-c30a-448f-806b-1991f0ad79a0): no se usa
+05:21:11 [P1] ya tiene un viaje activo: no se usa
+05:21:11 [P2] ya tiene un viaje activo: no se usa
+05:21:15 [INFO] conductores: D2, C0000, C0001 · pasajeros libres: P3, P4, P5, P0000, P0001, P0002, P0003, P0004, P0005, P0006, P0007, P0008, P0009, P0010, P0011, P0012, P0013, P0014, P0015, P0016, P0017, P0018, P0019
+05:21:15 [PEDIDO] P0000 busca conductor: Terminal Terrestre Collasuyo, Alto de la Alianza -> Aeropuerto Carlos Ciriani Santa Rosa (vence 2026-10-07T05:31:15.8969379)
+05:21:16 [C0001] viaje 77825d51 de P5: Terminal Terrestre Collasuyo, Alto de la Alianza -> Av. Bolognesi 1200, Tacna (S/ 11)
+05:21:16 [C0000] viaje 1766a975 de P4: Av. Bolognesi 1200, Tacna -> Terminal Terrestre Collasuyo, Alto de la Alianza (S/ 11)
+05:21:16 [D2] viaje dfc32062 de P3: Mercado Central de Tacna -> Ciudad Nueva, Av. Internacional (S/ 10)
+05:25:18 [PEDIDO] P0001 busca conductor: Mercado Central de Tacna -> Terminal Terrestre Collasuyo, Alto de la Alianza (vence 2026-10-07T05:35:18.7225672)
+05:27:16 [C0000] en curso hacia Terminal Terrestre Collasuyo, Alto de la Alianza (3.0 km)
+05:29:16 [C0001] en curso hacia Av. Bolognesi 1200, Tacna (3.0 km)
+05:29:21 [PEDIDO] P0002 busca conductor: Plaza de Armas de Tacna -> Av. Municipal, Gregorio Albarracin (vence 2026-10-07T05:39:21.9377436)
+05:30:53 [D2] en curso hacia Ciudad Nueva, Av. Internacional (2.6 km)
+05:31:23 [PEDIDO] P0000: su pedido ya no esta activo (lo cancelo Bugie)
+05:33:25 [PEDIDO] P0000 busca conductor: Av. Municipal, Gregorio Albarracin -> Mercado Central de Tacna (vence 2026-10-07T05:43:25.2738161)
+05:35:21 [PEDIDO] P0001: su pedido ya no esta activo (lo cancelo Bugie)

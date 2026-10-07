@@ -41,7 +41,7 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHttpClient<IAuthTokensClient, AuthTokensClient>(c =>
 {
     c.BaseAddress = new Uri(builder.Configuration["Services:AuthApi"]
-                            ?? "http://localhost:5001/");
+                            ?? "http://127.0.0.1:5001/");
     c.Timeout     = TimeSpan.FromSeconds(10);
 });
 
@@ -51,7 +51,7 @@ builder.Services.AddHttpClient<IAuthTokensClient, AuthTokensClient>(c =>
 // (TripsClientOptions, configurado mas abajo).
 builder.Services.AddHttpClient<IFcmSender, FcmSender>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/");
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://127.0.0.1:5002/");
     c.Timeout     = TimeSpan.FromSeconds(10);
 });
 
@@ -98,12 +98,12 @@ builder.Services.AddHostedService<PointsExpirationService>();
 // Cliente a Trips, solo para el resumen diario de conductores.
 builder.Services.Configure<TripsClientOptions>(opt =>
 {
-    opt.BaseUrl       = builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/";
+    opt.BaseUrl       = builder.Configuration["Services:TripsApi"] ?? "http://127.0.0.1:5002/";
     opt.InternalToken = builder.Configuration["InternalToken"] ?? string.Empty;
 });
 builder.Services.AddHttpClient<ITripsStatsClient, TripsStatsClient>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002/");
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://127.0.0.1:5002/");
     c.Timeout     = TimeSpan.FromSeconds(30);
 });
 

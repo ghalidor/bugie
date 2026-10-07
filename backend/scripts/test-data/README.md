@@ -135,7 +135,7 @@ psql -U postgres -d bugie_test -f bugie_test_backup.sql
 ```
 
 Ademas de la base hacen falta, en la otra PC:
-- Las imagenes: copiar la carpeta `C:/bugie-uploads` (986 archivos, ~63 MB). Hay un zip fuera del repo en
+- Las imagenes: copiar la carpeta `C:/bugie-uploads` (1 010 archivos, ~63 MB, incluye gps-archive). Hay un zip fuera del repo en
   `D:\trabajo\jose\bugie_test_respaldo\bugie-uploads.zip`; descomprimirlo en `C:\bugie-uploads`.
   Sin ellas los registros existen pero las fotos salen rotas.
 - GraphHopper local en `http://localhost:8989` con el mapa de la zona (lo usan Trips para las rutas,
@@ -143,9 +143,9 @@ Ademas de la base hacen falta, en la otra PC:
 - La contrasena de todos los usuarios de prueba sigue siendo la del seed (`PASSWORD`), incluidos los
   de carga `cargacNNNN@bugie.test` / `cargapNNNN@bugie.test`.
 - Para la app en el celular: ajustar `bugie_app/.env` con la IP de la nueva PC (API_* y WEB_BASE_URL).
-- El dia de prueba quedo con GPS crudo de ~26 dias en particiones; el job nocturno de archivado
-  (o `POST /api/drivers/admin/gps-archive/run`) lo pasa a Parquet en `C:/bugie-uploads/gps-archive`
-  y deja solo 2 dias en la base. No se ha corrido todavia.
+- El archivado a Parquet ya se corrio una vez (6-oct): la base trae solo 2 dias de GPS crudo y los
+  dias anteriores estan en `C:/bugie-uploads/gps-archive` (dentro del zip). El job sigue corriendo
+  solo a las 08:00 UTC (o con `POST /api/drivers/admin/gps-archive/run`).
 
 ## Regenerar desde cero
 
@@ -184,6 +184,8 @@ psql -U postgres -d bugie_test -f scripts/2026-10-04_beneficios_nivel_sorteos.sq
 psql -U postgres -d bugie_test -f scripts/2026-10-05_negociacion_viajes.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-06_indices_rendimiento.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-06_historial_gps.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-06_fechas_utc.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-07_alertas_monitoreo.sql
 psql -U postgres -d bugie_test -f scripts/test-data/01_limpiar_bugie_test.sql
 bash scripts/test-data/levantar_apis_test.sh        # en otra terminal
 node scripts/test-data/seed.mjs

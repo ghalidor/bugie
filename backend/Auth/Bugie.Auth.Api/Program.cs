@@ -65,19 +65,19 @@ builder.Services.Configure<DriversClientOptions>(
 // la clave InternalToken que Auth ya tiene, y debe coincidir con el de Rewards.
 builder.Services.Configure<RewardsClientOptions>(opt =>
 {
-    opt.BaseUrl       = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://localhost:5006";
+    opt.BaseUrl       = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://127.0.0.1:5006";
     opt.InternalToken = builder.Configuration["InternalToken"] ?? string.Empty;
 });
 builder.Services.AddHttpClient<IRewardsClient, RewardsClient>(c =>
 {
-    var baseUrl = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://localhost:5006";
+    var baseUrl = builder.Configuration["RewardsClient:BaseUrl"] ?? "http://127.0.0.1:5006";
     c.BaseAddress = new Uri(baseUrl);
     c.Timeout = TimeSpan.FromSeconds(10);
 });
 
 builder.Services.AddHttpClient<IDriversClient, DriversClient>(c =>
 {
-    var baseUrl = builder.Configuration["DriversClient:BaseUrl"] ?? "http://localhost:5003";
+    var baseUrl = builder.Configuration["DriversClient:BaseUrl"] ?? "http://127.0.0.1:5003";
     c.BaseAddress = new Uri(baseUrl);
     c.Timeout = TimeSpan.FromSeconds(10);
 });
@@ -87,7 +87,7 @@ builder.Services.Configure<LandingSettingsClientOptions>(
     builder.Configuration.GetSection("LandingSettingsClient"));
 builder.Services.AddHttpClient<ILandingSettingsClient, LandingSettingsClient>(c =>
 {
-    var baseUrl = builder.Configuration["LandingSettingsClient:BaseUrl"] ?? "http://localhost:5005";
+    var baseUrl = builder.Configuration["LandingSettingsClient:BaseUrl"] ?? "http://127.0.0.1:5005";
     c.BaseAddress = new Uri(baseUrl);
     c.Timeout = TimeSpan.FromSeconds(5);
 });
@@ -95,7 +95,7 @@ builder.Services.AddHttpClient<ILandingSettingsClient, LandingSettingsClient>(c 
 // Avisos al Centro de avisos del panel admin (vía Trips, fire-and-forget).
 builder.Services.AddHttpClient<IAdminEventsPublisher, AdminEventsPublisher>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002");
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://127.0.0.1:5002");
     c.Timeout = TimeSpan.FromSeconds(3);
 });
 

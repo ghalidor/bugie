@@ -180,6 +180,8 @@ class ProposalHistoryEntry {
 ///   - status='pending'  + proposedByRole='passenger' → contrapropuesta del pasajero (banner naranja).
 ///   - status='pending'  + proposedByRole='driver'    → mi propia propuesta vigente (banner azul).
 ///   - status='rejected' + proposedByRole='driver'    → el pasajero rechazó mi propuesta (banner rojo, 24h).
+/// Además, [isMyDriverAccepted] indica que acepté la tarifa del pasajero y
+/// espero que me elija (puede venir sin propuesta propia).
 class DriverCounterInfo {
   final String id;
   final double fare;
@@ -188,6 +190,10 @@ class DriverCounterInfo {
   final String status;
   /// 'driver' | 'passenger'
   final String proposedByRole;
+  /// Acepté la tarifa del pasajero y espero que me elija.
+  final bool isMyDriverAccepted;
+  /// Monto que acepté (null si el backend no lo manda).
+  final double? myAcceptedFare;
 
   DriverCounterInfo({
     required this.id,
@@ -195,16 +201,23 @@ class DriverCounterInfo {
     required this.createdAt,
     required this.status,
     required this.proposedByRole,
+    this.isMyDriverAccepted = false,
+    this.myAcceptedFare,
   });
 
-  factory DriverCounterInfo.fromJson(Map<String, dynamic> j) =>
-      DriverCounterInfo(
-        id:             j['id'].toString(),
-        fare:           (j['fare'] as num).toDouble(),
-        createdAt:      DateTime.tryParse(j['createdAt'] ?? '') ?? DateTime.now(),
-        status:         (j['status'] ?? 'pending').toString(),
-        proposedByRole: (j['proposedByRole'] ?? 'driver').toString(),
-      );
+  factory DriverCounterInfo.fromJson(Map<String, dynamic> j) {
+    final acceptedFare = (j['myAcceptedFare'] as num?)?.toDouble();
+    return DriverCounterInfo(
+      id:                 (j['id'] ?? '').toString(),
+      // Si solo acepté la tarifa puede no venir 'fare': uso el monto aceptado.
+      fare:               (j['fare'] as num?)?.toDouble() ?? acceptedFare ?? 0,
+      createdAt:          DateTime.tryParse(j['createdAt'] ?? '') ?? DateTime.now(),
+      status:             (j['status'] ?? 'pending').toString(),
+      proposedByRole:     (j['proposedByRole'] ?? 'driver').toString(),
+      isMyDriverAccepted: j['isMyDriverAccepted'] == true,
+      myAcceptedFare:     acceptedFare,
+    );
+  }
 
   bool get isCounterFromPassenger =>
       status == 'pending' && proposedByRole == 'passenger';

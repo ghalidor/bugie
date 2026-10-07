@@ -7,12 +7,14 @@ import 'package:flutter/services.dart';
 import '../services/active_trip_service.dart';
 import '../theme/bugie_theme.dart';
 
-/// Envuelve toda la app (MaterialApp.builder) y, mientras el conductor tenga
-/// un viaje activo, muestra arriba la franja fija "Viaje en curso · Volver".
+/// Envuelve toda la app (MaterialApp.builder) y, mientras el conductor o el
+/// pasajero tenga un viaje activo, muestra arriba la franja fija
+/// "Viaje en curso · Volver".
 ///
 /// - Aparece en todas las pantallas (pestañas del menú y pantallas internas)
 ///   y se oculta mientras la pantalla del viaje está abierta.
-/// - Al tocarla abre la pantalla del viaje (/driver/trip-in-progress).
+/// - Al tocarla abre la pantalla del viaje (/driver/trip-in-progress o el
+///   seguimiento del pasajero).
 /// - Entra deslizándose; sin animación si el celular las quitó.
 /// - Ocupa el lugar de la barra de estado: el contenido de abajo pierde ese
 ///   margen superior mientras la franja está visible, así nada se tapa.

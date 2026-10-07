@@ -2,6 +2,27 @@ using Bugie.Rewards.Domain.Entities;
 
 namespace Bugie.Rewards.Domain.Interfaces;
 
+/// <summary>Fila del listado admin de tickets de un sorteo.</summary>
+public class RaffleTicketAdminRow
+{
+    public string   TicketNumber { get; set; } = string.Empty;
+    public Guid     UserId       { get; set; }
+    public string?  UserName     { get; set; }
+    public string?  UserRole     { get; set; }
+    public string   Source       { get; set; } = string.Empty;
+    public DateTime CreatedAt    { get; set; }
+    public bool     IsWinner     { get; set; }
+}
+
+/// <param name="Total">Tickets que cumplen el filtro (para paginar).</param>
+/// <param name="Participants">Usuarios distintos con tickets en el sorteo.</param>
+/// <param name="BySource">Tickets del sorteo por origen.</param>
+public record RaffleTicketsPage(
+    List<RaffleTicketAdminRow> Items,
+    int Total,
+    int Participants,
+    Dictionary<string, int> BySource);
+
 public interface IRaffleRepository
 {
     Task<List<Raffle>> GetAllAsync(CancellationToken ct = default);
@@ -44,6 +65,15 @@ public interface IRaffleRepository
     Task<List<string>> UseTicketCouponAsync(
         Guid raffleId, Guid userId, Guid profileId, Guid redemptionId,
         int quantity, string usedNote, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin: tickets de un sorteo, paginados, con nombre y rol del usuario
+    /// (auth.users). search filtra por nombre o numero de ticket. Orden:
+    /// ganadores primero, luego por numero de ticket. Los totales (participantes
+    /// y por origen) son de todo el sorteo, sin el filtro.
+    /// </summary>
+    Task<RaffleTicketsPage> GetTicketsPageAsync(
+        Guid raffleId, string? search, int page, int pageSize, CancellationToken ct = default);
 
     /// <summary>Tickets de un usuario en los sorteos abiertos.</summary>
     Task<List<(Raffle Raffle, int Tickets)>> GetUserTicketsSummaryAsync(

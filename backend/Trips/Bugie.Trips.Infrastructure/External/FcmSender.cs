@@ -1,4 +1,5 @@
-﻿using FirebaseAdmin;
+﻿using System.Collections.Concurrent;
+using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
 using Bugie.Trips.Domain.External;
@@ -38,6 +39,14 @@ public class FcmSender : IFcmSender
     private readonly IUserNotificationRepository _inbox;
     private readonly ITripRealtimeNotifier _realtime;
     private readonly bool _ready;
+
+    // Cache en memoria de tokens FCM por usuario (60 s): evita pedir a Auth en
+    // cada aviso. Se borra la entrada del usuario si Firebase dice que su token
+    // ya no sirve. FcmSender es singleton: el cache vive mientras viva la API.
+    private static readonly TimeSpan TokenCacheTtl = TimeSpan.FromSeconds(60);
+    private const int TokenCachePurgeAbove = 5000;
+    private readonly ConcurrentDictionary<Guid, CachedTokens> _tokenCache = new();
+    private sealed record CachedTokens(List<FcmTokenInfo> Tokens, DateTime ExpiresAtUtc);
 
     public FcmSender(
         ILogger<FcmSender> log,
@@ -104,11 +113,11 @@ public class FcmSender : IFcmSender
             return;
         }
 
-        // 1. Traer los tokens de Auth.
+        // 1. Traer los tokens (cache de 60 s; a Auth solo se piden los que faltan).
         List<FcmTokenInfo> tokens;
         try
         {
-            tokens = await _auth.GetFcmTokensAsync(ids, ct);
+            tokens = await GetTokensAsync(ids, ct);
         }
         catch(Exception ex)
         {
@@ -177,6 +186,7 @@ public class FcmSender : IFcmSender
 
             var code = r.Exception?.MessagingErrorCode;
             var deadToken = messages[i].Token;
+            var tokenOwner = tokens[i].UserId;
 
             var detail = r.Exception?.Message ?? "";
             // InvalidArgument también sale cuando el MENSAJE es inválido (no el token):
@@ -187,6 +197,8 @@ public class FcmSender : IFcmSender
             if(tokenInvalid)
             {
                 _log.LogInformation("Borrando token FCM muerto: {Code} ({Detail})", code, detail);
+                // Su lista de tokens cambio: el proximo aviso la vuelve a pedir a Auth.
+                _tokenCache.TryRemove(tokenOwner, out _);
                 try { await _auth.DeleteFcmTokenAsync(deadToken, ct); }
                 catch { /* no crítico */ }
             }
@@ -195,6 +207,44 @@ public class FcmSender : IFcmSender
                 _log.LogWarning("FCM falló para 1 token: {Code} ({Detail})", code, detail);
             }
         }
+    }
+
+    /// <summary>
+    /// Tokens de los usuarios: los vigentes salen del cache y solo los que faltan
+    /// se piden a Auth (una llamada). Un usuario sin tokens tambien se guarda
+    /// (lista vacia) para no preguntar por el en cada aviso. Si Auth falla lanza
+    /// excepcion y no se guarda nada.
+    /// </summary>
+    private async Task<List<FcmTokenInfo>> GetTokensAsync(List<Guid> ids, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var result = new List<FcmTokenInfo>();
+        var missing = new List<Guid>();
+        foreach(var id in ids)
+        {
+            if(_tokenCache.TryGetValue(id, out var cached) && cached.ExpiresAtUtc > now)
+                result.AddRange(cached.Tokens);
+            else
+                missing.Add(id);
+        }
+        if(missing.Count == 0) return result;
+
+        var fetched = await _auth.GetFcmTokensAsync(missing, ct);
+
+        // Limpieza de vencidos para que el diccionario no crezca sin limite.
+        if(_tokenCache.Count > TokenCachePurgeAbove)
+            foreach(var kv in _tokenCache)
+                if(kv.Value.ExpiresAtUtc <= now) _tokenCache.TryRemove(kv.Key, out _);
+
+        var expires = DateTime.UtcNow.Add(TokenCacheTtl);
+        var byUser = fetched.GroupBy(t => t.UserId).ToDictionary(g => g.Key, g => g.ToList());
+        foreach(var id in missing)
+        {
+            var userTokens = byUser.TryGetValue(id, out var list) ? list : new List<FcmTokenInfo>();
+            _tokenCache[id] = new CachedTokens(userTokens, expires);
+            result.AddRange(userTokens);
+        }
+        return result;
     }
 
     /// <summary>

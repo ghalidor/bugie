@@ -257,6 +257,8 @@ public class TripRepository : ITripRepository {
         // pegarle a Drivers API. Drivers.UserId = Trip.DriverId (mismo Guid).
         // Nombres salen de auth.Users con LEFT JOIN para que el viaje aparezca
         // aunque el usuario no exista (cosa rara, pero defensa).
+        // Incluye viajes sin ubicacion del pasajero (p.ej. pedidos desde la web,
+        // que no envia GPS): Lat/Lng vienen null y el controller usa el origen.
         // Limitamos a 200 viajes activos.
         var rows = await _db.QueryAsync<PassengerLiveLocation>($@"
             SELECT
@@ -277,16 +279,16 @@ public class TripRepository : ITripRepository {
                 up.Phone              AS PassengerPhone,
                 up.ProfilePhotoUrl    AS PassengerPhotoUrl,
                 ud.FullName           AS DriverName,
-                ud.Phone              AS DriverPhone
+                ud.Phone              AS DriverPhone,
+                t.ServiceType         AS ServiceType,
+                t.StartedAt           AS StartedAt
             FROM trips.Trips t
             LEFT JOIN drivers.Drivers d ON d.UserId = t.DriverId
             LEFT JOIN auth.Users up      ON up.Id  = t.PassengerId
             LEFT JOIN auth.Users ud      ON ud.Id  = t.DriverId
             WHERE t.Status IN (1, 2, 3, 6, 7)
               AND {ActiveSqlT}
-              AND t.PassengerLastLat IS NOT NULL
-              AND t.PassengerLastLng IS NOT NULL
-            ORDER BY t.PassengerLocationAt DESC
+            ORDER BY t.PassengerLocationAt DESC NULLS LAST, t.CreatedAt DESC
             LIMIT 200");
         return rows.ToList();
     }

@@ -45,22 +45,29 @@ public class GetOnlineDriversHandler : IRequestHandler<GetOnlineDriversQuery, Li
 
         // 3) Combina en memoria. La posicion preferida es la que esta en
         //    memoria (DriverLiveLocations, mas fresca que la base); si no hay,
-        //    la de la base.
+        //    la de la base. Igual la hora de la ultima posicion.
+        //    El celular sale del mismo llamado bulk a Auth (sin N+1).
         var maxAge = TimeSpan.FromMinutes(_opts.StaleMinutes);
-        return drivers.Select(d => new DriverDto(
-            d.Id,
-            d.UserId,
-            users.GetValueOrDefault(d.UserId)?.FullName ?? "Conductor",
-            d.Status,
-            d.IsOnline,
-            _live.Get(d.UserId, maxAge)?.Lat ?? d.CurrentLat,
-            _live.Get(d.UserId, maxAge)?.Lng ?? d.CurrentLng,
-            d.Rating,
-            d.TotalRatings,
-            activeIds.Contains(d.UserId),
-            d.CreatedAt,
-            d.ApprovedAt,
-            d.ProfilePhotoUrl
-        )).ToList();
+        return drivers.Select(d =>
+        {
+            var live = _live.Get(d.UserId, maxAge);
+            var user = users.GetValueOrDefault(d.UserId);
+            return new DriverDto(
+                d.Id,
+                d.UserId,
+                user?.FullName ?? "Conductor",
+                d.Status,
+                d.IsOnline,
+                live?.Lat ?? d.CurrentLat,
+                live?.Lng ?? d.CurrentLng,
+                d.Rating,
+                d.TotalRatings,
+                activeIds.Contains(d.UserId),
+                d.CreatedAt,
+                d.ApprovedAt,
+                d.ProfilePhotoUrl,
+                Phone: string.IsNullOrWhiteSpace(user?.Phone) ? null : user!.Phone,
+                LastLocationAt: live?.RecordedAtUtc ?? d.CurrentLocationAt);
+        }).ToList();
     }
 }

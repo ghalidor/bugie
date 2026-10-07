@@ -20,8 +20,8 @@ public class PromotionRepository : IPromotionRepository
         var rows = await _db.QueryAsync<Promotion>(@"
             SELECT * FROM rewards.Promotions
             WHERE IsActive = true
-              AND StartDate <= now()
-              AND (EndDate IS NULL OR EndDate > now())
+              AND StartDate <= (now() AT TIME ZONE 'utc')
+              AND (EndDate IS NULL OR EndDate > (now() AT TIME ZONE 'utc'))
               AND (TargetUserType = 'both' OR TargetUserType = @UserType)
             ORDER BY CreatedAt",
             new { UserType = userType });
@@ -96,7 +96,7 @@ public class PromotionRepository : IPromotionRepository
             INSERT INTO rewards.PromotionApplications
                 (PromotionId, ProfileId, TripId, PointsAdded, CreatedAt)
             VALUES
-                (@PromotionId, @ProfileId, @TripId, @PointsAdded, now())
+                (@PromotionId, @ProfileId, @TripId, @PointsAdded, (now() AT TIME ZONE 'utc'))
             ON CONFLICT DO NOTHING",
             rows);
     }

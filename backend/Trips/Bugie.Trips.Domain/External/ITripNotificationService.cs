@@ -47,8 +47,8 @@ public interface ITripNotificationService
         DateTime? scheduledAtUtc = null);
 
     /// <summary>
-    /// El pasajero eligió otra oferta y la oferta de este conductor (que el
-    /// pasajero había aceptado) se cerró.
+    /// El pasajero eligió otra oferta y la oferta abierta de este conductor
+    /// (pending, driver_accepted o accepted_by_passenger) se cerró.
     /// → Push al CONDUCTOR (type = offer_not_chosen).
     /// </summary>
     Task NotifyDriverNotChosenAsync(

@@ -181,7 +181,7 @@ public sealed class HttpAdminPermissionSource : IAdminPermissionSource
             throw new AdminPermissionsUnavailableException("InternalToken no configurado.");
         }
 
-        var baseUrl = (_cfg["Services:AuthApi"] ?? "http://localhost:5001").TrimEnd('/') + "/";
+        var baseUrl = (_cfg["Services:AuthApi"] ?? "http://127.0.0.1:5001").TrimEnd('/') + "/";
         try
         {
             var client = _http.CreateClient();

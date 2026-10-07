@@ -7,7 +7,7 @@ namespace Bugie.Auth.Infrastructure.External;
 
 public class LandingSettingsClientOptions
 {
-    public string BaseUrl { get; set; } = "http://localhost:5005";
+    public string BaseUrl { get; set; } = "http://127.0.0.1:5005";
 
     /// <summary>Tiempo de cache en minutos. Por defecto 10.</summary>
     public int CacheMinutes { get; set; } = 10;

@@ -150,7 +150,7 @@ builder.Services.AddHttpClient<ITripsNotifyClient, TripsNotifyClient>(c =>
 // Avisos al Centro de avisos del panel admin (vía Trips, fire-and-forget).
 builder.Services.AddHttpClient<IAdminEventsPublisher, AdminEventsPublisher>(c =>
 {
-    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://localhost:5002");
+    c.BaseAddress = new Uri(builder.Configuration["Services:TripsApi"] ?? "http://127.0.0.1:5002");
     c.Timeout = TimeSpan.FromSeconds(3);
 });
 
@@ -159,7 +159,7 @@ builder.Services.Configure<LandingSettingsClientOptions>(
     builder.Configuration.GetSection("LandingSettingsClient"));
 builder.Services.AddHttpClient<ILandingSettingsClient, LandingSettingsClient>(c =>
 {
-    var baseUrl = builder.Configuration["LandingSettingsClient:BaseUrl"] ?? "http://localhost:5005";
+    var baseUrl = builder.Configuration["LandingSettingsClient:BaseUrl"] ?? "http://127.0.0.1:5005";
     c.BaseAddress = new Uri(baseUrl);
     c.Timeout = TimeSpan.FromSeconds(5);
 });

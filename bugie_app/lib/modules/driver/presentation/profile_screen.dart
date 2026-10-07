@@ -17,6 +17,7 @@ import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/trip_model.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver_model.dart';
+import '../../../core/widgets/confirm_logout.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -350,6 +351,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       icon: const Icon(Icons.logout),
                       label: const Text('Cerrar sesión'),
                       onPressed: () async {
+                        if (!await confirmLogout(context) || !context.mounted) return;
                         await context.read<AuthRepository>().logout();
                         if (context.mounted) context.go('/');
                       },

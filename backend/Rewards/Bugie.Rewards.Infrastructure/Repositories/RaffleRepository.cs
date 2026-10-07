@@ -31,7 +31,7 @@ public class RaffleRepository : IRaffleRepository
     {
         var rows = await _db.QueryAsync<Raffle>(@"
             SELECT * FROM rewards.Raffles
-            WHERE Status IN ('open','closed') AND DrawDate <= now()
+            WHERE Status IN ('open','closed') AND DrawDate <= (now() AT TIME ZONE 'utc')
             ORDER BY DrawDate");
         return rows.ToList();
     }
@@ -92,6 +92,64 @@ public class RaffleRepository : IRaffleRepository
             "SELECT COUNT(*) FROM rewards.RaffleTickets WHERE RaffleId = @RaffleId",
             new { RaffleId = raffleId });
 
+    private sealed class SourceCount
+    {
+        public string Source { get; set; } = string.Empty;
+        public int    Total  { get; set; }
+    }
+
+    public async Task<RaffleTicketsPage> GetTicketsPageAsync(
+        Guid raffleId, string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        // Nombre y rol salen de auth.users con un JOIN (misma base, igual que
+        // AdminQueryRepository): sin una consulta por usuario.
+        var texto  = search?.Trim();
+        var filtro = string.IsNullOrEmpty(texto)
+            ? ""
+            : " AND (u.FullName ILIKE @Patron OR t.TicketNumber ILIKE @Patron)";
+
+        var sql = $@"
+            SELECT t.TicketNumber, t.UserId,
+                   u.FullName AS UserName, u.Role AS UserRole,
+                   t.Source, t.CreatedAt,
+                   EXISTS (SELECT 1 FROM rewards.RaffleWinners w
+                           WHERE w.RaffleId = t.RaffleId
+                             AND w.TicketNumber = t.TicketNumber) AS IsWinner
+            FROM rewards.RaffleTickets t
+            LEFT JOIN auth.Users u ON u.Id = t.UserId
+            WHERE t.RaffleId = @RaffleId{filtro}
+            ORDER BY IsWinner DESC, t.TicketNumber
+            LIMIT @Take OFFSET @Skip;
+
+            SELECT COUNT(*)::int
+            FROM rewards.RaffleTickets t
+            LEFT JOIN auth.Users u ON u.Id = t.UserId
+            WHERE t.RaffleId = @RaffleId{filtro};
+
+            SELECT COUNT(DISTINCT UserId)::int
+            FROM rewards.RaffleTickets WHERE RaffleId = @RaffleId;
+
+            SELECT Source, COUNT(*)::int AS Total
+            FROM rewards.RaffleTickets WHERE RaffleId = @RaffleId
+            GROUP BY Source;";
+
+        using var multi = await _db.QueryMultipleAsync(new CommandDefinition(sql, new
+        {
+            RaffleId = raffleId,
+            Patron   = $"%{texto}%",
+            Take     = pageSize,
+            Skip     = (page - 1) * pageSize,
+        }, cancellationToken: ct));
+
+        var items        = (await multi.ReadAsync<RaffleTicketAdminRow>()).ToList();
+        var total        = await multi.ReadSingleAsync<int>();
+        var participants = await multi.ReadSingleAsync<int>();
+        var bySource     = (await multi.ReadAsync<SourceCount>())
+                           .ToDictionary(s => s.Source, s => s.Total);
+
+        return new RaffleTicketsPage(items, total, participants, bySource);
+    }
+
     public Task<int> CountUserTicketsAsync(
         Guid raffleId, Guid userId, string? source, CancellationToken ct = default)
     {
@@ -148,7 +206,7 @@ public class RaffleRepository : IRaffleRepository
                 INSERT INTO rewards.RaffleTickets
                     (Id, RaffleId, UserId, ProfileId, TicketNumber, Source, ReferenceId, CreatedAt)
                 VALUES
-                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, now())
+                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, (now() AT TIME ZONE 'utc'))
                 ON CONFLICT DO NOTHING",
                 filas, trx);
 
@@ -226,7 +284,7 @@ public class RaffleRepository : IRaffleRepository
                 INSERT INTO rewards.RaffleTickets
                     (Id, RaffleId, UserId, ProfileId, TicketNumber, Source, ReferenceId, CreatedAt)
                 VALUES
-                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, now())",
+                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, (now() AT TIME ZONE 'utc'))",
                 filas, trx);
 
             trx.Commit();

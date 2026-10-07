@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import BugieMapAdmin, { MapMarker } from '../../../components/BugieMapAdmin';
-import { IconButton, Modal, StatusBadge, Tone } from '../../../components/ui';
+import { IconButton, Modal, StatusBadge } from '../../../components/ui';
 import { API, apiFetch } from '../../../state/api';
-import { fmtDateTime, LivePassenger, liveTripStatus, OnlineDriver, SosAlert, VehicleBulk } from './types';
+import {
+  fmtDateTime, LivePassenger, liveTripStatus, MonitorAlert, monitorAlertMeta, monitorAlertText, OnlineDriver,
+  PAX_AT_PICKUP_TEXT, paxLocationUnknown, SosAlert, VehicleBulk,
+} from './types';
+import RawGpsDownload from '../../../components/RawGpsDownload';
 import { fileUrl } from '../people/PeopleShared';
 import { DriverLink, PassengerLink } from '../../../components/EntityLinks';
-import { PlannedRoute, RouteLegend, buildRouteLines, fetchPlannedRoute } from '../../../components/tripRoutes';
-import { ROUTE_COLORS } from '../../../components/BugieMapAdmin';
+import { PlannedRoute, fetchPlannedRoute } from '../../../components/tripRoutes';
 import { LiveTrail } from './useLiveTrails';
+import { buildTripScene, fmtKm, Pt, SCENE_COLORS, sceneLines, TripScene } from './tripScene';
+import PersonAvatar from './PersonAvatar';
 
 /** Largo aproximado (m) de una línea [[lat, lng], ...]. */
 function lengthMeters(pts: [number, number][]): number {
@@ -22,26 +27,14 @@ function lengthMeters(pts: [number, number][]): number {
 }
 
 /*
- * Detalle de un viaje EN CURSO (monitoreo): ruta del sistema (guardada al
- * crear el viaje; si no hay, se calcula con GraphHopper), recorrido real
- * hasta ahora (el trazo en vivo del Monitoreo, que crece con cada GPS del
- * hub), posiciones en vivo de pasajero y conductor, teléfonos y botón para
- * desactivar un SOS. Es distinto de components/TripDetailModal, que muestra
- * el recorrido GPS GRABADO de un viaje ya hecho (tarifa, línea de tiempo,
- * fotos de envío) y no tiene datos en vivo ni SOS.
+ * Detalle de un viaje EN VIVO (monitoreo). Se dibuja igual que en el mapa
+ * principal según el estado del viaje (ver tripScene.ts): buscando conductor,
+ * en camino al recojo o pasajero a bordo, con la bandera de destino siempre
+ * visible como referencia. La ruta del sistema (guardada al crear el viaje;
+ * si no hay, se calcula con GraphHopper) se usa para "lo que falta por
+ * recorrer". Es distinto de components/TripDetailModal, que muestra el
+ * recorrido GPS GRABADO de un viaje ya hecho.
  */
-
-/** Foto de perfil circular con icono de respaldo si no hay URL o falla la carga. */
-function Avatar({ url, icon, tone }: { url: string | null; icon: string; tone: Tone }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => { setBroken(false); }, [url]);
-  const showImg = !!url && !broken;
-  return (
-    <span className={`lm-avatar lg ring bx-tone-${tone}`} aria-hidden="true">
-      {showImg ? <img src={url!} alt="" onError={() => setBroken(true)} /> : <i className={`fa-solid ${icon}`} />}
-    </span>
-  );
-}
 
 interface Props {
   trip: LivePassenger;
@@ -55,10 +48,45 @@ interface Props {
   /** SOS activo del conductor. */
   driverSosAlert: SosAlert | null;
   onResolveSos: (a: SosAlert) => void;
+  /** Alertas de seguimiento abiertas del viaje (sin señal, detenido, demorado). */
+  monitorAlerts?: MonitorAlert[];
   onClose: () => void;
 }
 
-export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated, passengerSosAlert, driverSosAlert, onResolveSos, onClose }: Props) {
+/** Leyenda del detalle según la fase del viaje, con distancias. */
+function SceneLegend({ sc, loading }: { sc: TripScene; loading: boolean }) {
+  const straight = !sc.remainingByRoute && sc.remaining.length >= 2;
+  return (
+    <ul className="bx-route-legend is-compact" aria-label="Leyenda del mapa">
+      {sc.phase === 'searching' && (
+        <li><i className="fa-solid fa-person" style={{ color: SCENE_COLORS.passenger }} aria-hidden="true" /><span className="t">Pasajero esperando en el punto de recojo (aún sin conductor)</span></li>
+      )}
+      {sc.phase === 'pickup' && (
+        <>
+          <li><span className="sw dashed" style={{ color: sc.color }} aria-hidden="true" />
+            <span className="t">Camino al recojo{sc.remaining.length >= 2 ? <> · <strong>{fmtKm(sc.remainingKm)}</strong>{straight && <span className="bugie-muted"> (línea recta)</span>}</> : ' · sin GPS del conductor'}</span></li>
+          <li className={sc.traveled.length >= 2 ? '' : 'is-empty'}><span className="sw" style={{ color: SCENE_COLORS.traveled }} aria-hidden="true" />
+            <span className="t">Ya recorrido por el conductor{sc.traveled.length >= 2 && <> · <strong>{fmtKm(sc.traveledKm)}</strong></>}</span></li>
+        </>
+      )}
+      {sc.phase === 'onboard' && (
+        <>
+          <li className={sc.traveled.length >= 2 ? '' : 'is-empty'}><span className="sw solid" style={{ color: sc.color }} aria-hidden="true" />
+            <span className="t">Recorrido desde el recojo{sc.traveled.length >= 2 ? <> · <strong>{fmtKm(sc.traveledKm)}</strong></> : ' · aún sin recorrido'}</span></li>
+          <li className={sc.remaining.length >= 2 ? '' : 'is-empty'}><span className="sw dashed" style={{ color: sc.color }} aria-hidden="true" />
+            <span className="t">
+              {loading && sc.remaining.length < 2 ? 'Por recorrer · calculando…'
+                : sc.remaining.length >= 2 ? <>Por recorrer · <strong>{fmtKm(sc.remainingKm)}</strong>{straight && <span className="bugie-muted"> (línea recta)</span>}</>
+                : 'Por recorrer · sin GPS del conductor'}
+            </span></li>
+        </>
+      )}
+      <li><i className="fa-solid fa-flag" style={{ color: sc.phase === 'onboard' ? sc.color : SCENE_COLORS.neutral }} aria-hidden="true" /><span className="t">Destino</span></li>
+    </ul>
+  );
+}
+
+export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated, passengerSosAlert, driverSosAlert, onResolveSos, monitorAlerts = [], onClose }: Props) {
   // Ruta del sistema (no cambia durante el viaje). El recorrido real viene
   // del padre (trail) y crece con cada GPS que llega por SignalR.
   const [planned, setPlanned] = useState<PlannedRoute | null>(null);
@@ -118,50 +146,67 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip.tripId]);
 
-  // Ruta del sistema + recorrido en vivo (verde, encima). Solo cambia la
-  // referencia del trazo cuando llega un punto nuevo.
-  const trailPoints = trail?.points;
-  const lines = useMemo(() => {
-    const list = buildRouteLines(planned, null);
-    if (trailPoints && trailPoints.length >= 2) {
-      list.push({ id: 'real', points: trailPoints, color: ROUTE_COLORS.real, weight: 6, opacity: 0.9 });
-    }
-    return list;
-  }, [planned, trailPoints]);
-  const realSummary = trail ? { distanceKm: trail.distanceKm, points: trail.points.length } : null;
+  const sos = !!passengerSosAlert || !!driverSosAlert || trip.status === 6;
+  const driverPos: Pt | null = driver?.currentLat && driver.currentLng ? [driver.currentLat, driver.currentLng]
+    : trip.driverLat && trip.driverLng ? [trip.driverLat, trip.driverLng] : null;
+  const dLat = driverPos?.[0], dLng = driverPos?.[1];
 
-  // Origen, destino, pasajero y conductor (se mueven con cada GPS).
+  // Escena del viaje según su estado (mismas reglas que el mapa principal).
+  const scene = useMemo(
+    () => buildTripScene({ trip, driverPos: dLat != null && dLng != null ? [dLat, dLng] : null, trail, planned: planned ?? trail?.planned ?? null, sos, deviated }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trip.status, trip.originLat, trip.originLng, trip.destLat, trip.destLng, trip.lat, trip.lng, trip.startedAt, dLat, dLng, trail, planned, sos, deviated],
+  );
+  const lines = useMemo(() => sceneLines('detail', scene, { emphasis: true }), [scene]);
+
   const markers = useMemo(() => {
-    const list: MapMarker[] = [
-      { lat: trip.originLat, lng: trip.originLng, type: 'origin',      label: 'Origen' },
-      { lat: trip.destLat,   lng: trip.destLng,   type: 'destination', label: 'Destino' },
-    ];
-    // Al inicio del viaje el pasajero puede venir en 0/0 (aún sin GPS).
-    if (trip.lat && trip.lng && (trip.lat !== 0 || trip.lng !== 0)) {
-      list.push({ lat: trip.lat, lng: trip.lng, type: 'passenger', label: trip.passengerName || 'Pasajero', extra: { tripStatus: trip.status } });
-    }
-    if (trip.driverLat && trip.driverLng) {
+    const list: MapMarker[] = [];
+    // El destino siempre como referencia; en gris mientras el pasajero no va a bordo.
+    if (scene.destPos) {
       list.push({
-        lat: trip.driverLat, lng: trip.driverLng, type: 'driver',
+        id: 'dest', lat: scene.destPos[0], lng: scene.destPos[1], type: 'flag', label: 'Destino',
+        color: scene.phase === 'onboard' ? scene.color : SCENE_COLORS.neutral,
+      });
+    }
+    if (scene.paxPos) {
+      list.push({
+        id: 'pax', lat: scene.paxPos[0], lng: scene.paxPos[1], type: 'passenger', label: trip.passengerName || 'Pasajero',
+        sosActive: !!passengerSosAlert, extra: { tripStatus: trip.status },
+      });
+    }
+    if (scene.driverPos && scene.phase !== 'searching') {
+      list.push({
+        id: 'driver', lat: scene.driverPos[0], lng: scene.driverPos[1], type: 'driver',
         label: driver?.fullName || trip.driverName || 'Conductor',
         deviated,
-        extra: { fullName: driver?.fullName || trip.driverName || undefined, hasActiveTrip: true, rating: driver?.rating },
+        sosActive: !!driverSosAlert || (scene.phase === 'onboard' && sos),
+        extra: {
+          fullName: driver?.fullName || trip.driverName || undefined, hasActiveTrip: true, rating: driver?.rating,
+          tripStatus: trip.status, vehiclePlate: vehicle?.plate,
+        },
       });
     }
     return list;
-  }, [trip, driver, deviated]);
+  }, [scene, trip.passengerName, trip.status, trip.driverName, driver, deviated, passengerSosAlert, driverSosAlert, sos, vehicle?.plate]);
 
   const st = liveTripStatus(trip.status);
   const driverName = driver?.fullName || trip.driverName || '—';
+  const description =
+    scene.phase === 'searching' ? 'El pasajero espera en el punto de recojo a que un conductor acepte.'
+    : scene.phase === 'pickup' ? 'El conductor va al punto de recojo; el pasajero lo espera allí.'
+    : 'El pasajero va a bordo: recorrido desde el recojo y lo que falta hasta el destino.';
 
   return (
     <Modal
       open
       onClose={onClose}
       size="lg"
-      title={<span className="d-inline-flex align-items-center gap-2 flex-wrap">Viaje en curso {deviated && <StatusBadge tone="bad" icon="fa-route">Desviado</StatusBadge>}</span>}
-      description="Ruta del sistema, recorrido hasta ahora y posición en vivo del pasajero y del conductor."
-      footer={<button type="button" className="btn btn-outline-secondary" onClick={onClose}><i className="fa-solid fa-arrow-left me-1" aria-hidden="true" />Volver al mapa</button>}
+      title={<span className="d-inline-flex align-items-center gap-2 flex-wrap">{trip.serviceType === 1 ? 'Envío' : 'Viaje'} · {st.text} {deviated && <StatusBadge tone="bad" icon="fa-route">Desviado</StatusBadge>}</span>}
+      description={description}
+      footer={<>
+        {trip.driverId && scene.phase !== 'searching' && <RawGpsDownload tripId={trip.tripId} className="me-auto" />}
+        <button type="button" className="btn btn-outline-secondary" onClick={onClose}><i className="fa-solid fa-arrow-left me-1" aria-hidden="true" />Volver al mapa</button>
+      </>}
     >
       <div className="lm-detail">
         <div className="d-grid gap-2 align-content-start">
@@ -172,7 +217,7 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
               {driverSosAlert ? 'Conductor · SOS activo' : 'Conductor'}
             </div>
             <div className="d-flex align-items-start gap-3">
-              <Avatar url={fileUrl('drivers', driver?.profilePhotoUrl)} icon="fa-id-card" tone={driverSosAlert ? 'bad' : 'primary'} />
+              <PersonAvatar url={fileUrl('drivers', driver?.profilePhotoUrl)} icon="fa-id-card" tone={driverSosAlert ? 'bad' : 'primary'} />
               <div className="flex-grow-1" style={{ minWidth: 0 }}>
                 <div className="fw-bold text-truncate">
                   {trip.driverId ? <DriverLink userId={trip.driverId} onNavigate={onClose}>{driverName}</DriverLink> : driverName}
@@ -210,7 +255,7 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
               {passengerSosAlert ? 'Pasajero · SOS activo' : 'Pasajero'}
             </div>
             <div className="d-flex align-items-start gap-3">
-              <Avatar url={fileUrl('auth', trip.passengerPhotoUrl)} icon="fa-person" tone={passengerSosAlert ? 'bad' : 'warn'} />
+              <PersonAvatar url={fileUrl('auth', trip.passengerPhotoUrl)} icon="fa-person" tone={passengerSosAlert ? 'bad' : 'warn'} />
               <div className="flex-grow-1" style={{ minWidth: 0 }}>
                 <div className="fw-bold text-truncate">
                   <PassengerLink userId={trip.passengerId} onNavigate={onClose}>{trip.passengerName}</PassengerLink>
@@ -235,20 +280,25 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
             <div className="d-flex gap-2 flex-wrap mb-2">
               <StatusBadge tone={st.tone}>{st.text}</StatusBadge>
               {deviated && <StatusBadge tone="bad" icon="fa-route">Desviado</StatusBadge>}
+              {monitorAlerts.map(a => (
+                <StatusBadge key={a.id} tone={monitorAlertMeta(a.type).tone} icon={monitorAlertMeta(a.type).icon}>{monitorAlertText(a)}</StatusBadge>
+              ))}
             </div>
             <div className="ops-route">
-              <div className="stop"><span className="dot" aria-hidden="true" /><span>Origen: {trip.originLat.toFixed(5)}, {trip.originLng.toFixed(5)}</span></div>
+              <div className="stop"><span className="dot" aria-hidden="true" /><span>Recojo: {trip.originLat.toFixed(5)}, {trip.originLng.toFixed(5)}</span></div>
               <div className="stop"><span className="dot end" aria-hidden="true" /><span>Destino: {trip.destLat.toFixed(5)}, {trip.destLng.toFixed(5)}</span></div>
             </div>
-            {trip.updatedAt && (
-              <div className="ops-muted mt-2"><i className="fa-regular fa-clock me-1" aria-hidden="true" />Última ubicación: {fmtDateTime(trip.updatedAt)}</div>
+            {paxLocationUnknown(trip) ? (
+              <div className="ops-muted mt-2"><i className="fa-solid fa-location-dot me-1" aria-hidden="true" />{PAX_AT_PICKUP_TEXT}</div>
+            ) : trip.updatedAt && (
+              <div className="ops-muted mt-2"><i className="fa-regular fa-clock me-1" aria-hidden="true" />Última ubicación del pasajero: {fmtDateTime(trip.updatedAt)}</div>
             )}
           </section>
         </div>
 
         {/* Mapa */}
         <div>
-          {routeLoading && (
+          {routeLoading && scene.phase === 'onboard' && (
             <div className="ops-muted mb-2" role="status"><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Calculando la ruta del viaje…</div>
           )}
           <div className="lm-detail-map">
@@ -258,8 +308,7 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
             </div>
           </div>
           <div className="mt-2">
-            <RouteLegend compact planned={planned} path={null} real={realSummary} loadingPlanned={routeLoading && !planned}
-                         loadingPath={!!trail && !trail.loaded && trail.points.length === 0} realLabel="Recorrido hasta ahora" />
+            <SceneLegend sc={scene} loading={routeLoading} />
           </div>
         </div>
       </div>

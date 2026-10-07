@@ -428,8 +428,36 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     );
   }
 
+  /// Confirmación antes de completar, con el monto que cobra (el mismo que
+  /// se muestra en pantalla: ya descontado el cupón, si hay).
+  Future<bool> _confirmComplete(Trip t) async {
+    final charge = t.discountAmount != null
+        ? (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!
+        : t.estimatedFare;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t.isDelivery ? '¿Completar el envío?' : '¿Completar el viaje?'),
+        content: Text('Cobra S/ ${charge.toStringAsFixed(2)}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BugieColors.success),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Completar'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _complete() async {
-    if (_trip == null) return;
+    if (_trip == null || _busy) return;
+    if (!await _confirmComplete(_trip!) || !mounted || _trip == null) return;
     // Envio: antes de completar hay que confirmar la entrega (foto + quien recibio).
     if (_trip!.isDelivery && _trip!.deliveryConfirmedAt == null) {
       final ok = await Navigator.of(context).push<bool>(
