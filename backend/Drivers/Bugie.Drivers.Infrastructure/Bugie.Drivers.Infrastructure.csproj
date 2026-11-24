@@ -14,6 +14,11 @@
     <PackageReference Include="Npgsql" Version="8.0.3" />
     <!-- Historial frio del GPS crudo en archivos Parquet (job GpsArchive) -->
     <PackageReference Include="Parquet.Net" Version="5.4.0" />
+    <!-- Verificacion facial: modelos ONNX de OpenCV Zoo (YuNet + SFace) y lectura de imagenes -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <!-- SkiaSharp (MIT): en Windows trae sus nativos; en Linux/Docker se usan los de NoDependencies -->
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.7" />

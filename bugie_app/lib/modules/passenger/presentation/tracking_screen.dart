@@ -30,6 +30,7 @@ import '../../trips/domain/proposal_model.dart';
 import '../../trips/domain/route_model.dart';
 import '../../trips/domain/trip_model.dart';
 import '../../favorites/data/favorites_repository.dart';
+import '../../../core/utils/format.dart';
 
 /// Seguimiento en tiempo real del viaje activo.
 /// Polling cada 3s a /api/trips/active + /api/trips/{id}/proposals.
@@ -1513,9 +1514,9 @@ class _PassengerTrackingScreenState extends State<PassengerTrackingScreen>
                       children: [
                         _Kpi(
                           label: t.discountAmount != null ? 'Pagas' : 'Tarifa',
-                          value: 'S/ ${(t.discountAmount != null
+                          value: formatSoles(t.discountAmount != null
                               ? (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!
-                              : t.estimatedFare).toStringAsFixed(2)}',
+                              : t.estimatedFare),
                         ),
                         const SizedBox(width: 8),
                         _Kpi(
@@ -2239,7 +2240,7 @@ class _ProposalCardState extends State<_ProposalCard> {
           color: BugieColors.proposal,
           maxLines: 2,
         ),
-      InfoChip(icon: Icons.access_time, text: _timeAgo(p.createdAt)),
+      InfoChip(icon: Icons.access_time, text: timeAgo(p.createdAt)),
       if (!isDirect && !isMine && !isWaiting && p.trend != ProposalTrend.isNew)
         _TrendBadge(trend: p.trend),
     ];
@@ -2470,13 +2471,6 @@ class _ProposalCardState extends State<_ProposalCard> {
     );
   }
 
-  String _timeAgo(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    if (diff.inHours < 24)   return 'hace ${diff.inHours} h';
-    return 'hace ${diff.inDays} d';
-  }
 }
 
 class _TrendBadge extends StatelessWidget {
@@ -2552,13 +2546,6 @@ class _HistoryDialogState extends State<_HistoryDialog> {
     }
   }
 
-  String _timeAgo(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    if (diff.inHours < 24)   return 'hace ${diff.inHours} h';
-    return 'hace ${diff.inDays} d';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2656,7 +2643,7 @@ class _HistoryDialogState extends State<_HistoryDialog> {
                                     children: [
                                       // Línea 1: monto
                                       Text(
-                                        'S/ ${h.fare.toStringAsFixed(2)}',
+                                        formatSoles(h.fare),
                                         style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             color: color,
@@ -2695,7 +2682,7 @@ class _HistoryDialogState extends State<_HistoryDialog> {
                                       Padding(
                                         padding: const EdgeInsets.only(top: 2),
                                         child: Text(
-                                          _timeAgo(h.createdAt),
+                                          timeAgo(h.createdAt),
                                           style: const TextStyle(
                                               fontSize: 11,
                                               color: BugieColors.textMuted),
@@ -2854,10 +2841,7 @@ class _OfflineBanner extends StatelessWidget {
 
   String _staleText() {
     if (lastSuccessAt == null) return 'sin actualizar';
-    final diff = DateTime.now().difference(lastSuccessAt!);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    return 'hace ${diff.inHours} h';
+    return timeAgo(lastSuccessAt!);
   }
 
   @override
@@ -3723,8 +3707,9 @@ class _CouponRowState extends State<_CouponRow> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: BugieColors.success,
-        content: Text(r.warning ??
-            'Cupón aplicado. Pagas S/ ${r.amountToPay.toStringAsFixed(2)}.'),
+        // Cupón que vale más que el viaje: el aviso del servidor (gratis + puntos).
+        content: Text(r.notice ?? r.warning ??
+            'Cupón aplicado. Pagas ${formatSoles(r.amountToPay)}.'),
       ),
     );
     await widget.onChanged();
@@ -3850,19 +3835,34 @@ class _CouponRowState extends State<_CouponRow> {
         Row(children: [
           Text('Tarifa', style: TextStyle(fontSize: 12.5, color: c.textMuted)),
           const Spacer(),
-          Text('S/ ${_tarifa.toStringAsFixed(2)}',
+          Text(formatSoles(_tarifa),
               style: TextStyle(fontSize: 12.5, color: c.textMuted)),
         ]),
         const SizedBox(height: 3),
         Row(children: [
           const Text('Descuento', style: TextStyle(fontSize: 12.5)),
           const Spacer(),
-          Text('− S/ ${descuento.toStringAsFixed(2)}',
+          Text('− ${formatSoles(descuento)}',
               style: const TextStyle(
                   fontSize: 12.5,
                   color: BugieColors.success,
                   fontWeight: FontWeight.w700)),
         ]),
+        // El cupón valía más que la tarifa: lo que sobra vuelve en puntos.
+        if ((widget.trip.couponLeftoverPoints ?? 0) > 0) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            const Icon(Icons.stars_rounded, size: 15, color: BugieColors.success),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                couponLeftoverNotice(widget.trip.couponLeftover ?? 0,
+                    widget.trip.couponLeftoverPoints),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ]),
+        ],
       ]),
     );
   }

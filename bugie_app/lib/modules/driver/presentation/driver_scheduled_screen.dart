@@ -13,6 +13,7 @@ import '../../../core/widgets/schedule_picker.dart';
 import '../../../core/widgets/service_badge.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/trip_model.dart';
+import '../../../core/utils/format.dart';
 
 /// "Programados" del conductor: viajes y envíos programados que ya aceptó,
 /// ordenados por hora. No cuentan como viaje activo hasta que faltan 30 min
@@ -187,7 +188,7 @@ class _ScheduledCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 ServiceBadge(isDelivery: trip.isDelivery, compact: true),
                 const Spacer(),
-                Text('S/ ${trip.estimatedFare.toStringAsFixed(2)}',
+                Text(formatSoles(trip.estimatedFare),
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: c.text)),
               ],
             ),

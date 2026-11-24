@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.Interfaces;
 
@@ -27,65 +28,151 @@ public class PointsProfileRepository : IPointsProfileRepository
                  @ExpiryWarningSentFor, @ExpiryWarningLastMilestone, @CreatedAt, @UpdatedAt)",
             profile);
 
+    public async Task<PointsProfile> GetOrAddAsync(PointsProfile candidate, CancellationToken ct = default)
+    {
+        await _db.ExecuteAsync(@"
+            INSERT INTO rewards.PointsProfiles
+                (Id, UserId, UserType, TotalPoints, AvailablePoints, RedeemedPoints,
+                 CurrentLevel, PointsExpiryDate, LastActivityDate,
+                 ExpiryWarningSentFor, ExpiryWarningLastMilestone, CreatedAt, UpdatedAt)
+            VALUES
+                (@Id, @UserId, @UserType, @TotalPoints, @AvailablePoints, @RedeemedPoints,
+                 @CurrentLevel, @PointsExpiryDate, @LastActivityDate,
+                 @ExpiryWarningSentFor, @ExpiryWarningLastMilestone, @CreatedAt, @UpdatedAt)
+            ON CONFLICT (UserId) DO NOTHING",
+            candidate);
+
+        return await GetByUserIdAsync(candidate.UserId, ct)
+            ?? throw new InvalidOperationException("No se pudo crear el perfil de puntos.");
+    }
+
+    public Task UpdateUserTypeAsync(PointsProfile profile, CancellationToken ct = default) =>
+        _db.ExecuteAsync(@"
+            UPDATE rewards.PointsProfiles
+            SET UserType = @UserType, UpdatedAt = @UpdatedAt
+            WHERE Id = @Id",
+            new { profile.Id, profile.UserType, profile.UpdatedAt });
+
     /// <summary>
-    /// Inserta el movimiento y actualiza el saldo en una sola transaccion.
+    /// Inserta el movimiento y suma el saldo en una sola transaccion.
     ///
     /// El ON CONFLICT DO NOTHING se apoya en el indice unico
     /// UQ_PointsTransactions_Source_Ref: si el mismo viaje ya se acredito a este
     /// perfil, el INSERT no hace nada, devolvemos false y el saldo queda intacto.
     /// </summary>
-    public async Task<bool> ApplyEarnAsync(
-        PointsProfile profile, PointsTransaction transaction, CancellationToken ct = default)
+    public Task<bool> ApplyEarnAsync(
+        PointsProfile profile, PointsTransaction transaction, CancellationToken ct = default) =>
+        EarnAsync(profile, transaction, award: null);
+
+    public Task<bool> ApplyMilestoneAsync(
+        PointsProfile profile, PointsTransaction transaction, MilestoneAward award,
+        CancellationToken ct = default) =>
+        EarnAsync(profile, transaction, award);
+
+    /// <summary>Saldo real de la fila del perfil.</summary>
+    private sealed class BalanceRow
+    {
+        public int    TotalPoints     { get; set; }
+        public int    AvailablePoints { get; set; }
+        public int    RedeemedPoints  { get; set; }
+        public string CurrentLevel    { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Acreditacion atomica:
+    ///   1. bloquea la fila del perfil (FOR UPDATE): cualquier otra escritura
+    ///      de saldo del mismo usuario espera a que esta termine;
+    ///   2. (logros) registra el logro; si ya estaba, no se acredita nada;
+    ///   3. inserta el movimiento con el saldo REAL antes y despues;
+    ///   4. suma el saldo en la base (saldo = saldo + puntos), sin pisar lo que
+    ///      otra operacion haya escrito. El nivel solo sube.
+    /// </summary>
+    private async Task<bool> EarnAsync(
+        PointsProfile profile, PointsTransaction transaction, MilestoneAward? award)
     {
         var wasClosed = _db.State != ConnectionState.Open;
         if (wasClosed) _db.Open();
 
-        using var trx = _db.BeginTransaction();
-        try
+        BalanceRow saldo;
+        using (var trx = _db.BeginTransaction())
         {
-            var inserted = await _db.ExecuteAsync(@"
-                INSERT INTO rewards.PointsTransactions
-                    (Id, ProfileId, Type, Points, SourceEvent, ReferenceId,
-                     BalanceBefore, BalanceAfter, ExpiryDate, Notes, CreatedAt)
-                VALUES
-                    (@Id, @ProfileId, @Type, @Points, @SourceEvent, @ReferenceId,
-                     @BalanceBefore, @BalanceAfter, @ExpiryDate, @Notes, @CreatedAt)
-                ON CONFLICT DO NOTHING",
-                transaction, trx);
-
-            if (inserted == 0)
+            try
             {
-                // Evento repetido: no acreditamos dos veces.
-                trx.Rollback();
-                return false;
+                var actual = await _db.QuerySingleAsync<BalanceRow>(@"
+                    SELECT TotalPoints, AvailablePoints, RedeemedPoints, CurrentLevel
+                    FROM rewards.PointsProfiles
+                    WHERE Id = @Id
+                    FOR UPDATE",
+                    new { profile.Id }, trx);
+
+                if (award is not null)
+                {
+                    award.ProfileId = profile.Id;
+                    var awarded = await _db.ExecuteAsync(@"
+                        INSERT INTO rewards.MilestoneAwards
+                            (ProfileId, Type, PeriodKey, Points, Detail, CreatedAt)
+                        VALUES
+                            (@ProfileId, @Type, @PeriodKey, @Points, @Detail, now())
+                        ON CONFLICT (ProfileId, Type, PeriodKey) DO NOTHING",
+                        award, trx);
+
+                    if (awarded == 0)
+                    {
+                        // Ya se pago ese periodo.
+                        trx.Rollback();
+                        return false;
+                    }
+                }
+
+                var inserted = await _db.ExecuteAsync(
+                    LedgerSql.InsertMovement + " ON CONFLICT DO NOTHING",
+                    LedgerSql.MovementParams(transaction,
+                        balanceBefore: actual.AvailablePoints,
+                        balanceAfter:  actual.AvailablePoints + transaction.Points),
+                    trx);
+
+                if (inserted == 0)
+                {
+                    // Evento repetido: no acreditamos dos veces.
+                    trx.Rollback();
+                    return false;
+                }
+
+                saldo = await _db.QuerySingleAsync<BalanceRow>(@"
+                    UPDATE rewards.PointsProfiles SET
+                        TotalPoints      = TotalPoints     + @Points,
+                        AvailablePoints  = AvailablePoints + @Points,
+                        CurrentLevel     = @CurrentLevel,
+                        PointsExpiryDate = @PointsExpiryDate,
+                        LastActivityDate = @LastActivityDate,
+                        UpdatedAt        = @UpdatedAt
+                    WHERE Id = @Id
+                    RETURNING TotalPoints, AvailablePoints, RedeemedPoints, CurrentLevel",
+                    new
+                    {
+                        profile.Id,
+                        transaction.Points,
+                        CurrentLevel = LevelOrder.Higher(actual.CurrentLevel, profile.CurrentLevel),
+                        profile.PointsExpiryDate,
+                        profile.LastActivityDate,
+                        profile.UpdatedAt,
+                    }, trx);
+
+                trx.Commit();
             }
+            catch
+            {
+                trx.Rollback();
+                throw;
+            }
+            finally
+            {
+                if (wasClosed && _db.State == ConnectionState.Open) _db.Close();
+            }
+        }
 
-            await _db.ExecuteAsync(@"
-                UPDATE rewards.PointsProfiles SET
-                    TotalPoints      = @TotalPoints,
-                    AvailablePoints  = @AvailablePoints,
-                    RedeemedPoints   = @RedeemedPoints,
-                    CurrentLevel     = @CurrentLevel,
-                    PointsExpiryDate = @PointsExpiryDate,
-                    LastActivityDate = @LastActivityDate,
-                    ExpiryWarningSentFor = @ExpiryWarningSentFor,
-                    ExpiryWarningLastMilestone = @ExpiryWarningLastMilestone,
-                    UpdatedAt        = @UpdatedAt
-                WHERE Id = @Id",
-                profile, trx);
-
-            trx.Commit();
-            return true;
-        }
-        catch
-        {
-            trx.Rollback();
-            throw;
-        }
-        finally
-        {
-            if (wasClosed && _db.State == ConnectionState.Open) _db.Close();
-        }
+        profile.SyncBalances(saldo.TotalPoints, saldo.AvailablePoints, saldo.RedeemedPoints, saldo.CurrentLevel);
+        return true;
     }
 
     public async Task<List<PointsProfile>> GetExpiredAsync(
@@ -95,7 +182,7 @@ public class PointsProfileRepository : IPointsProfileRepository
             SELECT * FROM rewards.PointsProfiles
             WHERE AvailablePoints > 0
               AND PointsExpiryDate IS NOT NULL
-              AND PointsExpiryDate < (now() AT TIME ZONE 'utc')
+              AND PointsExpiryDate < now()
             ORDER BY PointsExpiryDate
             LIMIT @Limit",
             new { Limit = limit });
@@ -112,8 +199,8 @@ public class PointsProfileRepository : IPointsProfileRepository
             SELECT * FROM rewards.PointsProfiles
             WHERE AvailablePoints > 0
               AND PointsExpiryDate IS NOT NULL
-              AND PointsExpiryDate > (now() AT TIME ZONE 'utc')
-              AND PointsExpiryDate <= (now() AT TIME ZONE 'utc') + (@Days * INTERVAL '1 day')
+              AND PointsExpiryDate > now()
+              AND PointsExpiryDate <= now() + (@Days * INTERVAL '1 day')
             ORDER BY PointsExpiryDate
             LIMIT @Limit",
             new { Days = withinDays, Limit = limit });
@@ -182,7 +269,7 @@ public class PointsProfileRepository : IPointsProfileRepository
                 INSERT INTO rewards.PointsAdjustments
                     (ProfileId, TransactionId, Points, Reason, AdminId, CreatedAt)
                 VALUES
-                    (@ProfileId, @TransactionId, @Points, @Reason, @AdminId, (now() AT TIME ZONE 'utc'))",
+                    (@ProfileId, @TransactionId, @Points, @Reason, @AdminId, now())",
                 new
                 {
                     ProfileId     = profile.Id,
@@ -229,7 +316,7 @@ public class PointsProfileRepository : IPointsProfileRepository
                 WHERE Id = @Id
                   AND AvailablePoints = @ExpectedBalance
                   AND PointsExpiryDate IS NOT NULL
-                  AND PointsExpiryDate < (now() AT TIME ZONE 'utc')",
+                  AND PointsExpiryDate < now()",
                 new
                 {
                     profile.Id,

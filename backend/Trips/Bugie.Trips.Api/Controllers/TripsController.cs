@@ -28,7 +28,6 @@ public class TripsController : ControllerBase
     private readonly ITripProposalRepository _proposals;
     private readonly IPassengerAcceptanceCancellationRepository _cancellations;
     private readonly ITripNotificationService _notify;
-    private readonly IRewardsClient _rewardsClient;
     private readonly IDriversClient _driversClient;
     private readonly ILandingClient _landing;
     // Tiempo real a pasajero y conductor (hub /hubs/trips). Fire-and-forget, nunca lanza.
@@ -40,7 +39,6 @@ public class TripsController : ControllerBase
         IHttpClientFactory httpFactory, ITripProposalRepository proposals,
         IPassengerAcceptanceCancellationRepository cancellations,
         ITripNotificationService notify,
-        IRewardsClient rewardsClient,
         IDriversClient driversClient,
         ILandingClient landing,
         ITripRealtimeNotifier realtime,
@@ -56,7 +54,6 @@ public class TripsController : ControllerBase
         _proposals = proposals;
         _cancellations = cancellations;
         _notify = notify;
-        _rewardsClient = rewardsClient;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -942,20 +939,9 @@ public class TripsController : ControllerBase
             catch { /* No bloquear si payments falla */ }
         }
 
-        // Consumir el cupon, si lo habia. Va DESPUES de completar: si el viaje
-        // se hubiera cancelado, el cupon seguiria disponible.
-        //
-        // Si Rewards no responde, el viaje igual queda completado y cobrado con
-        // el descuento. El cupon quedaria sin marcar como usado, que es mejor
-        // que tumbar el cierre de un viaje real.
-        if(trip.HasCoupon)
-        {
-            try
-            {
-                await _rewardsClient.UseCouponAsync(trip.CouponCode!, trip.Id, ct);
-            }
-            catch { /* el viaje ya se cerro */ }
-        }
+        // El cupon (si lo habia) se consume por la bandeja de salida: lo encola
+        // CompleteTripHandler (evento trip.coupon_used), asi no se pierde si
+        // Rewards no responde.
 
         return Ok(result);
     }
@@ -966,8 +952,9 @@ public class TripsController : ControllerBase
     /// POST /api/trips/{id}/coupon
     /// El pasajero aplica uno de sus cupones al precio de este viaje.
     ///
-    /// El cupon NO se consume aca: se consume al completar el viaje. Si el
-    /// viaje se cancela, el cupon queda libre para otra vez.
+    /// El cupon NO se consume aca: queda reservado para este viaje y se
+    /// consume al completarlo. Si se quita o el viaje se cancela, la reserva
+    /// se libera y el cupon queda libre para otra vez.
     /// </summary>
     [HttpPost("{id:guid}/coupon")]
     public async Task<IActionResult> ApplyCoupon(

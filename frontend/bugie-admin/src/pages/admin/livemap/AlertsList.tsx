@@ -2,6 +2,7 @@ import { EmptyState, StatusBadge } from '../../../components/ui';
 import {
   fmtDateTime, fmtWhen, LivePassenger, MonitorAlert, monitorAlertMeta, monitorAlertText, minutesAgo, roleLabel, RouteDeviation, SosAlert,
 } from './types';
+import { SosAttendControl } from './sosAttention';
 
 interface Props {
   alerts: SosAlert[];
@@ -10,6 +11,8 @@ interface Props {
   driverName: (dv: RouteDeviation) => string;
   onOpenSos: (a: SosAlert) => void;
   onResolveSos: (a: SosAlert) => void;
+  /** "Atendiendo": el admin toma la alerta. */
+  onAttendSos: (a: SosAlert) => Promise<unknown>;
   onOpenDeviation: (dv: RouteDeviation) => void;
   onReviewDeviation: (dv: RouteDeviation) => void;
   /** Alertas de seguimiento abiertas (sin señal, detenido, demorado). */
@@ -24,7 +27,7 @@ interface Props {
 
 /** Pestaña "Alertas": SOS activos primero, luego las alertas de seguimiento y los desvíos de ruta por revisar. */
 export default function AlertsList({
-  alerts, deviations, passengers, driverName, onOpenSos, onResolveSos, onOpenDeviation, onReviewDeviation,
+  alerts, deviations, passengers, driverName, onOpenSos, onResolveSos, onAttendSos, onOpenDeviation, onReviewDeviation,
   monitorAlerts, monitorDriverName, onFollowMonitor, canFollowMonitor, onOpenMonitor, onReviewMonitor,
 }: Props) {
   if (alerts.length === 0 && deviations.length === 0 && monitorAlerts.length === 0) {
@@ -50,10 +53,18 @@ export default function AlertsList({
                 <span className="who">{roleLabel(a.userRole)} en emergencia</span>
               </div>
               <div className="when"><i className="fa-regular fa-clock me-1" aria-hidden="true" />{fmtDateTime(a.createdAt)} ({minutesAgo(a.createdAt)})</div>
+              {!a.attendingAt && (
+                <div className="when">
+                  {a.firstSeenAt
+                    ? <><i className="fa-solid fa-eye me-1" aria-hidden="true" />Visto por {a.firstSeenByName || 'administrador'}</>
+                    : <><i className="fa-regular fa-eye-slash me-1" aria-hidden="true" />Nadie la abrió todavía</>}
+                </div>
+              )}
               <div className="acts">
                 <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => onOpenSos(a)}>
                   <i className="fa-solid fa-eye me-1" aria-hidden="true" />Ver viaje
                 </button>
+                <SosAttendControl alert={a} onAttend={() => onAttendSos(a)} size="sm" />
                 <button type="button" className="btn btn-sm btn-danger" onClick={() => onResolveSos(a)}>
                   <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />Desactivar alerta
                 </button>

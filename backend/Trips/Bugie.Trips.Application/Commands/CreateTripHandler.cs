@@ -193,8 +193,8 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>,
                     ? (isDelivery ? "Nuevo envío programado" : "Nuevo viaje programado")
                     : (isDelivery ? "Nueva solicitud de envío" : "Nueva solicitud de viaje"),
                 Body: isDelivery
-                    ? $"S/ {estimatedFare:F2}{when} · Paquete: {trip.PackageDescription} · {trip.OriginAddress}"
-                    : $"S/ {estimatedFare:F2}{when} · {trip.OriginAddress}",
+                    ? $"{Bugie.Trips.Domain.Common.Money.Soles(estimatedFare)}{when} · Paquete: {trip.PackageDescription} · {trip.OriginAddress}"
+                    : $"{Bugie.Trips.Domain.Common.Money.Soles(estimatedFare)}{when} · {trip.OriginAddress}",
                 Route: "/driver/requests",
                 ExtraData: new Dictionary<string, string>
                 {
@@ -254,5 +254,7 @@ public class CreateTripHandler : IRequestHandler<CreateTripCommand, TripDto>,
         {
             // Base del maximo al negociar (viajes antiguos: la tarifa actual).
             SuggestedFare = t.SuggestedFare ?? t.EstimatedFare,
+            CouponLeftover       = t.CouponLeftover,
+            CouponLeftoverPoints = t.CouponLeftoverPoints,
         };
 }

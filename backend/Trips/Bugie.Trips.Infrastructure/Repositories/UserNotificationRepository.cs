@@ -11,14 +11,14 @@ namespace Bugie.Trips.Infrastructure.Repositories;
 /// Bandeja de notificaciones (trips.usernotifications).
 /// Se registra como singleton porque la usa FcmSender (singleton): abre una
 /// conexion nueva por llamada (Npgsql la toma del pool).
-/// Las fechas se guardan en UTC: now() AT TIME ZONE 'UTC'.
+/// Las fechas son timestamptz: now().
 /// </summary>
 public class UserNotificationRepository : IUserNotificationRepository
 {
     private readonly string _cs;
 
     public UserNotificationRepository(IConfiguration cfg) =>
-        _cs = BugieTimeSetup.UtcConnectionString(cfg.GetConnectionString("Default"));
+        _cs = BugieTimeSetup.PeruConnectionString(cfg.GetConnectionString("Default"));
 
     private NpgsqlConnection Open() => new(_cs);
 
@@ -35,7 +35,7 @@ public class UserNotificationRepository : IUserNotificationRepository
             INSERT INTO trips.usernotifications
                 (id, userid, title, body, type, alerttype, route, data, createdat)
             SELECT gen_random_uuid(), u, @Title, @Body, @Type, @AlertType, @Route,
-                   CAST(@Data AS jsonb), now() AT TIME ZONE 'UTC'
+                   CAST(@Data AS jsonb), now()
             FROM unnest(@UserIds) AS u
             RETURNING id, userid",
             new
@@ -90,7 +90,7 @@ public class UserNotificationRepository : IUserNotificationRepository
         // COALESCE: si ya estaba leida conserva la primera fecha de lectura.
         var n = await db.ExecuteAsync(new CommandDefinition(@"
             UPDATE trips.usernotifications
-               SET readat = COALESCE(readat, now() AT TIME ZONE 'UTC')
+               SET readat = COALESCE(readat, now())
              WHERE id = @Id AND userid = @UserId",
             new { Id = id, UserId = userId }, cancellationToken: ct));
         return n > 0;
@@ -101,7 +101,7 @@ public class UserNotificationRepository : IUserNotificationRepository
         await using var db = Open();
         return await db.ExecuteAsync(new CommandDefinition(@"
             UPDATE trips.usernotifications
-               SET readat = now() AT TIME ZONE 'UTC'
+               SET readat = now()
              WHERE userid = @UserId AND readat IS NULL",
             new { UserId = userId }, cancellationToken: ct));
     }

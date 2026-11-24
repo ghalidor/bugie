@@ -3,7 +3,7 @@
 -- - trips.usernotifications: una fila por cada push VISIBLE enviado a un
 --   usuario (la guarda el FcmSender de Trips, aunque el usuario no tenga
 --   tokens FCM). La app la muestra en "Notificaciones".
---   CreatedAt / ReadAt en UTC (timestamp sin zona, como el resto).
+--   CreatedAt / ReadAt: timestamptz (instantes, ver 2026-10-08_fechas_timestamptz.sql).
 --   ReadAt NULL = no leida. No se borra nada (sin retencion).
 -- Se puede ejecutar varias veces sin romper nada (idempotente).
 -- =====================================================================
@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS trips.usernotifications (
     alerttype varchar(30),
     route     varchar(300),
     data      jsonb,
-    createdat timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
-    readat    timestamp without time zone
+    createdat timestamp with time zone NOT NULL DEFAULT now(),
+    readat    timestamp with time zone
 );
 
 -- Listado de la bandeja: del usuario, lo mas reciente primero.

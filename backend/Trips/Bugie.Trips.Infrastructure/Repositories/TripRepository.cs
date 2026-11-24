@@ -15,10 +15,10 @@ public class TripRepository : ITripRepository {
     // futuro NO bloquea al conductor ni al pasajero.
     private const string ActiveSql = @"Status NOT IN (4, 5)
               AND (ScheduledAt IS NULL OR Status IN (3, 6) OR DriverArrivedAt IS NOT NULL
-                   OR ScheduledAt <= (now() at time zone 'utc') + interval '30 minutes')";
+                   OR ScheduledAt <= now() + interval '30 minutes')";
     private const string ActiveSqlT = @"t.Status NOT IN (4, 5)
               AND (t.ScheduledAt IS NULL OR t.Status IN (3, 6) OR t.DriverArrivedAt IS NOT NULL
-                   OR t.ScheduledAt <= (now() at time zone 'utc') + interval '30 minutes')";
+                   OR t.ScheduledAt <= now() + interval '30 minutes')";
 
     public Task<Trip?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         _db.QuerySingleOrDefaultAsync<Trip>(
@@ -68,7 +68,7 @@ public class TripRepository : ITripRepository {
                    COUNT(*) FILTER (WHERE t.ServiceType <> 1)::int AS Trips
             FROM trips.Trips t
             WHERE t.Status IN (1, 7)
-              AND t.CreatedAt >= (NOW() AT TIME ZONE 'utc') - make_interval(mins => @Minutes)
+              AND t.CreatedAt >= now() - make_interval(mins => @Minutes)
               AND (t.ServiceType <> 1 OR EXISTS (
                     SELECT 1 FROM trips.TripPhotos p WHERE p.TripId = t.Id AND p.Kind = 0))
               AND 2 * 6371000 * ASIN(SQRT(
@@ -159,6 +159,8 @@ public class TripRepository : ITripRepository {
                 CouponCode         = @CouponCode,
                 DiscountAmount     = @DiscountAmount,
                 FareBeforeDiscount = @FareBeforeDiscount,
+                CouponLeftover       = @CouponLeftover,
+                CouponLeftoverPoints = @CouponLeftoverPoints,
                 ScheduledAt        = @ScheduledAt,
                 Reminder30SentAt   = @Reminder30SentAt,
                 Reminder10SentAt   = @Reminder10SentAt,
@@ -174,13 +176,13 @@ public class TripRepository : ITripRepository {
                    ProposedFare = NULL, ProposedDriverId = NULL
              WHERE Id = @Id AND DriverId IS NULL AND Status IN (1, 7)",
             new { Id = tripId, DriverId = driverUserId, Fare = fare,
-                  At = DateTime.SpecifyKind(acceptedAtUtc, DateTimeKind.Unspecified) });
+                  At = DateTime.SpecifyKind(acceptedAtUtc, DateTimeKind.Utc) });
         return n > 0;
     }
 
     public async Task<bool> ReopenScheduledAfterDriverCancelAsync(Guid tripId, Guid driverUserId,
         DateTime nowUtc, CancellationToken ct = default) {
-        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         var n = await _db.ExecuteAsync(@"
             UPDATE trips.Trips
                SET DriverId = NULL, VehicleId = NULL, AcceptedAt = NULL, DriverArrivedAt = NULL,
@@ -195,7 +197,7 @@ public class TripRepository : ITripRepository {
 
     public async Task<List<Trip>> CancelUnassignedImmediateAsync(DateTime nowUtc, int minutes, string reason,
         CancellationToken ct = default) {
-        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         var rows = await _db.QueryAsync<Trip>(@"
             UPDATE trips.Trips t
                SET Status = 5, CancelledBy = 'system', CancelReason = @Reason, CancelledAt = @Now
@@ -237,11 +239,11 @@ public class TripRepository : ITripRepository {
             UPDATE trips.Trips
             SET PassengerLastLat    = @Lat,
                 PassengerLastLng    = @Lng,
-                PassengerLocationAt = (now() at time zone 'utc')
+                PassengerLocationAt = now()
             WHERE PassengerId = @PassengerId
               AND Status IN (1, 2, 3, 6, 7)
               AND (ScheduledAt IS NULL OR Status IN (3, 6) OR DriverArrivedAt IS NOT NULL
-                   OR ScheduledAt <= (now() at time zone 'utc') + interval '30 minutes')
+                   OR ScheduledAt <= now() + interval '30 minutes')
             RETURNING Id",
             new { PassengerId = passengerId, Lat = lat, Lng = lng });
 
@@ -422,7 +424,7 @@ public class TripRepository : ITripRepository {
             ORDER BY ScheduledAt ASC
             LIMIT 1",
             new { DriverId = driverUserId, ExceptId = exceptTripId,
-                  At = DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Unspecified), Margin = marginMinutes });
+                  At = DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Utc), Margin = marginMinutes });
 
     public Task<Trip?> GetPassengerScheduledConflictAsync(
         Guid passengerId, DateTime scheduledAtUtc, Guid exceptTripId, int marginMinutes,
@@ -438,11 +440,11 @@ public class TripRepository : ITripRepository {
             ORDER BY ScheduledAt ASC
             LIMIT 1",
             new { PassengerId = passengerId, ExceptId = exceptTripId,
-                  At = DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Unspecified), Margin = marginMinutes });
+                  At = DateTime.SpecifyKind(scheduledAtUtc, DateTimeKind.Utc), Margin = marginMinutes });
 
     public async Task<List<Trip>> GetUnassignedScheduledDueAsync(
         DateTime nowUtc, int withinMinutes, CancellationToken ct = default) {
-        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         var rows = await _db.QueryAsync<Trip>(@"
             SELECT * FROM trips.Trips
             WHERE Status IN (1, 7)
@@ -458,7 +460,7 @@ public class TripRepository : ITripRepository {
         var n = await _db.ExecuteAsync(@"
             UPDATE trips.Trips
                SET Status = 5, CancelledBy = 'system', CancelReason = @Reason,
-                   CancelledAt = (now() at time zone 'utc')
+                   CancelledAt = now()
              WHERE Id = @Id AND Status IN (1, 7) AND DriverId IS NULL",
             new { Id = tripId, Reason = reason });
         return n > 0;
@@ -466,7 +468,7 @@ public class TripRepository : ITripRepository {
 
     public async Task<List<Trip>> GetScheduledForRemindersAsync(DateTime nowUtc, CancellationToken ct = default) {
         // Aceptados con hora entre hace 5 min y dentro de 31 min, y algun aviso sin mandar.
-        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified);
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         var rows = await _db.QueryAsync<Trip>(@"
             SELECT * FROM trips.Trips
             WHERE Status = 2
@@ -481,10 +483,10 @@ public class TripRepository : ITripRepository {
 
     public Task MarkReminderSentAsync(Guid tripId, int minutes, CancellationToken ct = default) =>
         _db.ExecuteAsync(minutes <= 10
-            ? @"UPDATE trips.Trips SET Reminder10SentAt = (now() at time zone 'utc'),
-                       Reminder30SentAt = COALESCE(Reminder30SentAt, (now() at time zone 'utc'))
+            ? @"UPDATE trips.Trips SET Reminder10SentAt = now(),
+                       Reminder30SentAt = COALESCE(Reminder30SentAt, now())
                 WHERE Id = @Id"
-            : @"UPDATE trips.Trips SET Reminder30SentAt = (now() at time zone 'utc') WHERE Id = @Id",
+            : @"UPDATE trips.Trips SET Reminder30SentAt = now() WHERE Id = @Id",
             new { Id = tripId });
 
     public async Task<List<Guid>> GetOnlineApprovedDriverUserIdsAsync(CancellationToken ct = default) {

@@ -3,6 +3,7 @@ using MediatR;
 using Bugie.Rewards.Application.Config;
 using Bugie.Rewards.Application.DTOs;
 using Bugie.Rewards.Application.Queries;
+using Bugie.Rewards.Domain.Common;
 using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.External;
@@ -17,13 +18,12 @@ namespace Bugie.Rewards.Application.Commands;
 public static class LevelBenefitRules
 {
     /// <summary>Mes local de Perú (YYYY-MM) y su último instante, en UTC.</summary>
-    public static (string Period, DateTime EndsAtUtc) CurrentPeriod(RewardsOptions options)
+    public static (string Period, DateTime EndsAtUtc) CurrentPeriod()
     {
-        var local     = DateTime.UtcNow.AddHours(options.TimezoneOffsetHours);
+        var local     = BugieTime.Now;
         var inicioMes = new DateTime(local.Year, local.Month, 1);
-        var finUtc    = inicioMes.AddMonths(1).AddHours(-options.TimezoneOffsetHours).AddSeconds(-1);
-        return (inicioMes.ToString("yyyy-MM", CultureInfo.InvariantCulture),
-                DateTime.SpecifyKind(finUtc, DateTimeKind.Utc));
+        var finUtc    = BugieTime.PeruToUtc(inicioMes.AddMonths(1)).AddSeconds(-1);
+        return (inicioMes.ToString("yyyy-MM", CultureInfo.InvariantCulture), finUtc);
     }
 
     /// <summary>Cupones de descuento del mes. 0 si el nivel no tiene % de descuento.</summary>
@@ -34,20 +34,14 @@ public static class LevelBenefitRules
     public static int FreeTrips(RewardLevel? l) =>
         l is null || l.FreeTripMaxAmount is not > 0 ? 0 : Math.Max(0, l.MonthlyFreeTrips);
 
-    public static string Pct(decimal p) => p.ToString("0.##", CultureInfo.InvariantCulture);
-
-    public static string Soles(decimal s) =>
-        s % 1 == 0 ? s.ToString("0", CultureInfo.InvariantCulture)
-                   : s.ToString("0.00", CultureInfo.InvariantCulture);
-
     public static string DiscountName(RewardLevel l) =>
-        $"Cupón de nivel {l.DisplayName} · {Pct(l.DiscountPercentage)} %";
+        $"Cupón de nivel {l.DisplayName} · {Money.Percent(l.DiscountPercentage)}";
 
     public static string FreeTripName(RewardLevel l) =>
-        $"Viaje gratis de nivel {l.DisplayName} · hasta S/ {Soles(l.FreeTripMaxAmount ?? 0)}";
+        $"Viaje gratis de nivel {l.DisplayName} · hasta {Money.Soles(l.FreeTripMaxAmount ?? 0)}";
 
     /// <summary>
-    /// "Este mes tienes N cupones de X % y M viajes gratis de tu nivel Plata.
+    /// "Este mes tienes N cupones de X% y M viajes gratis de tu nivel Plata.
     /// Reclámalos en Puntos." Null si el nivel no da nada.
     /// </summary>
     public static string? NoticeBody(RewardLevel l)
@@ -58,7 +52,7 @@ public static class LevelBenefitRules
 
         var partes = new List<string>();
         if (cupones > 0)
-            partes.Add($"{cupones} {(cupones == 1 ? "cupón" : "cupones")} de {Pct(l.DiscountPercentage)} %");
+            partes.Add($"{cupones} {(cupones == 1 ? "cupón" : "cupones")} de {Money.Percent(l.DiscountPercentage)}");
         if (viajes > 0)
             partes.Add($"{viajes} {(viajes == 1 ? "viaje gratis" : "viajes gratis")}");
 
@@ -95,7 +89,7 @@ public class GetMyLevelBenefitsHandler : IRequestHandler<GetMyLevelBenefitsQuery
         IPointsProfileRepository profiles, IRewardLevelRepository levelsRepo,
         ILevelBenefitRepository claims, CancellationToken ct)
     {
-        var (period, endsAt) = LevelBenefitRules.CurrentPeriod(options);
+        var (period, endsAt) = LevelBenefitRules.CurrentPeriod();
 
         var profile = await profiles.GetByUserIdAsync(userId, ct);
         var levels  = await levelsRepo.GetByUserTypeAsync(UserTypes.Passenger, ct);
@@ -195,7 +189,7 @@ public class ClaimLevelBenefitHandler
         var level  = levels.FirstOrDefault(l => l.Name == profile.CurrentLevel)
             ?? throw new InvalidOperationException("No encontramos tu nivel. Intenta más tarde.");
 
-        var (period, endsAt) = LevelBenefitRules.CurrentPeriod(options);
+        var (period, endsAt) = LevelBenefitRules.CurrentPeriod();
 
         Redemption cupon;
         int limite;
@@ -315,7 +309,7 @@ public class NotifyLevelBenefitsHandler : IRequestHandler<NotifyLevelBenefitsCom
             var body = LevelBenefitRules.NoticeBody(nuevo);
             if (body is null) return false;
 
-            var (period, _) = LevelBenefitRules.CurrentPeriod(options);
+            var (period, _) = LevelBenefitRules.CurrentPeriod();
 
             // El aviso de subida ya cuenta los cupones del mes: se marca el mes
             // para que el aviso mensual no le repita lo mismo.
@@ -375,7 +369,7 @@ public class RunLevelBenefitsNoticeHandler : IRequestHandler<RunLevelBenefitsNot
         var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
         if (GetMyLevelBenefitsHandler.NotEligibleReason(UserTypes.Passenger, options) is not null) return 0;
 
-        var (period, _) = LevelBenefitRules.CurrentPeriod(options);
+        var (period, _) = LevelBenefitRules.CurrentPeriod();
         var levels      = await _levels.GetByUserTypeAsync(UserTypes.Passenger, ct);
         var candidatos  = await _claims.GetPassengersWithoutNoticeAsync(period, ct);
 

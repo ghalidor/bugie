@@ -11,7 +11,7 @@
 --   arma el panel con /api/trips/admin/notifications/summary: NO se guardan.
 -- - trips.adminnotificationreads: que admin leyo que aviso y cuando.
 --   Sin fila = no leido para ese admin.
--- Fechas en UTC (timestamp sin zona, como el resto). No se borra nada.
+-- Fechas timestamptz (ver 2026-10-08_fechas_timestamptz.sql). No se borra nada.
 -- Se puede ejecutar varias veces sin romper nada (idempotente).
 -- =====================================================================
 
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS trips.adminnotifications (
     link       varchar(300),
     permission varchar(60),
     data       jsonb,
-    createdat  timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC')
+    createdat  timestamp with time zone NOT NULL DEFAULT now()
 );
 
 -- Listado del historial: lo mas reciente primero (y filtro por tipo).
@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS ix_adminnotifications_type_created
 CREATE TABLE IF NOT EXISTS trips.adminnotificationreads (
     notificationid uuid NOT NULL REFERENCES trips.adminnotifications (id) ON DELETE CASCADE,
     adminuserid    uuid NOT NULL,
-    readat         timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+    readat         timestamp with time zone NOT NULL DEFAULT now(),
     PRIMARY KEY (notificationid, adminuserid)
 );
 

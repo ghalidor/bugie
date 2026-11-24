@@ -37,7 +37,7 @@ export default function RewardsLevelBenefits({ onClaimed }: { onClaimed?: (coupo
 
   async function claim(type: ClaimType) {
     const label = type === 'discount'
-      ? `un cupón de ${benefits!.discountPercentage} % de descuento`
+      ? `un cupón de ${benefits!.discountPercentage}% de descuento`
       : `un viaje gratis${maxTrip ? ` de hasta S/ ${maxTrip}` : ''}`;
     const ok = await confirm({
       title: type === 'discount' ? '¿Reclamar cupón?' : '¿Reclamar viaje gratis?',
@@ -72,7 +72,7 @@ export default function RewardsLevelBenefits({ onClaimed }: { onClaimed?: (coupo
           {dc.total > 0 && (
             <BenefitLine
               icon="fa-percent"
-              text={<>Cupones de {benefits.discountPercentage} %: te quedan <strong>{dc.available}</strong> de {dc.total}</>}
+              text={<>Cupones de {benefits.discountPercentage}%: te quedan <strong>{dc.available}</strong> de {dc.total}</>}
               button="Reclamar cupón"
               busy={claiming === 'discount'}
               disabled={!canClaim || dc.available <= 0}

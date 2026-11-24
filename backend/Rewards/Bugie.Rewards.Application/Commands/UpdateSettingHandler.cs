@@ -82,12 +82,6 @@ public class UpdateSettingHandler : IRequestHandler<UpdateSettingCommand, Unit>
                     throw new ArgumentException("Debe ser un entero entre 0 y 100000. Con 0 se desactivan los tickets por puntos.");
                 break;
 
-            case SettingKeys.TimezoneOffsetHours:
-                if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tz)
-                    || tz < -12 || tz > 14)
-                    throw new ArgumentException("El desfase horario debe estar entre -12 y 14. Perú es -5.");
-                break;
-
             case SettingKeys.ExpiryWarningDays:
             {
                 // Lista de dias separados por coma. Ej: "30,7,1" o "30".

@@ -80,7 +80,7 @@ class TripPushEvent {
 class DriverAccountEvent {
   /// data.alert_type: 'driver_approved' | 'driver_rejected' |
   /// 'driver_suspended' | 'driver_reactivated' | 'review_kept' |
-  /// 'document_rejected' | 'document_expiring'.
+  /// 'document_rejected' | 'document_expiring' | 'profile_photo_rejected'.
   final String? alertType;
   final DateTime at;
   DriverAccountEvent(this.alertType) : at = DateTime.now();
@@ -314,6 +314,7 @@ class FcmService {
         pushType: msg.data['type'] as String?,
         tripId: (msg.data['trip_id'] ?? msg.data['tripId']) as String?,
         reasonCode: msg.data['reason_code'] as String?,
+        alertType: msg.data['alert_type'] as String?,
       );
 
   /// Id de la notificación guardada en el backend (solo la traen los

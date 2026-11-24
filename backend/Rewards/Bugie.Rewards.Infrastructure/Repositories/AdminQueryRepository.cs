@@ -81,7 +81,7 @@ public class AdminQueryRepository : IAdminQueryRepository
               (SELECT COALESCE(SUM(Points), 0) FROM rewards.PointsTransactions
                  WHERE Type = 'expire')::int                                    AS PointsExpired,
               (SELECT COUNT(*) FROM rewards.Redemptions
-                 WHERE Status = 'active')::int                                  AS ActiveRedemptions");
+                 WHERE Status IN ('active','reserved'))::int                    AS ActiveRedemptions");
 
     public async Task<List<SourceBreakdown>> GetBreakdownAsync(
         DateTime? fromUtc, CancellationToken ct = default)
@@ -105,13 +105,13 @@ public class AdminQueryRepository : IAdminQueryRepository
         int months, CancellationToken ct = default)
     {
         var rows = await _db.QueryAsync<MonthlyPoints>(@"
-            -- Meses de Peru: CreatedAt esta en UTC.
-            SELECT to_char(date_trunc('month', CreatedAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima'), 'YYYY-MM') AS Month,
+            -- Meses de Peru (CreatedAt es timestamptz).
+            SELECT to_char(date_trunc('month', CreatedAt AT TIME ZONE 'America/Lima'), 'YYYY-MM') AS Month,
                    COALESCE(SUM(Points) FILTER
                      (WHERE Type IN ('earn','bonus','adjust_add')), 0)::int  AS Issued,
                    COALESCE(SUM(Points) FILTER (WHERE Type = 'redeem'), 0)::int AS Redeemed
             FROM rewards.PointsTransactions
-            WHERE CreatedAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima'
+            WHERE CreatedAt AT TIME ZONE 'America/Lima'
                   >= date_trunc('month', now() AT TIME ZONE 'America/Lima') - (@Months * INTERVAL '1 month')
             GROUP BY 1
             ORDER BY 1",
@@ -141,7 +141,11 @@ public class AdminQueryRepository : IAdminQueryRepository
                    ud.FullName                            AS DriverName,
                    t.Status,
                    t.CreatedAt,
-                   t.CompletedAt
+                   t.CompletedAt,
+                   COALESCE((SELECT SUM(pt.Points)
+                               FROM rewards.PointsTransactions pt
+                              WHERE pt.SourceEvent = 'coupon_leftover'
+                                AND pt.ReferenceId = t.Id), 0)::int AS LeftoverPoints
             FROM trips.Trips t
             LEFT JOIN rewards.Redemptions r ON upper(r.Code) = upper(t.CouponCode)
             LEFT JOIN auth.Users up ON up.Id = t.PassengerId

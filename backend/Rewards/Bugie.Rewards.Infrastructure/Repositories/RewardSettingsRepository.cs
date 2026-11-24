@@ -33,10 +33,10 @@ public class RewardSettingsRepository : IRewardSettingsRepository
     public Task UpsertAsync(string key, string value, Guid? updatedBy, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             INSERT INTO rewards.Settings (Id, SettingKey, Value, UpdatedAt, UpdatedBy)
-            VALUES (gen_random_uuid(), @Key, @Value, (now() AT TIME ZONE 'utc'), @UpdatedBy)
+            VALUES (gen_random_uuid(), @Key, @Value, now(), @UpdatedBy)
             ON CONFLICT (SettingKey) DO UPDATE SET
                 Value     = EXCLUDED.Value,
-                UpdatedAt = (now() AT TIME ZONE 'utc'),
+                UpdatedAt = now(),
                 UpdatedBy = EXCLUDED.UpdatedBy",
             new { Key = key, Value = value, UpdatedBy = updatedBy });
 }

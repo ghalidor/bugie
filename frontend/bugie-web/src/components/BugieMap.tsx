@@ -25,6 +25,10 @@ interface BugieMapProps {
    *  mueve este marcador (interpolado ~800 ms), sin redibujar ruta ni pines. */
   driver?:      LatLng | null;
   driverLabel?: string;
+  /** Recorrido en vivo (GPS en orden). Capa aparte: al crecer solo se alarga
+   *  la línea, sin redibujar la ruta ni mover la vista. */
+  trail?:       LatLng[];
+  trailLabel?:  string;
   onMapClick?:  (pos: LatLng) => void;
   onRouteInfo?: (info: { km: number; mins: number; isFallback: boolean } | null) => void;
 }
@@ -70,7 +74,8 @@ export default function BugieMap({
   center, zoom,
   markers = [], height = 320, className = '',
   showRoute = false, origin, destination,
-  waypoints = [], path, lines, driver, driverLabel = 'Tu conductor', onMapClick, onRouteInfo,
+  waypoints = [], path, lines, driver, driverLabel = 'Tu conductor', trail, trailLabel = 'Recorrido',
+  onMapClick, onRouteInfo,
 }: BugieMapProps) {
   // Si el padre no pasa center/zoom, usar la configuración del admin
   const cfg = useMapConfig();
@@ -88,6 +93,8 @@ export default function BugieMap({
   // Marcador del conductor (capa aparte, no se borra al redibujar)
   const driverMarkerRef = useRef<any>(null);
   const driverAnimRef   = useRef<number>(0);
+  // Línea del recorrido en vivo (capa aparte, como el conductor)
+  const trailLineRef    = useRef<any>(null);
 
   useEffect(() => { onClickRef.current  = onMapClick;  }, [onMapClick]);
   useEffect(() => { onInfoRef.current   = onRouteInfo; }, [onRouteInfo]);
@@ -207,6 +214,25 @@ export default function BugieMap({
   }, [driver?.lat, driver?.lng, driver == null]);
 
   useEffect(() => () => cancelAnimationFrame(driverAnimRef.current), []);
+
+  // Recorrido en vivo: una línea en su propia capa. Al llegar puntos nuevos
+  // solo se alarga, sin redibujar la ruta ni mover la vista.
+  useEffect(() => {
+    const L = (window as any).L;
+    const map = mapRef.current;
+    if (!L || !map) return;
+    const pts = (trail ?? []).map(p => [p.lat, p.lng]);
+    if (pts.length < 2) {
+      if (trailLineRef.current) { try { map.removeLayer(trailLineRef.current); } catch {} }
+      trailLineRef.current = null;
+      return;
+    }
+    if (trailLineRef.current) { trailLineRef.current.setLatLngs(pts); return; }
+    trailLineRef.current = L.polyline(pts, {
+      color: COLORS.driver, weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round',
+    }).addTo(map).bindPopup(`<b style="color:#fff;background:#1a1730;padding:4px 8px;border-radius:6px">${trailLabel}</b>`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trail?.length, trail?.[trail.length - 1]?.lat, trail?.[trail.length - 1]?.lng]);
 
   // Dibujar (ruta, pines y líneas). El conductor en vivo NO depende de esto.
   useEffect(() => {

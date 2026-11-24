@@ -12,6 +12,7 @@ import '../../../core/widgets/schedule_picker.dart';
 import '../../passenger/presentation/trip_detail_screen.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/trip_model.dart';
+import '../../../core/utils/format.dart';
 
 /// Lista del conductor filtrada por tipo de servicio (viaje o envío).
 ///
@@ -288,7 +289,7 @@ class _DriverItemCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text('S/ ${fare.toStringAsFixed(2)}',
+                  Text(formatSoles(fare),
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,

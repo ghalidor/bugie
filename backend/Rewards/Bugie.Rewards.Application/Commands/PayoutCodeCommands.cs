@@ -18,7 +18,7 @@ namespace Bugie.Rewards.Application.Commands;
 /// <param name="Code">Código normalizado (BG-... o PZ-...).</param>
 /// <param name="WinnerId">Id del ganador del sorteo (pagos antiguos se guardaban con este id).</param>
 /// <param name="Amount">Monto a pagar en soles; null si el premio no tiene valor en dinero.</param>
-/// <param name="Status">active | used | expired | cancelled (canje) · pending | delivered | cancelled (premio)</param>
+/// <param name="Status">active | reserved | used | expired | cancelled (canje) · pending | delivered | cancelled (premio)</param>
 /// <param name="Reason">Si no se puede pagar, por qué (en palabras del admin).</param>
 public record PayoutCodeDto(
     string    Kind,
@@ -85,6 +85,7 @@ public class LookupPayoutCodeHandler : IRequestHandler<LookupPayoutCodeQuery, Pa
         var (label, reason) = status switch
         {
             RedemptionStatus.Used      => ("Pagado / entregado", "Este código ya se pagó o se entregó."),
+            RedemptionStatus.Reserved  => ("En uso en un viaje", "Este cupón está aplicado a un viaje en curso."),
             RedemptionStatus.Expired   => ("Vencido",            "Este código está vencido."),
             RedemptionStatus.Cancelled => ("Anulado",            "Este código fue anulado."),
             _                          => ("Vigente",            (string?)null),
@@ -98,7 +99,7 @@ public class LookupPayoutCodeHandler : IRequestHandler<LookupPayoutCodeQuery, Pa
 
         return new PayoutCodeDto(
             "reward_redemption", r.Code, null, r.UserId, user?.FullName, user?.Role,
-            $"Canje: {r.ItemName}", $"{r.PointsSpent:N0} puntos", r.AmountSoles,
+            $"Canje: {r.ItemName}", r.PointsSpent.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " puntos", r.AmountSoles,
             status, label, reason is null, reason, r.ExpiresAt, r.UsedAt, r.CreatedAt);
     }
 
@@ -117,11 +118,14 @@ public class LookupPayoutCodeHandler : IRequestHandler<LookupPayoutCodeQuery, Pa
             reason = "El premio no es de un conductor. Solo se pagan premios de conductores.";
 
         var puesto = w.PrizeRank == 1 ? "Premio principal" : $"Puesto {w.PrizeRank}";
+        // Monto del premio de ESE puesto. Un secundario sin valor definido va
+        // sin monto (null): el admin escribe cuánto pagó. Nunca el del principal.
+        var monto = w.PrizeValue ?? (w.PrizeRank == 1 ? raffle?.PrizeValue : null);
         return new PayoutCodeDto(
             "raffle_prize", w.PrizeCode ?? w.Id.ToString(), w.Id, w.UserId, user?.FullName, user?.Role,
             $"Premio de sorteo: {raffle?.Name ?? "Sorteo"}",
             $"{puesto} · {w.PrizeDetail ?? raffle?.PrizeDescription} · ticket {w.TicketNumber}",
-            raffle?.PrizeValue, w.Status, label, reason is null, reason,
+            monto, w.Status, label, reason is null, reason,
             null, w.DeliveredAt, w.CreatedAt);
     }
 }

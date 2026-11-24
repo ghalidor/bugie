@@ -37,6 +37,7 @@ const SOURCE_LABEL: Record<string, string> = {
   promotion:          'Promoción',
   catalog_redemption: 'Canje',
   redemption_refund:  'Canje anulado',
+  coupon_leftover:    'Sobrante de cupón',
   points_expired:     'Vencimiento',
   admin_adjustment:   'Ajuste del admin',
 };

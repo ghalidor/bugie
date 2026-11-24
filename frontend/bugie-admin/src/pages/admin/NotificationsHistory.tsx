@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { InboxList } from '../../components/NotificationBell';
 import {
-  FilterBar, Page, Pagination, SectionCard, Select, useConfirm, useToast,
+  DateField, FilterBar, Page, Pagination, SectionCard, Select, useConfirm, useToast,
 } from '../../components/ui';
 import {
   HISTORY_TYPES, InboxItem, InboxPage, adminInbox, useInboxSettings, useInboxUnread, useInboxVersion,
@@ -130,12 +130,12 @@ export default function NotificationsHistory() {
             <Select value={type} onChange={v => { setType(String(v)); setPage(1); }} options={typeOptions}
                     size="sm" width="auto" aria-label="Tipo de aviso" />
             <label className="ops-filter"><span>Desde</span>
-              <input type="date" className="form-control form-control-sm" value={from} max={to || undefined}
-                     onChange={e => { setFrom(e.target.value); setPage(1); }} />
+              <DateField size="sm" value={from} max={to || undefined}
+                         onChange={v => { setFrom(v); setPage(1); }} />
             </label>
             <label className="ops-filter"><span>Hasta</span>
-              <input type="date" className="form-control form-control-sm" value={to} min={from || undefined}
-                     onChange={e => { setTo(e.target.value); setPage(1); }} />
+              <DateField size="sm" value={to} min={from || undefined}
+                         onChange={v => { setTo(v); setPage(1); }} />
             </label>
           </FilterBar>
         </div>

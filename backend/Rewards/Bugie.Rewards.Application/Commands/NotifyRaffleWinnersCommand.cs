@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Net;
 using MediatR;
+using Bugie.Rewards.Domain.Common;
 using Bugie.Rewards.Domain.External;
 using Bugie.Rewards.Domain.Interfaces;
 
@@ -51,6 +51,8 @@ public class NotifyRaffleWinnersHandler : IRequestHandler<NotifyRaffleWinnersCom
                     var conductor = user?.Role == "driver";
                     var premio    = string.IsNullOrWhiteSpace(w.PrizeDetail) ? raffle.PrizeDescription : w.PrizeDetail!;
                     var codigo    = w.PrizeCode ?? "";
+                    // Valor de SU puesto: un secundario nunca muestra el valor del principal.
+                    var valor     = w.PrizeValue ?? (w.PrizeRank == 1 ? raffle.PrizeValue : null);
 
                     await _push.SendToUserAsync(w.UserId, new FcmPushMessage(
                         Title: $"¡Ganaste el sorteo {raffle.Name}!",
@@ -70,7 +72,7 @@ public class NotifyRaffleWinnersHandler : IRequestHandler<NotifyRaffleWinnersCom
                     if (!string.IsNullOrWhiteSpace(user?.Email))
                         await _email.SendAsync(user!.Email!,
                             $"Bugie · ¡Ganaste el sorteo {raffle.Name}!",
-                            BuildEmail(user.FullName, raffle.Name, premio, raffle.PrizeValue,
+                            BuildEmail(user.FullName, raffle.Name, premio, valor,
                                        w.PrizeRank, w.TicketNumber, codigo, conductor), ct);
 
                     avisados++;
@@ -94,7 +96,7 @@ public class NotifyRaffleWinnersHandler : IRequestHandler<NotifyRaffleWinnersCom
     {
         var nombre = WebUtility.HtmlEncode(fullName ?? (conductor ? "conductor" : "pasajero"));
         var valorFila = valor is > 0
-            ? $@"<tr><td style=""padding:6px 0;color:#666"">Valor aprox.</td><td style=""padding:6px 0"">S/ {valor.Value.ToString("0.00", CultureInfo.InvariantCulture)}</td></tr>"
+            ? $@"<tr><td style=""padding:6px 0;color:#666"">Valor aprox.</td><td style=""padding:6px 0"">{Money.Soles(valor.Value)}</td></tr>"
             : "";
         var puestoFila = puesto > 1
             ? $@"<tr><td style=""padding:6px 0;color:#666"">Puesto</td><td style=""padding:6px 0"">{puesto}.º ganador</td></tr>"

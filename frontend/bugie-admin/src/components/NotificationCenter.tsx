@@ -97,11 +97,16 @@ export default function NotificationCenter() {
   }, []);
 
   /* ── Mostrar / cerrar ──────────────────────────────────────────── */
-  const push = useCallback((n: { type: string; title: string; message: string; link: string; permission?: string; notificationId?: string | null }) => {
+  // styleAs: tipo del que toma color e ícono (los recordatorios de registros usan
+  // los de "Conductor por revisar" o "Pasajero por aprobar"). Activo y duración
+  // siguen siendo los del propio tipo.
+  const push = useCallback((n: { type: string; title: string; message: string; link: string; permission?: string; notificationId?: string | null; styleAs?: NoticeType }) => {
     if (n.permission && !hasRef.current(n.permission)) return;
     const cfg = settingsRef.current.config[n.type as NoticeType] ?? DEFAULT_CONFIG.contact_message;
     if (!cfg.enabled) return;
-    const meta = NOTICE_TYPES.find(t => t.type === n.type);
+    const styleType = n.styleAs ?? n.type;
+    const meta = NOTICE_TYPES.find(t => t.type === styleType);
+    const color = (n.styleAs && settingsRef.current.config[n.styleAs]?.color) || cfg.color;
     setNotices(list => [...list, {
       id: ++seq,
       type: n.type,
@@ -110,7 +115,7 @@ export default function NotificationCenter() {
       link: n.link,
       notificationId: n.notificationId ?? null,
       icon: meta?.icon ?? 'fa-bell',
-      color: cfg.color,
+      color,
       duration: Math.max(2, cfg.duration) * 1000,
     }]);
   }, []);
@@ -147,7 +152,8 @@ export default function NotificationCenter() {
         type: 'sos',
         title: s.title || 'Alerta SOS',
         message: s.message || `${s.userRole === 'driver' ? 'Un conductor' : 'Un pasajero'} activó el botón SOS.`,
-        link: '/admin/sos',
+        // Abre esa alerta en el Centro SOS (al abrirla queda "vista").
+        link: s.alertId ? `/admin/sos?alert=${encodeURIComponent(s.alertId)}` : '/admin/sos',
       });
     },
     onAdminEvent: (e: AdminEvent) => {
@@ -207,8 +213,8 @@ export default function NotificationCenter() {
     checking.current = true;
     try {
       const s = await apiFetch<Summary>(`${API.trips}/trips/admin/notifications/summary`);
-      const show = (type: ReminderType, title: string, message: string, link: string, permission?: string) =>
-        push({ type, title, message, link, permission });
+      const show = (type: ReminderType, title: string, message: string, link: string, permission?: string, styleAs?: NoticeType) =>
+        push({ type, title, message, link, permission, styleAs });
 
       for (const t of due) {
         if (t === 'document_expiring' && s.documentsExpiring && s.documentsExpiring.count > 0) {
@@ -231,15 +237,15 @@ export default function NotificationCenter() {
         if (t === 'pending_registrations') {
           if ((s.driversToReview ?? 0) > 0) {
             show(t, `Hay ${plural(s.driversToReview!, 'conductor', 'conductores')} por revisar`,
-              'Enviaron sus documentos y esperan tu revisión.', '/admin/verificacion', PERMS.ViewVerification);
+              'Enviaron sus documentos y esperan tu revisión.', '/admin/verificacion', PERMS.ViewVerification, 'driver_review');
           }
           if ((s.openReviewRequests ?? 0) > 0) {
             show(t, `Hay ${plural(s.openReviewRequests!, 'solicitud de revisión', 'solicitudes de revisión')} de conductores`,
-              'Conductores suspendidos o rechazados piden revisar su caso.', '/admin/conductores?filtro=open_review', PERMS.ViewDrivers);
+              'Conductores suspendidos o rechazados piden revisar su caso.', '/admin/conductores?filtro=open_review', PERMS.ViewDrivers, 'driver_review');
           }
           if ((s.passengersToApprove ?? 0) > 0) {
             show(t, `Hay ${plural(s.passengersToApprove!, 'pasajero', 'pasajeros')} por aprobar`,
-              'Subieron su DNI y esperan aprobación.', '/admin/pasajeros', PERMS.ViewPassengers);
+              'Subieron su DNI y esperan aprobación.', '/admin/pasajeros', PERMS.ViewPassengers, 'passenger_review');
           }
         }
       }

@@ -103,6 +103,10 @@ class Trip {
   final double? discountAmount;
   /// Tarifa antes del descuento. Sin esto no se puede mostrar el desglose.
   final double? fareBeforeDiscount;
+  /// Cupón de monto que vale más que la tarifa: soles que sobran y vuelven
+  /// en puntos al terminar el viaje. null si no sobra nada.
+  final double? couponLeftover;
+  final int? couponLeftoverPoints;
   final double? finalFare;
   final double? proposedFare;
   final int status;
@@ -194,6 +198,8 @@ class Trip {
     this.couponCode,
     this.discountAmount,
     this.fareBeforeDiscount,
+    this.couponLeftover,
+    this.couponLeftoverPoints,
     this.finalFare,
     this.proposedFare,
     required this.status,
@@ -266,6 +272,8 @@ class Trip {
         couponCode: couponCode,
         discountAmount: discountAmount,
         fareBeforeDiscount: fareBeforeDiscount,
+        couponLeftover: couponLeftover,
+        couponLeftoverPoints: couponLeftoverPoints,
         finalFare: finalFare,
         proposedFare: proposedFare,
         status: status,
@@ -327,6 +335,8 @@ class Trip {
         couponCode:         j['couponCode']?.toString(),
         discountAmount:     (j['discountAmount']     as num?)?.toDouble(),
         fareBeforeDiscount: (j['fareBeforeDiscount'] as num?)?.toDouble(),
+        couponLeftover:       (j['couponLeftover']       as num?)?.toDouble(),
+        couponLeftoverPoints: (j['couponLeftoverPoints'] as num?)?.toInt(),
         finalFare:      (j['finalFare'] as num?)?.toDouble(),
         proposedFare:   (j['proposedFare'] as num?)?.toDouble(),
         status:         (j['status'] ?? 1) as int,

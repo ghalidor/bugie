@@ -24,8 +24,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── Base de datos ─────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
-// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+    new NpgsqlConnection(BugieTimeSetup.PeruConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: timestamptz (instantes en UTC), JSON en hora de Peru (ver BugieTime)
 BugieTimeSetup.ConfigureDapper();
 
 // URL de la web para los enlaces de los correos (en produccion: el dominio)
@@ -41,6 +41,7 @@ builder.Services.AddScoped<IUserFcmTokenRepository, UserFcmTokenRepository>();
 builder.Services.AddScoped<IEmergencyContactRepository, EmergencyContactRepository>();
 builder.Services.AddScoped<IUserAccountAuditRepository, UserAccountAuditRepository>();
 builder.Services.AddScoped<IAccountActivityReader, AccountActivityReader>();
+builder.Services.AddScoped<IAdminReportsRepository, AdminReportsRepository>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();

@@ -12,7 +12,7 @@ public class PasswordResetRepository : IPasswordResetRepository
     public Task InvalidatePendingAsync(Guid userId, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE auth.PasswordResetTokens
-               SET UsedAt = (now() AT TIME ZONE 'utc')
+               SET UsedAt = now()
              WHERE UserId = @UserId AND UsedAt IS NULL",
             new { UserId = userId });
 
@@ -28,16 +28,16 @@ public class PasswordResetRepository : IPasswordResetRepository
                 SELECT 1 FROM auth.PasswordResetTokens
                  WHERE TokenHash = @TokenHash
                    AND UsedAt IS NULL
-                   AND ExpiresAt > (now() AT TIME ZONE 'utc'))",
+                   AND ExpiresAt > now())",
             new { TokenHash = tokenHash });
 
     public Task<Guid?> ConsumeAsync(string tokenHash, CancellationToken ct = default) =>
         _db.ExecuteScalarAsync<Guid?>(@"
             UPDATE auth.PasswordResetTokens
-               SET UsedAt = (now() AT TIME ZONE 'utc')
+               SET UsedAt = now()
              WHERE TokenHash = @TokenHash
                AND UsedAt IS NULL
-               AND ExpiresAt > (now() AT TIME ZONE 'utc')
+               AND ExpiresAt > now()
             RETURNING UserId",
             new { TokenHash = tokenHash });
 

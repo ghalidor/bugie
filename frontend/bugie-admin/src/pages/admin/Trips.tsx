@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch, API, ApiError } from '../../state/api';
+import { fmtSoles } from '../../state/payouts';
 import TripDetailModal, { TripDetail, FromBadge, ServiceIcon } from '../../components/TripDetailModal';
 import {
   Column, DataTable, Drawer, EmptyState, FilterBar, Page, Pagination, SectionCard, Skeleton,
@@ -259,7 +260,7 @@ export default function AdminTrips() {
         const pay = PAY[t.paymentMethod] ?? { label: t.paymentMethod, icon: 'fa-credit-card' };
         return (
           <div className="text-end">
-            <div className="ops-amount">S/ {(t.finalFare ?? t.estimatedFare).toFixed(2)}</div>
+            <div className="ops-amount">{fmtSoles(t.finalFare ?? t.estimatedFare)}</div>
             <div className="ops-muted ops-nowrap"><i className={`fa-solid ${pay.icon} me-1`} aria-hidden="true" />{pay.label}</div>
           </div>
         );
@@ -291,7 +292,7 @@ export default function AdminTrips() {
         <StatCard label="Pendientes"  value={statValue(stats.pending)}    icon="fa-clock"         tone="warn"    loading={statsLoading} hint="Esperan conductor" />
         <StatCard label="En curso"    value={statValue(stats.inProgress)} icon="fa-location-dot"  tone="primary" loading={statsLoading} />
         <StatCard label="Completados" value={statValue(stats.completed)}  icon="fa-circle-check"  tone="ok"      loading={statsLoading} />
-        <StatCard label="Facturado"   value={statValue(`S/ ${stats.totalFare.toFixed(2)}`)} icon="fa-wallet" tone="info" loading={statsLoading} />
+        <StatCard label="Facturado"   value={statValue(fmtSoles(stats.totalFare))} icon="fa-wallet" tone="info" loading={statsLoading} />
         <StatCard label="Con incidencias" value={withIncidents} icon="fa-triangle-exclamation" tone={withIncidents ? 'warn' : 'neutral'}
                   loading={loading} hint="Solo en la página que estás viendo" />
       </StatGrid>

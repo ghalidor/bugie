@@ -23,6 +23,7 @@ import '../domain/driver_model.dart';
 import 'driver_idle_tracking.dart';
 import 'widgets/account_blocked_card.dart';
 import 'widgets/driver_demand_map.dart';
+import '../../../core/utils/format.dart';
 
 /// INICIO del conductor.
 ///
@@ -936,7 +937,7 @@ class _Stat extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'S/ ${v.toStringAsFixed(2)}',
+                  formatSoles(v),
                   maxLines: 1,
                   style: TextStyle(
                     color: c.text,

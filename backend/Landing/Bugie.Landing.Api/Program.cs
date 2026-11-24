@@ -17,8 +17,8 @@ using Microsoft.Extensions.FileProviders;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
-// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+    new NpgsqlConnection(BugieTimeSetup.PeruConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: timestamptz (instantes en UTC), JSON en hora de Peru (ver BugieTime)
 BugieTimeSetup.ConfigureDapper();
 
 builder.Services.AddScoped<ILandingRepository, LandingRepository>();

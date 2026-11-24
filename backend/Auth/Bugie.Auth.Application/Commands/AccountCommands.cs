@@ -228,7 +228,7 @@ public class DeleteAccountHandler : IRequestHandler<DeleteAccountCommand, bool>
             var debt = await _activity.GetDriverPendingCommissionAsync(user.Id, ct);
             if(debt > 0)
                 throw new ConflictException(
-                    $"Tienes comisiones pendientes con Bugie por S/ {debt.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}. " +
+                    $"Tienes comisiones pendientes con Bugie por {Money.Soles(debt)}. " +
                     "Págalas antes de eliminar tu cuenta.");
 
             // 3) Sacarlo de línea y cerrar su check-in ANTES de marcarla eliminada,

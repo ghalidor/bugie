@@ -4,7 +4,7 @@ namespace Bugie.Landing.Domain.Common;
 /// Hora oficial de Bugie: la del servidor, Peru (America/Lima, UTC-5 sin horario de verano).
 ///
 /// Regla de todo el sistema:
-///   * La base guarda en UTC (la conexion fuerza Timezone=UTC).
+///   * La base guarda instantes (timestamptz); la base y la sesion estan en hora de Peru.
 ///   * El backend trabaja en UTC (DateTime.UtcNow).
 ///   * Las APIs devuelven SIEMPRE hora de Peru y sin zona, asi cualquier
 ///     pantalla (web, admin, app) muestra la misma hora sin importar la zona

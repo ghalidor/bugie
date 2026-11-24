@@ -13,6 +13,7 @@ import '../../../core/widgets/trip_photos_gallery.dart';
 import '../../trips/data/trips_repository.dart';
 import '../../trips/domain/route_model.dart';
 import '../../trips/domain/trip_model.dart';
+import '../../../core/utils/format.dart';
 
 /// Detalle de un viaje o envío **terminado** (completado o cancelado).
 /// Es de SOLO LECTURA: muestra origen, destino y el mapa marcado, todo
@@ -721,7 +722,7 @@ class _FareCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                         color: c.textMuted)),
                 const SizedBox(height: 4),
-                Text('S/ ${fare.toStringAsFixed(2)}',
+                Text(formatSoles(fare),
                     style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,

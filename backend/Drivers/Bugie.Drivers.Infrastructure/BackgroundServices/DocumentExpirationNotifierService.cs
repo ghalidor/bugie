@@ -41,8 +41,6 @@ public class DocumentExpirationNotifierService : BackgroundService
     private readonly DocumentExpirationOptions _opt;
     private readonly ILogger<DocumentExpirationNotifierService> _log;
 
-    private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
-
     public DocumentExpirationNotifierService(
         IServiceProvider services,
         IOptions<DocumentExpirationOptions> opt,
@@ -73,7 +71,7 @@ public class DocumentExpirationNotifierService : BackgroundService
 
     private TimeSpan TimeUntilNextRun()
     {
-        var nowPeru = DateTime.UtcNow.Add(PeruOffset);
+        var nowPeru = BugieTime.Now;
         var nextRunPeru = new DateTime(nowPeru.Year, nowPeru.Month, nowPeru.Day,
                                        _opt.NotificationHour, 0, 0, DateTimeKind.Unspecified);
         if(nextRunPeru <= nowPeru) nextRunPeru = nextRunPeru.AddDays(1);

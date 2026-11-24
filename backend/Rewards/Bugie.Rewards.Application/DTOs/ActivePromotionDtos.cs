@@ -22,6 +22,8 @@ public record ActivePromotionDto(
 /// <param name="TicketCouponsAvailable">Cupones de ticket de sorteo (canjeados en el catálogo) activos del usuario. Mismo valor en todos los sorteos.</param>
 /// <param name="CanUseTicketCoupon">true si puede usar un cupón de ticket en ESTE sorteo (abierto, cumple requisitos y tiene cupones).</param>
 /// <param name="NextTicketCouponId">Cupón que se usaría (el que vence primero). Null si no tiene.</param>
+/// <param name="MyPrizeDetail">Si ganó: el premio de SU puesto (el secundario si no fue el 1.º).</param>
+/// <param name="MyPrizeValue">Si ganó: valor en soles de su premio (null = monto a criterio del admin).</param>
 public record UserRaffleDto(
     Guid      Id,
     string    Name,
@@ -40,4 +42,6 @@ public record UserRaffleDto(
     bool      MyPrizeDelivered = false,
     int       TicketCouponsAvailable = 0,
     bool      CanUseTicketCoupon = false,
-    Guid?     NextTicketCouponId = null);
+    Guid?     NextTicketCouponId = null,
+    string?   MyPrizeDetail = null,
+    decimal?  MyPrizeValue  = null);

@@ -34,6 +34,7 @@ public class InternalAdminEventsController : ControllerBase
     {
         "deviation", "contact_message", "complaint",
         "driver_review", "passenger_review", "document_expiring",
+        "face_mismatch", "profile_photo_review",
     };
 
     private readonly IHubContext<MonitorHub> _hub;

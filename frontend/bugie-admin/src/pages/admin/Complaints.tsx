@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { API, apiFetch, ApiError } from '../../state/api';
+import { fmtSoles } from '../../state/payouts';
 import { PERMS, usePermissions } from '../../state/permissions';
 import {
   DataTable, Drawer, EmptyState, Field, FilterBar, Page, Pagination, SectionCard, Select, Skeleton,
@@ -513,7 +514,7 @@ function ComplaintDrawer({ id, soonDays, onClose, onChanged }: {
 
             <Block title="2. Bien contratado">
               <Kv label="Tipo">{c.goodType === 'producto' ? 'Producto' : 'Servicio'}</Kv>
-              <Kv label="Monto reclamado">{c.claimedAmount != null ? `S/ ${c.claimedAmount.toFixed(2)}` : '—'}</Kv>
+              <Kv label="Monto reclamado">{c.claimedAmount != null ? fmtSoles(c.claimedAmount) : '—'}</Kv>
               <Kv label="Descripción" full>{c.goodDescription || '—'}</Kv>
             </Block>
 

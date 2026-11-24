@@ -18,6 +18,7 @@ import '../../favorites/data/favorites_repository.dart';
 import '../../favorites/domain/favorite_address_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/schedule_picker.dart';
+import '../../../core/utils/format.dart';
 
 /// Pantalla "Solicitar viaje" — réplica de la del web (RequestRide.tsx).
 /// Soporta: autocomplete con Nominatim, paradas, mapa con tiles claros,
@@ -890,7 +891,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                               style: TextStyle(
                                                   fontSize: 11,
                                                   color: BugieColors.textMuted)),
-                                          Text('S/ ${_fare!.toStringAsFixed(2)}',
+                                          Text(formatSoles(_fare!),
                                               style: const TextStyle(
                                                   fontSize: 18,
                                                   fontWeight: FontWeight.bold)),
@@ -964,7 +965,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                 const SizedBox(height: 8),
                                 Text(
                                   _minFare != null
-                                      ? 'Mínimo S/ ${_minFare!.toStringAsFixed(2)}. Los conductores pueden aceptarla o contraofertar.'
+                                      ? 'Mínimo ${formatSoles(_minFare!)}. Los conductores pueden aceptarla o contraofertar.'
                                       : 'Los conductores pueden aceptarla o contraofertar.',
                                   style: const TextStyle(
                                       fontSize: 12.5,

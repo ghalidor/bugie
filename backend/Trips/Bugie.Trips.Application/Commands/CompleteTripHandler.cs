@@ -43,12 +43,37 @@ public class CompleteTripHandler : IRequestHandler<CompleteTripCommand, TripDto>
                 driverId:      trip.DriverId,
                 amount:        trip.FinalFare ?? 0m,
                 paymentMethod: trip.PaymentMethod,
-                completedAt:   trip.CompletedAt ?? DateTime.UtcNow), ct);
+                completedAt:   trip.CompletedAt ?? DateTime.UtcNow,
+                // Con cupón, FinalFare ya viene descontado (puede ser 0): el
+                // conductor gana sus puntos sobre la tarifa acordada.
+                baseAmount:    trip.HasCoupon
+                    ? Math.Max(trip.FinalFare ?? 0m, trip.EstimatedFare)
+                    : trip.FinalFare ?? 0m), ct);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(
                 $"[Outbox] No se pudo encolar trip.completed del viaje {trip.Id}: {ex.Message}");
+        }
+
+        // Cupon: Rewards consume la reserva (queda 'used') y devuelve el
+        // sobrante en puntos. Va por la bandeja de salida: si Rewards no
+        // responde, se reintenta hasta que vuelva y el uso no se pierde.
+        // Se manda lo que de verdad se desconto (tarifa - lo cobrado).
+        if (trip.HasCoupon)
+        {
+            var aplicado = Math.Max(0, trip.EstimatedFare - cmd.FinalFare);
+            try
+            {
+                await _outbox.AddAsync(OutboxEvent.CouponUsed(trip.Id, trip.CouponCode!, aplicado), ct);
+            }
+            catch (Exception ex)
+            {
+                // Ultima red: Rewards consume solo las reservas de viajes ya
+                // completados (RedemptionExpirationService).
+                Console.Error.WriteLine(
+                    $"[Outbox] No se pudo encolar trip.coupon_used del viaje {trip.Id}: {ex.Message}");
+            }
         }
 
         var waypoints = await _trips.GetWaypointsAsync(trip.Id, ct);

@@ -1,4 +1,5 @@
-/* Contenido de /seguridad. Sección del gestor: 'safety'. */
+/* Contenido de /seguridad. Sección del gestor: 'safety'.
+   {sosMin} se reemplaza por el tiempo objetivo de respuesta SOS de Configuración. */
 
 export const SAFETY = {
   eyebrow: 'Seguridad',
@@ -10,13 +11,13 @@ export const SAFETY = {
     { icon: 'fa-camera',               title: 'Selfie al conectarse',            text: 'El conductor se toma una foto cada vez que se conecta y queda registrada.' },
     { icon: 'fa-location-dot',         title: 'Monitoreo 24/7',                  text: 'Rutas registradas en tiempo real.' },
     { icon: 'fa-triangle-exclamation', title: 'Botón SOS',                       text: 'La alerta llega al centro de monitoreo y a los administradores, y se avisa por correo a tu contacto de emergencia.' },
-    { icon: 'fa-shield-halved',        title: 'Respuesta en menos de 2 minutos', text: 'Objetivo operativo de Bugie.' },
+    { icon: 'fa-shield-halved',        title: 'Respuesta en menos de {sosMin} minutos', text: 'Objetivo operativo de Bugie.' },
     { icon: 'fa-book',                 title: 'Libro de Reclamaciones',          text: 'Registra tu reclamo en línea y consulta su estado con tu código.' },
   ],
   stats: [
     { value: '5,000+', label: 'Conductores verificados' },
     { value: '24/7',   label: 'Monitoreo activo' },
-    { value: '<2min',  label: 'Respuesta SOS' },
+    { value: '<{sosMin} min',  label: 'Respuesta SOS' },
     { value: '100%',   label: 'Verificación presencial' },
   ],
 };

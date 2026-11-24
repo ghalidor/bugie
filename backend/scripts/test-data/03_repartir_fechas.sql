@@ -28,6 +28,8 @@
 --
 -- La base guarda en UTC. Los horarios del dia (07:00 a 22:00) son de Peru
 -- y se pasan a UTC (+5 h) al guardarlos.
+-- Desde 2026-10-08 las columnas son timestamptz: el script corre con la
+-- sesion en UTC, asi sus cuentas en timestamp siguen siendo UTC.
 --
 -- SOLO para bugie_test. Se ejecuta despues de seed.mjs.
 -- =====================================================================
@@ -39,6 +41,9 @@ BEGIN
 END $$;
 
 BEGIN;
+
+-- Sesion en UTC: timestamptz <-> timestamp (las funciones de abajo) en UTC.
+SET LOCAL timezone = 'UTC';
 
 -- ---------------------------------------------------------------- 1) anclas
 -- Viajes que se mueven, en orden, con su fecha destino.
@@ -100,10 +105,12 @@ SELECT a0.id, a0.k, a0.c, a0.tgt,
 FROM a0;
 
 -- Duracion original de cada viaje (hasta su ultimo evento GPS o fin).
+-- El fin de un cancelado es cancelledat: sin el, un cancelado sin GPS tenia
+-- duracion 0.001 s y su cancelledat se escalaba a anos en el futuro.
 CREATE TEMP TABLE span ON COMMIT DROP AS
 SELECT a.id,
        greatest(
-         extract(epoch FROM coalesce(t.completedat, t.createdat) - t.createdat),
+         extract(epoch FROM coalesce(t.completedat, t.cancelledat, t.createdat) - t.createdat),
          coalesce((SELECT extract(epoch FROM max(l.recordedat) - t.createdat) FROM drivers.locationhistory l WHERE l.tripid = a.id), 0),
          0.001) AS secs
 FROM a JOIN trips.trips t ON t.id = a.id;

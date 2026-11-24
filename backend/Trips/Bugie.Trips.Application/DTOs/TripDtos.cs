@@ -96,6 +96,11 @@ public record TripDto(
 {
     // Campos agregados (no cambian los existentes)
 
+    // Cupon de monto que vale mas que la tarifa: el viaje sale gratis y lo que
+    // sobra vuelve al pasajero en puntos al completar. null si no sobra.
+    public decimal? CouponLeftover { get; init; }
+    public int? CouponLeftoverPoints { get; init; }
+
     // Calificacion RECIBIDA por el pasajero. Hoy NO existe calificacion
     // conductor -> pasajero en el sistema (solo pasajero -> conductor en
     // trips.TripRatings), asi que siempre sale null.

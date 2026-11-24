@@ -6,6 +6,7 @@ import '../../../core/theme/bugie_theme.dart';
 import '../../payments/data/payments_repository.dart';
 import '../../payments/domain/payment_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/utils/format.dart';
 
 /// Historial de pagos del pasajero.
 /// GET /api/payments/my-payments → lista de Payment.
@@ -134,7 +135,7 @@ class _PassengerPaymentsScreenState extends State<PassengerPaymentsScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Total gastado: S/ ${_totalThisMonth.toStringAsFixed(2)}',
+                  'Total gastado: ${formatSoles(_totalThisMonth)}',
                   style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -281,7 +282,7 @@ class _PaymentCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                'S/ ${p.amount.toStringAsFixed(2)}',
+                formatSoles(p.amount),
                 style: const TextStyle(
                     fontSize: 22, fontWeight: FontWeight.bold),
               ),

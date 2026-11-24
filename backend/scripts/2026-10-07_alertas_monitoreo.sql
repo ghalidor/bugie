@@ -29,10 +29,10 @@ CREATE TABLE IF NOT EXISTS trips.monitoralerts (
     tripid      uuid NOT NULL,
     driverid    uuid NOT NULL,             -- UserId del conductor
     type        character varying(20) NOT NULL,
-    startedat   timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    lastseenat  timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    resolvedat  timestamp without time zone,
-    reviewedat  timestamp without time zone,
+    startedat   timestamp with time zone DEFAULT now() NOT NULL,
+    lastseenat  timestamp with time zone DEFAULT now() NOT NULL,
+    resolvedat  timestamp with time zone,
+    reviewedat  timestamp with time zone,
     reviewedby  uuid,
     reviewnote  character varying(500),
     details     jsonb,
@@ -56,11 +56,11 @@ CREATE INDEX IF NOT EXISTS ix_monitoralerts_started
 -- -- Parametros (Admin > Configuracion) --------------------------------
 INSERT INTO landing.systemsettings (settingkey, value, description) VALUES
   ('monitor_no_signal_min', '3',
-   'Monitoreo: minutos sin recibir el GPS del conductor durante un viaje para abrir la alerta "Sin senal".'),
+   'Monitoreo: minutos sin recibir el GPS del conductor durante un viaje para abrir la alerta "Sin señal".'),
   ('monitor_long_stop_min', '5',
    'Monitoreo: minutos que el auto puede estar detenido en pleno viaje (lejos del destino) antes de abrir la alerta "Detenido".'),
   ('monitor_trip_delay_pct', '50',
-   'Monitoreo: % sobre la duracion estimada para abrir la alerta "Viaje demorado" (ademas, al menos 10 min de retraso).')
+   'Monitoreo: % sobre la duración estimada para abrir la alerta "Viaje demorado" (además, al menos 10 min de retraso).')
 ON CONFLICT (settingkey) DO NOTHING;
 
 COMMIT;

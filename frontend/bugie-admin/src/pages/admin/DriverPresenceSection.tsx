@@ -1,11 +1,14 @@
 // Conexiones del conductor: cada "Conectarme" con su selfie de verificación.
 // GET /api/drivers/admin/{driverId}/presence?page&pageSize&from&to
+// Verificación facial (interna): resultado por conexión, foto de referencia y
+// observaciones ("No era él"): GET /api/drivers/admin/{driverId}/face
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { API, apiFetch, ApiError } from '../../state/api';
 import {
-  Column, DataTable, EmptyState, FilterBar, Modal, Pagination, SectionCard, StatCard, StatGrid, StatusBadge,
+  Column, DataTable, DateField, EmptyState, FilterBar, Modal, Pagination, SectionCard, StatCard, StatGrid, StatusBadge, Tone,
 } from '../../components/ui';
-import { fileUrl, fmtDate } from './people/PeopleShared';
+import { fileUrl, fmtDate, fmtDateTime } from './people/PeopleShared';
 
 export interface PresenceItem {
   id: string;
@@ -15,7 +18,51 @@ export interface PresenceItem {
   durationMinutes: number;
   active: boolean;
   faceQualityScore: number | null;
+  // Verificación facial (solo admin). faceStatus null = conexión anterior a la verificación.
+  liveness?: string | null;
+  faceStatus?: FaceStatus | null;
+  faceScore?: number | null;
+  faceMatchPercent?: number | null;
+  faceReferencePhotoUrl?: string | null;
+  faceError?: string | null;
+  faceReviewStatus?: FaceReviewStatus | null;
+  faceReviewNote?: string | null;
+  faceReviewedByName?: string | null;
+  faceReviewedAt?: string | null;
 }
+
+export type FaceStatus = 'disabled' | 'match' | 'mismatch' | 'no_reference' | 'error';
+export type FaceReviewStatus = 'pending' | 'confirmed_ok' | 'not_him';
+
+/// Etiqueta y tono del resultado de la verificación facial.
+export function faceResultMeta(status: FaceStatus | null | undefined, percent?: number | null): { label: string; tone: Tone; icon: string } {
+  switch (status) {
+    case 'match':        return { label: percent != null ? `Coincide (${percent}%)` : 'Coincide', tone: 'ok', icon: 'fa-circle-check' };
+    case 'mismatch':     return { label: percent != null ? `No coincide (${percent}%)` : 'No coincide', tone: 'bad', icon: 'fa-triangle-exclamation' };
+    case 'no_reference': return { label: 'Sin foto de referencia', tone: 'neutral', icon: 'fa-image' };
+    case 'error':        return { label: 'Error al verificar', tone: 'warn', icon: 'fa-circle-exclamation' };
+    case 'disabled':     return { label: 'Verificación apagada', tone: 'neutral', icon: 'fa-power-off' };
+    default:             return { label: '—', tone: 'neutral', icon: 'fa-minus' };
+  }
+}
+
+export const FACE_REVIEW_LABEL: Record<FaceReviewStatus, { label: string; tone: Tone }> = {
+  pending:      { label: 'Por revisar', tone: 'warn' },
+  confirmed_ok: { label: 'Era él (error del sistema)', tone: 'ok' },
+  not_him:      { label: 'No era él', tone: 'bad' },
+};
+
+interface DriverFaceInfo {
+  enabled: boolean;
+  threshold: number;
+  reference: { photoUrl: string; hasEmbedding: boolean; autoApproved: boolean; approvedByName: string | null; approvedAt: string } | null;
+  pendingPhoto: { id: string; photoUrl: string; faceResult: FaceStatus; matchPercent: number | null; createdAt: string } | null;
+  observations: {
+    id: string; photoUrl: string; referencePhotoUrl: string | null; matchPercent: number | null; checkedInAt: string;
+    reviewNote: string | null; reviewedByName: string | null; reviewedAt: string | null;
+  }[];
+}
+
 interface PresencePage {
   items: PresenceItem[];
   total: number;
@@ -49,6 +96,15 @@ export function DriverPresenceSection({ driverId, comparePhotos }: { driverId: s
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [selected, setSelected] = useState<PresenceItem | null>(null);
+  const [face, setFace]         = useState<DriverFaceInfo | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch<DriverFaceInfo>(`${API.drivers}/drivers/admin/${driverId}/face`)
+      .then(d => { if (alive) setFace(d); })
+      .catch(() => { /* sin datos de verificación: la sección sigue funcionando */ });
+    return () => { alive = false; };
+  }, [driverId]);
 
   useEffect(() => {
     let alive = true;
@@ -80,6 +136,10 @@ export function DriverPresenceSection({ driverId, comparePhotos }: { driverId: s
         : fmtTime(r.checkedOutAt),
     },
     { key: 'duration', header: 'Duración', priority: 1, align: 'right', render: r => fmtDuration(r.durationMinutes) },
+    {
+      key: 'face', header: 'Verificación facial', mobileLabel: 'Verificación', priority: 2,
+      render: r => <FaceResultBadge item={r} />,
+    },
   ];
 
   return (
@@ -89,6 +149,8 @@ export function DriverPresenceSection({ driverId, comparePhotos }: { driverId: s
         <StatCard label="Últimos 7 días" value={summary?.last7Days ?? 0} icon="fa-calendar-week" tone="info" loading={loading && !data} />
         <StatCard label="Últimos 30 días" value={summary?.last30Days ?? 0} icon="fa-calendar" tone="neutral" loading={loading && !data} />
       </StatGrid>
+
+      {face && <FaceInfoCard face={face} />}
 
       <SectionCard
         title="Conexiones"
@@ -100,12 +162,12 @@ export function DriverPresenceSection({ driverId, comparePhotos }: { driverId: s
         <div className="p-3">
           <FilterBar activeCount={activeCount} onClear={activeCount ? () => { setFrom(''); setTo(''); setPage(1); } : undefined}>
             <label className="ops-filter"><span>Desde</span>
-              <input type="date" className="form-control form-control-sm" value={from} max={to || undefined}
-                     onChange={e => { setFrom(e.target.value); setPage(1); }} />
+              <DateField size="sm" value={from} max={to || undefined}
+                         onChange={v => { setFrom(v); setPage(1); }} />
             </label>
             <label className="ops-filter"><span>Hasta</span>
-              <input type="date" className="form-control form-control-sm" value={to} min={from || undefined}
-                     onChange={e => { setTo(e.target.value); setPage(1); }} />
+              <DateField size="sm" value={to} min={from || undefined}
+                         onChange={v => { setTo(v); setPage(1); }} />
             </label>
           </FilterBar>
         </div>
@@ -140,9 +202,28 @@ export function DriverPresenceSection({ driverId, comparePhotos }: { driverId: s
         description={selected ? `Conexión del ${fmtDate(selected.checkedInAt)} a las ${fmtTime(selected.checkedInAt)}` : undefined}
       >
         {selected && (
-          <div className="d-grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))' }}>
-            <ComparePanel label="Selfie al conectarse" src={fileUrl('drivers', selected.photoUrl)} highlight />
-            {comparePhotos.map(p => <ComparePanel key={p.label} label={p.label} src={p.src} />)}
+          <div className="d-grid gap-3">
+            {selected.faceStatus && (
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                <FaceResultBadge item={selected} />
+                {selected.liveness === 'passed' && <StatusBadge tone="info" size="sm" icon="fa-eye">Prueba de vida OK</StatusBadge>}
+                {selected.faceError && <span className="small bugie-muted">{selected.faceError}</span>}
+              </div>
+            )}
+            {selected.faceReviewStatus === 'not_him' && selected.faceReviewNote && (
+              <div className="sa-note bx-tone-bad" role="note">
+                <i className="fa-solid fa-flag" aria-hidden="true" />
+                <span><strong>Observación:</strong> {selected.faceReviewNote}
+                  {selected.faceReviewedByName && <> — {selected.faceReviewedByName}, {fmtDateTime(selected.faceReviewedAt)}</>}</span>
+              </div>
+            )}
+            <div className="d-grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))' }}>
+              <ComparePanel label="Selfie al conectarse" src={fileUrl('drivers', selected.photoUrl)} highlight />
+              {selected.faceReferencePhotoUrl && (
+                <ComparePanel label="Referencia usada al verificar" src={fileUrl('drivers', selected.faceReferencePhotoUrl)} />
+              )}
+              {comparePhotos.map(p => <ComparePanel key={p.label} label={p.label} src={p.src} />)}
+            </div>
           </div>
         )}
       </Modal>
@@ -168,7 +249,96 @@ function SelfieThumb({ item, onOpen }: { item: PresenceItem; onOpen: () => void 
   );
 }
 
-function ComparePanel({ label, src, highlight }: { label: string; src: string | null; highlight?: boolean }) {
+/// Resultado de la verificación facial de una conexión (+ revisión del admin).
+function FaceResultBadge({ item }: { item: PresenceItem }) {
+  if (!item.faceStatus) return <span className="bugie-muted">—</span>;
+  const m = faceResultMeta(item.faceStatus, item.faceMatchPercent);
+  const review = item.faceReviewStatus ? FACE_REVIEW_LABEL[item.faceReviewStatus] : null;
+  return (
+    <span className="d-inline-flex flex-wrap gap-1">
+      <StatusBadge tone={m.tone} size="sm" icon={m.icon} title={item.faceError ?? undefined}>{m.label}</StatusBadge>
+      {review && item.faceStatus === 'mismatch' && <StatusBadge tone={review.tone} size="sm">{review.label}</StatusBadge>}
+    </span>
+  );
+}
+
+/// Foto de referencia (quién y cuándo la aprobó), foto pendiente y observaciones.
+function FaceInfoCard({ face }: { face: DriverFaceInfo }) {
+  const ref = face.reference;
+  return (
+    <SectionCard
+      title="Verificación facial"
+      icon="fa-user-check"
+      description={face.enabled
+        ? 'Cada selfie de conexión se compara con su foto de referencia. Es interno: el conductor no ve el resultado.'
+        : 'La verificación facial está apagada en Configuración: solo se guardan las fotos.'}
+      actions={<Link className="btn btn-sm btn-outline-secondary" to="/admin/verificacion-facial">
+        <i className="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true" />Ir a revisión</Link>}
+    >
+      <div className="d-grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))' }}>
+        <div className="d-flex gap-3 align-items-start">
+          <Thumb src={fileUrl('drivers', ref?.photoUrl)} />
+          <div className="small" style={{ minWidth: 0 }}>
+            <div className="fw-semibold">Foto de referencia</div>
+            {ref ? (
+              <>
+                <div>{ref.autoApproved ? 'Aprobada automáticamente (coincidió con la anterior)' : `Aprobada por ${ref.approvedByName ?? 'un administrador'}`}</div>
+                <div className="bugie-muted">{fmtDateTime(ref.approvedAt)}</div>
+                {!ref.hasEmbedding && <StatusBadge tone="warn" size="sm" className="mt-1">Sin rostro detectable</StatusBadge>}
+              </>
+            ) : <div className="bugie-muted">Aún no tiene. Se fija al aprobar su foto de perfil.</div>}
+          </div>
+        </div>
+        {face.pendingPhoto && (
+          <div className="d-flex gap-3 align-items-start">
+            <Thumb src={fileUrl('drivers', face.pendingPhoto.photoUrl)} />
+            <div className="small">
+              <div className="fw-semibold">Foto de perfil por revisar</div>
+              <div className="bugie-muted">Subida el {fmtDateTime(face.pendingPhoto.createdAt)}</div>
+              <Link to="/admin/verificacion-facial?tab=fotos">Revisar ahora</Link>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <div className="fw-semibold small mb-2">
+          <i className="fa-solid fa-flag me-2" style={{ color: 'var(--bugie-bad)' }} aria-hidden="true" />
+          Observaciones ({face.observations.length})
+        </div>
+        {face.observations.length === 0 ? (
+          <p className="small bugie-muted mb-0">Sin observaciones. Aquí quedan las conexiones marcadas como «No era él».</p>
+        ) : (
+          <ul className="list-unstyled d-grid gap-2 mb-0">
+            {face.observations.map(o => (
+              <li key={o.id} className="d-flex gap-3 align-items-start">
+                <Thumb src={fileUrl('drivers', o.photoUrl)} size={44} />
+                <div className="small" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  <div><strong>Conexión del {fmtDateTime(o.checkedInAt)}</strong>{o.matchPercent != null && <> · {o.matchPercent}% de parecido</>}</div>
+                  <div>{o.reviewNote}</div>
+                  <div className="bugie-muted">{o.reviewedByName ?? 'Administrador'} · {fmtDateTime(o.reviewedAt)}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function Thumb({ src, size = 64 }: { src: string | null; size?: number }) {
+  return src ? (
+    <img src={src} alt="" style={{ width: size, height: size, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--bugie-border)', flexShrink: 0 }} />
+  ) : (
+    <span className="d-inline-flex align-items-center justify-content-center bugie-muted"
+          style={{ width: size, height: size, borderRadius: 8, background: 'var(--bugie-bg-2)', flexShrink: 0 }}>
+      <i className="fa-solid fa-image" aria-hidden="true" />
+    </span>
+  );
+}
+
+export function ComparePanel({ label, src, highlight }: { label: string; src: string | null; highlight?: boolean }) {
   return (
     <figure className="mb-0 text-center">
       <div className="d-flex align-items-center justify-content-center rounded-3 overflow-hidden"

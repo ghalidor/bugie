@@ -1,5 +1,6 @@
 using MediatR;
 using Bugie.Rewards.Application.DTOs;
+using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.Interfaces;
 
@@ -27,5 +28,6 @@ public class GetMyRedemptionsHandler
     internal static RedemptionDto ToDto(Redemption r) => new(
         r.Id, r.Code, r.ItemName, r.PointsSpent, r.RewardType,
         r.AmountSoles, r.Quantity, r.Percentage, r.Status,
-        r.ExpiresAt, r.UsedAt, r.UsedNote, r.CreatedAt, r.UserId);
+        r.ExpiresAt, r.UsedAt, r.UsedNote, r.CreatedAt, r.UserId,
+        ReservedTripId: r.Status == RedemptionStatus.Reserved ? r.ReservedTripId : null);
 }

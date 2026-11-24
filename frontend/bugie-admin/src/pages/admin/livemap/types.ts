@@ -25,6 +25,9 @@ export interface SosAlert {
   userId: string;
   lat: number; lng: number;
   userRole: string; createdAt: string;
+  /** Atención (GET sos/admin/active): primera vez vista y quién la está atendiendo. */
+  firstSeenAt?: string | null; firstSeenByName?: string | null;
+  attendingAt?: string | null; attendingBy?: string | null; attendingByName?: string | null;
 }
 
 export interface VehicleBulk {

@@ -123,7 +123,7 @@ conductores ni pasajeros que ya tengan un viaje activo (por ejemplo el viaje EN 
 
 ## Restaurar la base de prueba en otra PC (sin regenerar)
 
-`backend/bugie_test_backup.sql` es un volcado completo (esquema + datos, 26 scripts ya aplicados,
+`backend/bugie_test_backup.sql` es un volcado completo (esquema + datos, 31 scripts ya aplicados, incluido 2026-10-08_fechas_timestamptz.sql,
 particiones de GPS, recorridos consolidados, 979 viajes, 285 usuarios, carga del 6-oct-2026) hecho con
 `pg_dump --clean --if-exists --no-owner`. Se restaura asi (PostgreSQL 18, usuario postgres):
 
@@ -132,6 +132,8 @@ particiones de GPS, recorridos consolidados, 979 viajes, 285 usuarios, carga del
 psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS bugie_test WITH (FORCE)"
 psql -U postgres -d postgres -c "CREATE DATABASE bugie_test"
 psql -U postgres -d bugie_test -f bugie_test_backup.sql
+# Zona horaria de la base (pg_dump no la guarda): las fechas se ven en hora de Peru con -05
+psql -U postgres -d postgres -c "ALTER DATABASE bugie_test SET timezone TO 'America/Lima'"
 ```
 
 Ademas de la base hacen falta, en la otra PC:
@@ -186,12 +188,33 @@ psql -U postgres -d bugie_test -f scripts/2026-10-06_indices_rendimiento.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-06_historial_gps.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-06_fechas_utc.sql
 psql -U postgres -d bugie_test -f scripts/2026-10-07_alertas_monitoreo.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-08_fechas_timestamptz.sql   # SIEMPRE despues de los anteriores (fechas)
+psql -U postgres -d bugie_test -f scripts/2026-10-08_sos_atencion.sql          # columnas nuevas (ya timestamptz): despues de fechas_timestamptz
+psql -U postgres -d bugie_test -f scripts/2026-10-08_cupon_sobrante.sql        # sobrante de cupones en puntos (trips.trips)
+psql -U postgres -d bugie_test -f scripts/2026-10-08_verificacion_facial.sql   # verificación facial (tablas/columnas en drivers + 3 settings); modelos: scripts/descargar_modelos_faciales.ps1
+psql -U postgres -d bugie_test -f scripts/2026-10-10_puntos_correcciones.sql   # rewards.tripactivity (viajes por usuario con su hora real) + rewards.nocancellationruns; re-ejecutar despues de 03_repartir_fechas.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-10_cupones_sorteos.sql       # cupón reservado en el viaje + reintentos del outbox + premio secundario de sorteos
 psql -U postgres -d bugie_test -f scripts/test-data/01_limpiar_bugie_test.sql
 bash scripts/test-data/levantar_apis_test.sh        # en otra terminal
 node scripts/test-data/seed.mjs
 psql -U postgres -d bugie_test -f scripts/test-data/03_repartir_fechas.sql
+psql -U postgres -d bugie_test -f scripts/2026-10-10_puntos_correcciones.sql   # re-sincroniza rewards.tripactivity con las fechas repartidas
 node scripts/test-data/simular_viajes_en_curso.mjs  # opcional, para la demo de Monitoreo
 ```
+
+**Orden de los scripts de estructura (fechas):**
+- `backscript.sql` va primero y solo sobre una base vacia (es un volcado: no se puede re-ejecutar).
+- Luego los scripts `2026-10-02...` a `2026-10-07...` en el orden de arriba.
+- `2026-10-08_fechas_timestamptz.sql` va **despues de todos los anteriores** (fechas) y antes del
+  seed (las APIs ya escriben fechas timestamptz). Pasa todas las fechas a `timestamptz`, deja los
+  defaults en `now()` y la base en `America/Lima`. Es idempotente.
+- Los scripts anteriores se pueden re-ejecutar sobre una base ya migrada: crean sus columnas como
+  `timestamptz` con default `now()`, sus `UPDATE` de fechas usan `now()` con la sesion en UTC, y
+  `2026-10-02_horas_a_utc.sql` / `2026-10-06_fechas_utc.sql` detectan la base migrada (fila
+  `2026-10-08_fechas_timestamptz` en `public.bugie_migraciones` o ninguna columna `timestamp` sin zona)
+  y no convierten nada. Si se re-ejecuta alguno, volver a correr `2026-10-08_fechas_timestamptz.sql` al final.
+- Los scripts posteriores (`2026-10-08_sos_atencion.sql` y siguientes) crean sus columnas ya como `timestamptz` y van
+  despues de `2026-10-08_fechas_timestamptz.sql`, en el orden de arriba.
 
 ### Orden de fases del seed
 
@@ -277,7 +300,7 @@ appsettings: usan `http://localhost:5001` (en el servidor, definir `Services__Au
 | view:drivers | `drivers/paged` (o view:driver_payouts; `search` = nombre, correo, documento, celular o placa; cada fila trae `activePlate`), `drivers/stats`, `drivers/expiring-soon`, presencia, suspender / reactivar / mantener estado |
 | view:drivers o view:verification | `drivers/pending`, `drivers/pending/paged`, `drivers/{id}/detail`, documentos (ver, historial, descargar, borrar), linea de tiempo, auditoria de aprobacion, fotos del vehiculo, `drivers/admin/notifications/summary`, calificaciones del conductor; aprobar/rechazar conductor o documento ademas **action:approve_driver** |
 | view:live_map | `drivers/online`, `trips/live-passengers`, `trips/admin/deviations/active`; tambien SOS, revisar desvio, ubicacion y vehiculos de conductores |
-| view:sos_center (o view:live_map) | `GET sos`, `PUT sos/{id}/resolve`, revisar desvio; `GET sos/admin/active` (con nombre y celular de quien activo y del otro participante) y `GET sos/admin/history` (resueltas: quien resolvio, motivo, duracion; `page`, `pageSize`, `from`, `to`, `search`) |
+| view:sos_center (o view:live_map) | `GET sos`, `PUT sos/{id}/resolve`, revisar desvio; `GET sos/admin/active` (con nombre y celular de quien activo y del otro participante) y `GET sos/admin/history` (resueltas: quien resolvio, motivo, duracion; `page`, `pageSize`, `from`, `to`, `search`); `PUT sos/admin/{id}/seen` (visto, solo la primera vez) y `PUT sos/admin/{id}/attending` (atendiendo; 409 si ya la tomo otro admin) |
 | view:trips | `trips/admin/paged`, `trips/admin/stats` (filtros `search` = direccion, pasajero o conductor por nombre/correo/documento/celular, o placa; `from`/`to` = dias de Peru; `passengerId`, `driverUserId`), `trips/incidents/counts` |
 | view:trips o view:passengers | `trips/admin/by-passenger/{userId}` (viajes del pasajero, pestaña Viajes de su ficha) |
 | view:trips o view:drivers | `trips/admin/by-driver/{userId}` (viajes del conductor por su UserId) |
@@ -286,6 +309,7 @@ appsettings: usan `http://localhost:5001` (en el servidor, definir `Services__Au
 | view:driver_payouts o view:rewards | `payments/admin/payouts/*` |
 | view:commissions | `payments/admin/wallets/*` |
 | view:reports | `trips/admin/reports/*` (ranking) |
+| view:reports o view:sos_center | `trips/admin/reports/sos` (auditoria de tiempos de respuesta SOS; `from`, `to`, `page`, `pageSize`) |
 | view:rewards | `rewards/admin/*` |
 | view:landing + action:save_landing | `PUT landing/section` (salvo terms/privacy) |
 | view:legal_docs + action:save_legal_docs | `PUT landing/section` con terms o privacy |

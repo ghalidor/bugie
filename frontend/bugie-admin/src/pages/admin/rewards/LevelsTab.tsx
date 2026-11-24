@@ -5,12 +5,13 @@ import {
   useConfirm, useToast,
 } from '../../../components/ui';
 import { errMsg, FormSection, LoadError, USER_TYPE_CHIPS } from './common';
+import { fmtSoles } from '../../../state/payouts';
 
 const rangeText = (l: Pick<RewardLevel, 'minPoints' | 'maxPoints'>) => l.maxPoints === null
   ? `${fmtPoints(l.minPoints)} pts o más`
   : `${fmtPoints(l.minPoints)} – ${fmtPoints(l.maxPoints)} pts`;
 
-const soles = (v: number | null) => (v === null ? 'Sin tope' : `S/ ${v.toFixed(2)}`);
+const soles = (v: number | null) => (v === null ? 'Sin tope' : fmtSoles(v));
 
 /** Campos que se comparan en la confirmación de guardado (antes → después). */
 const DIFF_FIELDS: { key: keyof RewardLevel; label: string; fmt?: (l: RewardLevel) => string; passengerOnly?: boolean }[] = [

@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.Interfaces;
 
 namespace Bugie.Trips.Infrastructure.Repositories;
@@ -9,14 +10,11 @@ public class DriverDayStatsRepository : IDriverDayStatsRepository
     private readonly IDbConnection _db;
     public DriverDayStatsRepository(IDbConnection db) => _db = db;
 
-    /// <summary>Hora de Peru. Las fechas de la base estan en UTC.</summary>
-    private const int TimezoneOffsetHours = -5;
-
     public async Task<List<DriverDayStats>> GetAsync(
         DateTime localDate, CancellationToken ct = default)
     {
-        // El dia local convertido a UTC para consultar.
-        var desde = localDate.Date.AddHours(-TimezoneOffsetHours);
+        // El dia de Peru convertido a UTC (Kind = Utc) para consultar.
+        var desde = BugieTime.PeruToUtc(localDate.Date);
         var hasta = desde.AddDays(1);
 
         // Un viaje cuenta por su momento de cierre: completado o cancelado.

@@ -31,7 +31,16 @@ public class Raffle
     public string    Name             { get; set; } = string.Empty;
     public string    RaffleType       { get; set; } = RaffleTypes.Monthly;
     public string    PrizeDescription { get; set; } = string.Empty;
+    /// <summary>Valor en soles del premio PRINCIPAL (puesto 1).</summary>
     public decimal?  PrizeValue       { get; set; }
+
+    /// <summary>
+    /// Premio de los puestos 2 en adelante (si hay más de un ganador). Null =
+    /// "Premio secundario #n" sin monto: el admin escribe cuánto pagó.
+    /// </summary>
+    public string?   SecondaryPrizeDescription { get; set; }
+    public decimal?  SecondaryPrizeValue       { get; set; }
+
     public DateTime  DrawDate         { get; set; }
 
     /// <summary>Nivel mínimo para participar. Null = todos.</summary>
@@ -59,6 +68,22 @@ public class Raffle
 
     public bool AppliesTo(string userType) =>
         TargetUserType == "both" || TargetUserType == userType;
+
+    /// <summary>Todavía se puede sortear (ni sorteado ni cancelado).</summary>
+    public bool IsPendingDraw => Status is RaffleStatus.Open or RaffleStatus.Closed;
+
+    /// <summary>Qué se gana en ese puesto.</summary>
+    public string PrizeDetailFor(int rank) =>
+        rank == 1 ? PrizeDescription
+        : !string.IsNullOrWhiteSpace(SecondaryPrizeDescription) ? SecondaryPrizeDescription!
+        : $"Premio secundario #{rank}";
+
+    /// <summary>
+    /// Valor en soles del premio de ese puesto. Los puestos 2+ NUNCA heredan
+    /// el valor del principal: si no se definió, null (monto a criterio del admin).
+    /// </summary>
+    public decimal? PrizeValueFor(int rank) =>
+        rank == 1 ? PrizeValue : SecondaryPrizeValue;
 
     /// <summary>Cuántos tickets da cada nivel según el tipo de sorteo.</summary>
     public int TicketsForLevel(RewardLevel level) => RaffleType switch
@@ -88,6 +113,8 @@ public class RaffleWinner
     public string    TicketNumber { get; set; } = string.Empty;
     public int       PrizeRank    { get; set; }
     public string?   PrizeDetail  { get; set; }
+    /// <summary>Valor en soles del premio de ESTE puesto (copiado al sortear). Null = sin monto fijo.</summary>
+    public decimal?  PrizeValue   { get; set; }
     public string    Status       { get; set; } = "pending";
     public DateTime? DeliveredAt  { get; set; }
     public Guid?     DeliveredBy  { get; set; }

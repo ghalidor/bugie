@@ -75,7 +75,9 @@ public record CouponUsageDto(
     string?   DriverName,
     string    Status,
     DateTime  CreatedAt,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    // Puntos devueltos al pasajero porque el cupón valía más que el viaje (0 si no hubo).
+    int       LeftoverPoints = 0);
 
 /// <param name="AverageDiscount">Descuento promedio por viaje.</param>
 /// <param name="FeatureEnabled">true si el interruptor está apagado: entonces esto no crece.</param>

@@ -60,8 +60,8 @@ public sealed class RewardsOptions
     /// <summary>Puntos del mes que dan un ticket extra. 0 lo desactiva.</summary>
     public int     RafflePointsPerTicket  { get; init; } = 500;
 
-    /// <summary>Horas de diferencia con UTC. Perú es -5.</summary>
-    public int     TimezoneOffsetHours    { get; init; } = -5;
+    // La zona horaria ya no es configurable: los días de Perú salen de BugieTime
+    // (America/Lima). El ajuste timezone_offset_hours quedó en la BD sin uso.
     /// <summary>Hitos de aviso en dias, del mas lejano al mas cercano.</summary>
     public IReadOnlyList<int> ExpiryWarningMilestones { get; init; } = new[] { 30, 7, 1 };
     public decimal RatePassenger          { get; init; } = 10m;
@@ -101,7 +101,6 @@ public sealed class RewardsOptions
         NoCancelMinTrips        = IntOrZero(settings, SettingKeys.NoCancelMinTrips, 3),
         NoCancelPoints          = IntOrZero(settings, SettingKeys.NoCancelPoints, 100),
         RafflePointsPerTicket = IntOrZero(settings, SettingKeys.RafflePointsPerTicket, 500),
-        TimezoneOffsetHours   = Offset(settings, SettingKeys.TimezoneOffsetHours, -5),
         ExpiryWarningMilestones = Milestones(settings, SettingKeys.ExpiryWarningDays),
         RatePassenger         = Dec (settings, SettingKeys.RatePassenger, 10m),
         RateDriver            = Dec (settings, SettingKeys.RateDriver, 5m),
@@ -142,13 +141,6 @@ public sealed class RewardsOptions
         s.TryGetValue(key, out var v)
         && int.TryParse(v.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
         && i > 0
-            ? i : fallback;
-
-    /// <summary>Lee un desfase horario, que puede ser negativo.</summary>
-    private static int Offset(IDictionary<string, string> s, string key, int fallback) =>
-        s.TryGetValue(key, out var v)
-        && int.TryParse(v.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
-        && i >= -12 && i <= 14
             ? i : fallback;
 
     /// <summary>Entero que SÍ admite 0, porque 0 significa "desactivado".</summary>

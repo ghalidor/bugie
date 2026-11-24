@@ -33,9 +33,9 @@ export function payMethod(m: string): { label: string; icon: string } {
   return PAY_METHOD[m] ?? { label: m, icon: 'fa-credit-card' };
 }
 
-/** S/ 12.50 */
+/** "S/ 1,250.50": formato único de montos (igual que el backend). */
 export function money(v: number | null | undefined): string {
-  return `S/ ${(v ?? 0).toFixed(2)}`;
+  return `S/ ${(v ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** 02 oct. 2026 */

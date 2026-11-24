@@ -1,4 +1,5 @@
-﻿using Bugie.Trips.Domain.Enums;
+﻿using Bugie.Trips.Domain.Common;
+using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 
 namespace Bugie.Trips.Infrastructure.External;
@@ -61,7 +62,7 @@ public class TripNotificationService : ITripNotificationService
         }
         return SafeSend(driverUserId, new FcmPushMessage(
             Title: IsDelivery(service) ? "¡El cliente aceptó tu oferta de envío!" : "¡El pasajero aceptó!",
-            Body: $"Confirma el {Noun(service)} a S/ {fare:0.00} para empezar.{until}",
+            Body: $"Confirma el {Noun(service)} a {Money.Soles(fare)} para empezar.{until}",
             Route: $"/driver/incoming/{tripId}",
             ExtraData: data));
     }
@@ -98,11 +99,11 @@ public class TripNotificationService : ITripNotificationService
         var who = IsDelivery(service) ? "El cliente" : "El pasajero";
         string body;
         if(scheduledAtUtc.HasValue)
-            body = $"Tienes un {Noun(service)} programado el {Peru(scheduledAtUtc.Value, "dd/MM HH:mm")} (S/ {fare:0.00}).";
+            body = $"Tienes un {Noun(service)} programado el {Peru(scheduledAtUtc.Value, "dd/MM HH:mm")} ({Money.Soles(fare)}).";
         else
             body = IsDelivery(service)
-                ? $"{who} te eligió. Ve a recoger el paquete (S/ {fare:0.00})."
-                : $"{who} te eligió. Ve al punto de recojo (S/ {fare:0.00}).";
+                ? $"{who} te eligió. Ve a recoger el paquete ({Money.Soles(fare)})."
+                : $"{who} te eligió. Ve al punto de recojo ({Money.Soles(fare)}).";
         return SafeSend(driverUserId, new FcmPushMessage(
             Title: "¡Te eligieron!",
             Body: body,
@@ -219,7 +220,7 @@ public class TripNotificationService : ITripNotificationService
         Guid driverUserId, Guid tripId, decimal fare, ServiceType service = ServiceType.Ride) =>
         SafeSend(driverUserId, new FcmPushMessage(
             Title: IsDelivery(service) ? "Contrapropuesta de envío" : "Contrapropuesta del pasajero",
-            Body: $"El {(IsDelivery(service) ? "cliente" : "pasajero")} propuso S/ {fare:0.00}. Acepta o contrapropón.",
+            Body: $"El {(IsDelivery(service) ? "cliente" : "pasajero")} propuso {Money.Soles(fare)}. Acepta o contrapropón.",
             Route: $"/driver/incoming/{tripId}",
             ExtraData: Data("proposal", tripId, service, "passenger")));
 
@@ -229,8 +230,8 @@ public class TripNotificationService : ITripNotificationService
         SafeSend(passengerUserId, new FcmPushMessage(
             Title: IsDelivery(service) ? "Nueva oferta para tu envío" : "Nueva propuesta de conductor",
             Body: IsDelivery(service)
-                ? $"Un conductor ofrece llevar tu paquete por S/ {fare:0.00}."
-                : $"Un conductor ofrece llevarte por S/ {fare:0.00}.",
+                ? $"Un conductor ofrece llevar tu paquete por {Money.Soles(fare)}."
+                : $"Un conductor ofrece llevarte por {Money.Soles(fare)}.",
             Route: "/passenger/tracking",
             ExtraData: Data("proposal", tripId, service, "driver")));
 

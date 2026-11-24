@@ -102,15 +102,49 @@ public class PointsProfile
     /// <summary>
     /// Devuelve puntos de un canje anulado. No renueva la vigencia:
     /// los puntos vuelven con la fecha de vencimiento que ya tenian.
+    ///
+    /// Si el perfil no tiene fecha (su saldo vencio o quedo en cero), los
+    /// puntos devueltos reciben la vigencia normal: sin fecha, el vencimiento
+    /// nunca los alcanzaria.
     /// </summary>
-    public void RefundRedemption(int points)
+    public void RefundRedemption(int points, int expiryMonths)
     {
         if (points <= 0)
             throw new ArgumentOutOfRangeException(nameof(points), "Los puntos deben ser positivos.");
 
+        var now = DateTime.UtcNow;
         AvailablePoints += points;
         RedeemedPoints   = Math.Max(0, RedeemedPoints - points);
-        UpdatedAt        = DateTime.UtcNow;
+        if (PointsExpiryDate is null && expiryMonths > 0)
+            PointsExpiryDate = now.AddMonths(expiryMonths);
+        UpdatedAt        = now;
+    }
+
+    /// <summary>
+    /// Copia el saldo real que quedo guardado en la base. El repositorio lo
+    /// llama despues de una escritura atomica (saldo = saldo + puntos), porque
+    /// otra operacion pudo cambiar el saldo entre la lectura y la escritura.
+    /// </summary>
+    public void SyncBalances(int totalPoints, int availablePoints, int redeemedPoints, string currentLevel)
+    {
+        TotalPoints     = totalPoints;
+        AvailablePoints = availablePoints;
+        RedeemedPoints  = redeemedPoints;
+        if (!string.IsNullOrWhiteSpace(currentLevel)) CurrentLevel = currentLevel;
+    }
+
+    /// <summary>
+    /// Corrige el tipo de perfil (p. ej. un conductor cuyo perfil se creo como
+    /// pasajero antes de su primer viaje). Devuelve true si cambio.
+    /// </summary>
+    public bool ChangeUserType(string userType)
+    {
+        if (!UserTypes.IsValid(userType))
+            throw new ArgumentException($"UserType invalido: {userType}", nameof(userType));
+        if (UserType == userType) return false;
+        UserType  = userType;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
     }
 
     /// <summary>
@@ -218,10 +252,15 @@ public class PointsProfile
         return current < alreadySent ? current : null;
     }
 
+    /// <summary>
+    /// Sube el nivel. Nunca lo baja (regla del dueño): ni un canje, ni un
+    /// vencimiento, ni un ajuste quitan un nivel ya alcanzado.
+    /// </summary>
     public void SetLevel(string levelName)
     {
         if (string.IsNullOrWhiteSpace(levelName)) return;
         if (CurrentLevel == levelName) return;
+        if (LevelOrder.Rank(levelName) < LevelOrder.Rank(CurrentLevel)) return;
         CurrentLevel = levelName;
         UpdatedAt    = DateTime.UtcNow;
     }

@@ -110,8 +110,8 @@ public class DriverRepository : IDriverRepository
             UPDATE drivers.Drivers d
             SET CurrentLat        = u.Lat,
                 CurrentLng        = u.Lng,
-                CurrentLocationAt = u.At::timestamp
-            FROM unnest(@Ids, @Lats, @Lngs, @Ats) AS u(Id, Lat, Lng, At)
+                CurrentLocationAt = u.At
+            FROM unnest(@Ids, @Lats, @Lngs, CAST(@Ats AS timestamptz[])) AS u(Id, Lat, Lng, At)
             WHERE d.Id = u.Id",
             new
             {

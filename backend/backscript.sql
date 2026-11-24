@@ -1661,7 +1661,7 @@ ec93bc45-5c5a-497a-8a8a-dd63d38fabf2	max_radius_km	10	Radio máximo de búsqueda
 96fd882d-b4ba-4f01-9b08-edf87052c734	deviation_detection_enabled	false	Si esta en true, se detecta cuando el conductor se sale de la ruta y se alerta. Default: false (desactivado).	2026-05-26 16:20:23.024506	\N
 eea9832d-2882-4297-b4ea-f4e6a005d52b	default_city	tacna	Ciudad principal de operación de la plataforma	2026-05-26 17:55:00.933333	10b700cb-5890-44a0-8cb4-561af63e2cc0
 851fbfbe-febf-479e-a646-f9182ec8dc6e	fare_per_km	1.50	Tarifa por kilómetro en soles	2026-03-24 08:31:02.573333	\N
-e6cd1a41-e867-497a-95e9-6801f3b448ba	platform_fee_rate	10.00	Comision de Bugie por viaje, EN PORCENTAJE (10 = 10%). Se calcula sobre lo que el pasajero pago de verdad	2026-10-02 15:32:12.912384	\N
+e6cd1a41-e867-497a-95e9-6801f3b448ba	platform_fee_rate	10.00	Comisión de Bugie por viaje, EN PORCENTAJE (10 = 10%). Se calcula sobre lo que el pasajero pagó de verdad	2026-10-02 15:32:12.912384	\N
 \.
 
 
@@ -1720,21 +1720,21 @@ COPY public.bugie_migraciones (nombre, aplicada) FROM stdin;
 --
 
 COPY rewards.catalogitems (id, code, usertype, name, description, pointscost, rewardtype, amountsoles, quantity, percentage, minlevel, stock, validitydays, sortorder, isactive, createdat, updatedat) FROM stdin;
-717ee670-1b81-4f04-90e1-ba9f3ba88965	pass_discount_2	passenger	S/. 2 de descuento	Descuento de S/. 2 en tu proximo viaje.	500	discount_amount	2.00	\N	\N	\N	\N	30	1	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-29ffc5e6-c8ca-4768-b8eb-3cc7c2eb3b8b	pass_free_trip_8	passenger	Viaje gratis hasta S/. 8	Un viaje gratis. Si la tarifa supera S/. 8, pagas la diferencia.	1000	free_trip	8.00	\N	\N	\N	\N	30	2	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-d54ac583-00e4-4098-951b-5678a5bff296	pass_free_trip_15	passenger	Viaje gratis hasta S/. 15	Un viaje gratis. Si la tarifa supera S/. 15, pagas la diferencia.	2000	free_trip	15.00	\N	\N	\N	\N	30	3	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-e6c357cf-5123-494f-8fb4-d0f1feb7c664	pass_month_10	passenger	1 mes con 10% de descuento	10% de descuento en todos tus viajes durante 30 dias.	3000	discount_period	\N	30	10.00	\N	\N	30	4	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+717ee670-1b81-4f04-90e1-ba9f3ba88965	pass_discount_2	passenger	S/ 2.00 de descuento	Descuento de S/ 2.00 en tu próximo viaje.	500	discount_amount	2.00	\N	\N	\N	\N	30	1	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+29ffc5e6-c8ca-4768-b8eb-3cc7c2eb3b8b	pass_free_trip_8	passenger	Viaje gratis hasta S/ 8.00	Un viaje gratis. Si la tarifa supera S/ 8.00, pagas la diferencia.	1000	free_trip	8.00	\N	\N	\N	\N	30	2	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+d54ac583-00e4-4098-951b-5678a5bff296	pass_free_trip_15	passenger	Viaje gratis hasta S/ 15.00	Un viaje gratis. Si la tarifa supera S/ 15.00, pagas la diferencia.	2000	free_trip	15.00	\N	\N	\N	\N	30	3	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+e6c357cf-5123-494f-8fb4-d0f1feb7c664	pass_month_10	passenger	1 mes con 10% de descuento	10% de descuento en todos tus viajes durante 30 días.	3000	discount_period	\N	30	10.00	\N	\N	30	4	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
 f703c5a8-e191-4643-991d-bbd2088eb7b8	pass_raffle_1	passenger	1 ticket extra de sorteo mensual	Un ticket adicional para el sorteo mensual vigente.	5000	raffle_ticket	\N	1	\N	\N	\N	60	5	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-6a736216-9133-463b-b08c-034db8b780a8	pass_free_trip_25	passenger	Viaje gratis hasta S/. 25	Un viaje gratis. Si la tarifa supera S/. 25, pagas la diferencia.	7500	free_trip	25.00	\N	\N	\N	\N	30	6	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-1600e6ce-dcda-4e41-aee1-bcb64450f18d	pass_product	passenger	Producto del catalogo virtual	Accesorios o vouchers del catalogo. Se coordina la entrega.	10000	physical	\N	\N	\N	\N	\N	60	7	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-94eba1a6-6ae1-4915-b365-10fc816406fd	pass_smartphone	passenger	Smartphone entry-level	Smartphone de gama de entrada o su equivalente en creditos.	20000	physical	\N	\N	\N	\N	\N	90	8	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-fd410fdd-0e20-4228-87f2-027e598fd904	drv_bonus_5	driver	Bono de S/. 5	S/. 5 abonados a tu cuenta Bugie.	500	wallet_bonus	5.00	\N	\N	\N	\N	30	1	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-9573fa14-f2ae-4e15-91b3-e5aa76a0a70d	drv_bonus_15	driver	Bono de S/. 15	S/. 15 abonados a tu cuenta Bugie.	1250	wallet_bonus	15.00	\N	\N	\N	\N	30	2	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-44ad5392-1501-47e2-94fb-87c7918bb0e7	drv_bonus_35	driver	Bono de S/. 35	S/. 35 abonados a tu cuenta Bugie.	2500	wallet_bonus	35.00	\N	\N	\N	\N	30	3	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+6a736216-9133-463b-b08c-034db8b780a8	pass_free_trip_25	passenger	Viaje gratis hasta S/ 25.00	Un viaje gratis. Si la tarifa supera S/ 25.00, pagas la diferencia.	7500	free_trip	25.00	\N	\N	\N	\N	30	6	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+1600e6ce-dcda-4e41-aee1-bcb64450f18d	pass_product	passenger	Producto del catálogo virtual	Accesorios o vouchers del catálogo. Se coordina la entrega.	10000	physical	\N	\N	\N	\N	\N	60	7	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+94eba1a6-6ae1-4915-b365-10fc816406fd	pass_smartphone	passenger	Smartphone entry-level	Smartphone de gama de entrada o su equivalente en créditos.	20000	physical	\N	\N	\N	\N	\N	90	8	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+fd410fdd-0e20-4228-87f2-027e598fd904	drv_bonus_5	driver	Bono de S/ 5.00	S/ 5.00 abonados a tu cuenta Bugie.	500	wallet_bonus	5.00	\N	\N	\N	\N	30	1	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+9573fa14-f2ae-4e15-91b3-e5aa76a0a70d	drv_bonus_15	driver	Bono de S/ 15.00	S/ 15.00 abonados a tu cuenta Bugie.	1250	wallet_bonus	15.00	\N	\N	\N	\N	30	2	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+44ad5392-1501-47e2-94fb-87c7918bb0e7	drv_bonus_35	driver	Bono de S/ 35.00	S/ 35.00 abonados a tu cuenta Bugie.	2500	wallet_bonus	35.00	\N	\N	\N	\N	30	3	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
 c9544eeb-6c1a-4694-838d-2c049836e143	drv_maintenance	driver	Descuento en mantenimiento vehicular	Descuento en talleres socios afiliados.	3750	partner_benefit	\N	\N	\N	\N	\N	60	4	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-8350b32b-b6c4-407f-886e-3d3a649738f8	drv_bonus_80	driver	Bono de S/. 80	S/. 80 abonados a tu cuenta Bugie.	5000	wallet_bonus	80.00	\N	\N	\N	\N	30	5	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+8350b32b-b6c4-407f-886e-3d3a649738f8	drv_bonus_80	driver	Bono de S/ 80.00	S/ 80.00 abonados a tu cuenta Bugie.	5000	wallet_bonus	80.00	\N	\N	\N	\N	30	5	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
 eb632b65-ce0a-4168-90c7-1f46b49f6ff0	drv_insurance	driver	Seguro vehicular mensual	Un mes de seguro vehicular con socio afiliado.	7500	partner_benefit	\N	\N	\N	\N	\N	60	6	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
-1db032bc-0006-40d5-a0e0-71fd1e488aa0	drv_product	driver	Producto del catalogo virtual premium	Producto premium del catalogo. Se coordina la entrega.	12500	physical	\N	\N	\N	\N	\N	60	7	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
+1db032bc-0006-40d5-a0e0-71fd1e488aa0	drv_product	driver	Producto del catálogo virtual premium	Producto premium del catálogo. Se coordina la entrega.	12500	physical	\N	\N	\N	\N	\N	60	7	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
 8944e701-20be-4340-9598-e22d0e7814d1	drv_grand	driver	Gran premio	Tablet, herramientas o su equivalente en efectivo.	25000	physical	\N	\N	\N	\N	\N	90	8	t	2026-09-16 10:45:02.160732	2026-09-16 10:45:02.160732
 \.
 
@@ -1956,7 +1956,7 @@ ef42b8f3-82bc-41b1-9289-3ef62cc5087f	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	7
 dd55c454-5e28-4561-812f-bd9cbbc0aab5	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	75	trip_completed	f7455700-d9b8-4994-8638-6b5aa97f1a2d	8725	8800	\N	\N	2026-07-02 21:37:00
 d01288bf-63c9-4bba-bca3-07792c0ee790	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	75	trip_completed	824bf804-866b-4ef7-9b92-bc6de6774ff4	8800	8875	\N	\N	2026-07-03 22:30:00
 b9e1c932-5d73-4c40-b631-bc8c3057d019	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	75	trip_completed	94ffa468-9660-41e9-8062-cba89a08587f	8875	8950	\N	\N	2026-07-04 23:23:00
-1bb6890b-1ed8-42ee-a1f2-ad5cbf4f3c64	03a67e97-9985-4265-84c0-d3fceb04ac14	redeem	500	catalog_redemption	\N	8950	8450	\N	Bono de S/. 5	2026-07-05 20:16:00
+1bb6890b-1ed8-42ee-a1f2-ad5cbf4f3c64	03a67e97-9985-4265-84c0-d3fceb04ac14	redeem	500	catalog_redemption	\N	8950	8450	\N	Bono de S/ 5.00	2026-07-05 20:16:00
 77fdf848-0bef-48de-994a-0d2bf194ef95	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	50	rating	b24c3aae-df5f-4ff6-ae6f-e40c3f556cfb	8450	8500	\N	Recibiste 5 estrellas	2026-07-07 21:02:00
 c73e3bb5-0ba3-493e-aaac-5e8985988d14	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	200	weekly_goal	\N	8500	8700	\N	Meta semanal: 52 viajes	2026-07-08 04:02:00
 9fb3e80a-aae2-4be7-b6e5-134b52576d20	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	200	weekly_goal	\N	8700	8900	\N	Meta semanal: 55 viajes	2026-07-15 04:13:00
@@ -1964,7 +1964,7 @@ c73e3bb5-0ba3-493e-aaac-5e8985988d14	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	2
 a607a481-bbd7-4b53-ac1e-17c11f727afe	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	50	rating	f47c72d7-f949-4cc1-ad85-474001d6f0ce	9275	9325	\N	Recibiste 5 estrellas	2026-07-25 21:56:00
 96c3c224-8139-4866-be65-45135bb3991b	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	100	no_cancellations	\N	9325	9425	\N	7 viajes sin cancelar	2026-08-03 04:00:00
 1887a4b1-687d-4a37-9bbf-76c403b53183	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	50	rating	afb02c1b-01da-40a6-9c7c-848db4cc742f	9425	9475	\N	Recibiste 5 estrellas	2026-08-12 21:50:00
-b472b827-87cf-484d-b6f3-badd08402a95	03a67e97-9985-4265-84c0-d3fceb04ac14	redeem	1250	catalog_redemption	\N	9475	8225	\N	Bono de S/. 15	2026-08-12 20:50:00
+b472b827-87cf-484d-b6f3-badd08402a95	03a67e97-9985-4265-84c0-d3fceb04ac14	redeem	1250	catalog_redemption	\N	9475	8225	\N	Bono de S/ 15.00	2026-08-12 20:50:00
 9ea9f5ae-d4a8-4980-8899-76db83a7d0e3	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	100	no_cancellations	\N	8225	8325	\N	5 viajes sin cancelar	2026-08-18 04:15:00
 dd11d6f0-0684-4b1b-bab0-abbdbaff0537	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	375	referral	\N	8325	8700	\N	Referiste a un nuevo usuario	2026-08-22 16:40:00
 599f7959-e728-41e8-a3bd-2664230b11ee	03a67e97-9985-4265-84c0-d3fceb04ac14	earn	50	rating	56a09c03-5f86-4cb5-b232-f6b323be6342	8700	8750	\N	Recibiste 5 estrellas	2026-08-30 21:44:00
@@ -2062,7 +2062,7 @@ b8b51c8c-1675-451c-8378-18c1b4deba6b	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	1
 31caa2c3-a38f-4baf-bb5c-963ef0992a4c	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	46418464-a09c-4fa6-84f5-7bb49a321297	6650	6750	\N	\N	2026-04-26 18:26:00
 055b0e7d-2737-4aee-abc0-deed7ae6485c	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	6ee7a29d-7c23-4c0e-870e-7365fff54dd7	6750	6850	\N	\N	2026-04-30 18:58:00
 c253a43a-d9e1-4aae-b566-63a7cbff38d7	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	200	trip_completed	06abfa50-f496-452d-b9fb-4387af3b2499	6850	7050	\N	Promociones: Hora Feliz	2026-05-04 18:30:00
-d982116b-3cd0-40b5-870b-05cf49a4ac7f	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	redeem	500	catalog_redemption	\N	7050	6550	\N	S/. 2 de descuento	2026-05-04 20:30:00
+d982116b-3cd0-40b5-870b-05cf49a4ac7f	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	redeem	500	catalog_redemption	\N	7050	6550	\N	S/ 2.00 de descuento	2026-05-04 20:30:00
 263d5d20-c871-4fda-921a-6e3e68d584f1	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	4556c4be-0c91-4516-baa7-f490c0f21fab	6550	6650	\N	\N	2026-05-08 18:02:00
 d56aa987-d86e-455d-b534-bac66172d25f	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	4c050260-7381-4d6e-8c5a-b893c9b5c84b	6650	6750	\N	\N	2026-05-12 18:34:00
 760fe2ef-2695-4935-af2d-2016f9259d2e	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	200	trip_completed	0439e003-5d8b-457b-beef-08fb2fa584d5	6750	6950	\N	Promociones: Hora Feliz	2026-05-16 18:06:00
@@ -2078,7 +2078,7 @@ a06fd396-d4a9-45f5-b05f-36ca5ca97e58	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	1
 d09520f1-17e7-47cc-8ceb-9c404c43be4d	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	a7fe67b1-2375-414f-99cc-b9753ca39537	8150	8250	\N	\N	2026-06-25 18:26:00
 23ca5dc9-f61d-4701-b607-2893529ecb55	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	a6d5d6eb-9d78-4294-a7ab-c28fcc90372a	8250	8350	\N	\N	2026-06-29 18:58:00
 9587968d-96a8-4a3e-9921-f127fe0f8e9a	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	200	trip_completed	089f8d08-e1d0-41ba-a7bf-bc49a5b373e8	8350	8550	\N	Promociones: Hora Feliz	2026-07-03 18:30:00
-575e94c8-3a28-414c-b84c-f0710c6b7a7f	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	redeem	1000	catalog_redemption	\N	8550	7550	\N	Viaje gratis hasta S/. 8	2026-07-03 20:30:00
+575e94c8-3a28-414c-b84c-f0710c6b7a7f	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	redeem	1000	catalog_redemption	\N	8550	7550	\N	Viaje gratis hasta S/ 8.00	2026-07-03 20:30:00
 7292a2ad-8ddb-43b8-9143-855afe3ac900	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	182061a7-2171-49a8-ac58-3eb1a6cf9078	7550	7650	\N	\N	2026-07-07 18:02:00
 d4e34d0c-98b8-4af4-b228-dd1f82f85a75	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	100	trip_completed	f2eefd02-41e6-4c18-839a-c183cd4b9e56	7650	7750	\N	\N	2026-07-11 18:34:00
 ccfc50c1-f39a-4995-945c-257fb61a5663	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	earn	200	trip_completed	2c44d8f4-206b-4892-adb9-42298f7d67fb	7750	7950	\N	Promociones: Hora Feliz	2026-07-15 18:06:00
@@ -2181,12 +2181,12 @@ f4d0077e-b3a5-4b62-81c3-a9aba4a91769	0401d408-1f2d-41e7-894f-e3090c382046	3b33c2
 
 COPY rewards.redemptions (id, profileid, userid, catalogitemid, code, itemname, pointsspent, rewardtype, amountsoles, quantity, percentage, status, expiresat, usedat, usedreferenceid, usednote, createdat) FROM stdin;
 51ce9ad4-2ad7-4c9a-9e75-9c87ff1f1b64	03a67e97-9985-4265-84c0-d3fceb04ac14	3b33c255-70d2-401e-a76e-da1540155ec4	eb632b65-ce0a-4168-90c7-1f46b49f6ff0	BG-4K7M2P	Seguro vehicular mensual	7500	partner_benefit	\N	\N	\N	active	2026-10-19 17:00:00	\N	\N	\N	2026-09-19 17:00:00
-b57a2141-6532-4085-8804-5dc9b3ef52db	03a67e97-9985-4265-84c0-d3fceb04ac14	3b33c255-70d2-401e-a76e-da1540155ec4	fd410fdd-0e20-4228-87f2-027e598fd904	BG-2M8WKD	Bono de S/. 5	500	wallet_bonus	5.00	\N	\N	expired	2026-08-04 17:00:00	\N	\N	\N	2026-07-05 17:00:00
-fce34640-5d31-413b-be96-ffb6b6e88b26	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	717ee670-1b81-4f04-90e1-ba9f3ba88965	BG-7J4NVB	S/. 2 de descuento	500	discount_amount	2.00	\N	\N	active	2026-10-10 17:00:00	\N	\N	\N	2026-09-10 17:00:00
+b57a2141-6532-4085-8804-5dc9b3ef52db	03a67e97-9985-4265-84c0-d3fceb04ac14	3b33c255-70d2-401e-a76e-da1540155ec4	fd410fdd-0e20-4228-87f2-027e598fd904	BG-2M8WKD	Bono de S/ 5.00	500	wallet_bonus	5.00	\N	\N	expired	2026-08-04 17:00:00	\N	\N	\N	2026-07-05 17:00:00
+fce34640-5d31-413b-be96-ffb6b6e88b26	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	717ee670-1b81-4f04-90e1-ba9f3ba88965	BG-7J4NVB	S/ 2.00 de descuento	500	discount_amount	2.00	\N	\N	active	2026-10-10 17:00:00	\N	\N	\N	2026-09-10 17:00:00
 784ee7d4-fd34-4ed2-8207-91a9d2e68282	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	f703c5a8-e191-4643-991d-bbd2088eb7b8	BG-8T6ZPN	1 ticket extra de sorteo mensual	5000	raffle_ticket	\N	1	\N	active	2026-10-30 17:00:00	\N	\N	\N	2026-08-02 17:00:00
-02b4d263-c343-4c07-a38f-5cdc653c77a4	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	717ee670-1b81-4f04-90e1-ba9f3ba88965	BG-3Q9LMX	S/. 2 de descuento	500	discount_amount	2.00	\N	\N	cancelled	2026-10-05 17:00:00	\N	\N	\N	2026-09-05 17:00:00
-a283e615-8fd2-4921-bf56-88adb72ad5e3	03a67e97-9985-4265-84c0-d3fceb04ac14	3b33c255-70d2-401e-a76e-da1540155ec4	9573fa14-f2ae-4e15-91b3-e5aa76a0a70d	BG-9X3TQR	Bono de S/. 15	1250	wallet_bonus	15.00	\N	\N	used	2026-09-11 17:00:00	2026-08-27 17:00:00	\N	Pagado por Yape el 27/08, operacion 88213	2026-08-12 17:00:00
-ddcfd2ee-a8d3-4cf9-91ac-66356148cd08	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	29ffc5e6-c8ca-4768-b8eb-3cc7c2eb3b8b	BG-5R2HFC	Viaje gratis hasta S/. 8	1000	free_trip	8.00	\N	\N	used	2026-08-02 17:00:00	2026-07-19 17:00:00	\N	Aplicado al viaje	2026-07-03 17:00:00
+02b4d263-c343-4c07-a38f-5cdc653c77a4	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	717ee670-1b81-4f04-90e1-ba9f3ba88965	BG-3Q9LMX	S/ 2.00 de descuento	500	discount_amount	2.00	\N	\N	cancelled	2026-10-05 17:00:00	\N	\N	\N	2026-09-05 17:00:00
+a283e615-8fd2-4921-bf56-88adb72ad5e3	03a67e97-9985-4265-84c0-d3fceb04ac14	3b33c255-70d2-401e-a76e-da1540155ec4	9573fa14-f2ae-4e15-91b3-e5aa76a0a70d	BG-9X3TQR	Bono de S/ 15.00	1250	wallet_bonus	15.00	\N	\N	used	2026-09-11 17:00:00	2026-08-27 17:00:00	\N	Pagado por Yape el 27/08, operacion 88213	2026-08-12 17:00:00
+ddcfd2ee-a8d3-4cf9-91ac-66356148cd08	fb8993ca-a667-49f9-a5c1-e38ec3a669a7	05b9d66f-8441-45b4-bdc1-d418a807dddd	29ffc5e6-c8ca-4768-b8eb-3cc7c2eb3b8b	BG-5R2HFC	Viaje gratis hasta S/ 8.00	1000	free_trip	8.00	\N	\N	used	2026-08-02 17:00:00	2026-07-19 17:00:00	\N	Aplicado al viaje	2026-07-03 17:00:00
 \.
 
 
@@ -2230,31 +2230,31 @@ bb675191-d124-49e4-9e8f-2073b9018224	3b33c255-70d2-401e-a76e-da1540155ec4	a0160a
 
 COPY rewards.settings (id, settingkey, value, description, updatedat, updatedby) FROM stdin;
 74d09bbe-6e00-4225-86c6-d193d90ec4a6	points_enabled	true	Activa o desactiva todo el motor de puntos	2026-09-16 01:49:09.626204	\N
-4993c4e9-ab17-4599-96d6-215541092f28	points_rate_passenger	10	Puntos que gana el pasajero por cada S/. 1 del viaje	2026-09-16 01:49:09.626204	\N
-4173e171-2b11-4986-9d62-0c4d678fb7d0	points_rate_driver	5	Puntos que gana el conductor por cada S/. 1 del viaje	2026-09-16 01:49:09.626204	\N
+4993c4e9-ab17-4599-96d6-215541092f28	points_rate_passenger	10	Puntos que gana el pasajero por cada S/ 1.00 del viaje	2026-09-16 01:49:09.626204	\N
+4173e171-2b11-4986-9d62-0c4d678fb7d0	points_rate_driver	5	Puntos que gana el conductor por cada S/ 1.00 del viaje	2026-09-16 01:49:09.626204	\N
 9da59ac9-8c1a-4cfc-a66a-a0008995d640	points_expiry_months_passenger	12	Meses de vigencia de los puntos del pasajero	2026-09-16 01:49:09.626204	\N
 824b663e-8c27-4f8d-bc90-54a882f894fd	points_expiry_months_driver	12	Meses de vigencia de los puntos del conductor	2026-09-16 01:49:09.626204	\N
-a536b67a-b376-4dca-95ed-1f887364110b	points_level_basis	total	Base para calcular el nivel: total (historico) o available (saldo)	2026-09-16 01:49:09.626204	\N
+a536b67a-b376-4dca-95ed-1f887364110b	points_level_basis	total	Base para calcular el nivel: total (histórico) o available (saldo)	2026-09-16 01:49:09.626204	\N
 1c4e1495-4bba-4141-865f-31e0eb9b39dd	redemption_enabled	true	Permite o bloquea el canje de puntos	2026-09-16 10:45:02.160732	\N
-6eb46d19-5731-4cc3-a8eb-d039220bc8c5	points_expiry_enabled	true	Activa el vencimiento automatico de puntos	2026-09-21 01:48:00.725053	\N
-ff0b140e-0ecc-49f1-99f0-f8a1aeea2f9c	points_expiry_warning_days	30,7,1	Dias de anticipacion de los avisos push, separados por coma. Ej: 30,7,1	2026-09-21 01:48:10.155698	\N
+6eb46d19-5731-4cc3-a8eb-d039220bc8c5	points_expiry_enabled	true	Activa el vencimiento automático de puntos	2026-09-21 01:48:00.725053	\N
+ff0b140e-0ecc-49f1-99f0-f8a1aeea2f9c	points_expiry_warning_days	30,7,1	Días de anticipación de los avisos push, separados por coma. Ej: 30,7,1	2026-09-21 01:48:10.155698	\N
 f769b9d2-295b-4d91-a169-154dc0515b95	promotions_enabled	true	Activa o desactiva todas las promociones de una vez	2026-10-01 02:21:57.592672	\N
 a806d3b2-65a1-4f89-ac1d-ab028a8da6e7	timezone_offset_hours	-5	Horas de diferencia con UTC para evaluar días y franjas horarias. Perú es -5	2026-10-01 02:21:57.592672	\N
-a55f200b-6cee-4721-92d6-8a02b674df03	raffles_enabled	true	Activa el reparto de tickets y el sorteo automatico	2026-10-01 03:14:23.038089	\N
+a55f200b-6cee-4721-92d6-8a02b674df03	raffles_enabled	true	Activa el reparto de tickets y el sorteo automático	2026-10-01 03:14:23.038089	\N
 035aa304-d80c-494e-a508-fc59a5151cb0	raffle_points_per_ticket	500	Puntos ganados en el mes que dan un ticket extra. 0 lo desactiva	2026-10-01 03:14:23.038089	\N
 427aaf21-2325-4ebb-bcfc-875d85105402	referrals_enabled	true	Activa el programa de referidos	2026-10-01 04:07:53.30164	\N
 a55aea8a-832a-468f-8321-9edbe044a815	referral_points_passenger	500	Puntos para quien refiere, cuando el referido es pasajero	2026-10-01 04:07:53.30164	\N
 64134ec7-dbbb-4d96-b68a-15fec5678c65	referral_points_driver	375	Puntos para quien refiere, cuando el referido es conductor	2026-10-01 04:07:53.30164	\N
 8a6f3f75-6a14-43ad-8cfc-72c0ee657a9d	referral_qualify_trips	5	Viajes que debe completar el referido para el bono extra. 0 lo desactiva	2026-10-01 04:07:53.30164	\N
 eb20ad67-e516-4ff9-803c-287616cfc34a	referral_qualify_points	200	Bono extra cuando el referido llega a esa cantidad de viajes	2026-10-01 04:07:53.30164	\N
-86cece4d-e448-466b-9668-e30ee759bc53	streak_days	7	Dias seguidos viajando para ganar el bono de racha. 0 lo desactiva	2026-10-01 10:35:11.868499	\N
-2800b398-94cd-459e-8e72-967e1a25a620	streak_points	150	Puntos al completar la racha. Se vuelve a pagar en cada bloque de dias	2026-10-01 10:35:11.868499	\N
+86cece4d-e448-466b-9668-e30ee759bc53	streak_days	7	Días seguidos viajando para ganar el bono de racha. 0 lo desactiva	2026-10-01 10:35:11.868499	\N
+2800b398-94cd-459e-8e72-967e1a25a620	streak_points	150	Puntos al completar la racha. Se vuelve a pagar en cada bloque de días	2026-10-01 10:35:11.868499	\N
 50df6382-3efd-456b-ba39-2404bf5606a6	weekly_goal_trips_passenger	0	Viajes a la semana que debe hacer un pasajero para el bono. 0 lo desactiva	2026-10-01 10:35:11.868499	\N
 2be52617-0e70-40e7-9b1a-ffd091176288	weekly_goal_trips_driver	50	Servicios a la semana que debe completar un conductor para el bono	2026-10-01 10:35:11.868499	\N
 548007dd-1722-4b4c-a2c9-241b387a8b56	weekly_goal_points	200	Puntos al alcanzar la meta semanal	2026-10-01 10:35:11.868499	\N
 c5ac8f64-3808-4592-983c-4b32ba0fea65	anniversary_multiplier	3	Multiplicador de puntos durante el mes de aniversario del usuario. 1 lo desactiva	2026-10-01 10:35:11.868499	\N
 8d63810c-b0ad-4d2a-ac7e-195a5571264c	coupons_apply_to_fare	false	Permite aplicar cupones de descuento al precio de un viaje. Apagado, los cupones solo se acumulan	2026-10-01 17:18:10.018701	\N
-8aff4a68-0892-4a5a-8eda-25bb59128b30	no_cancel_min_trips	3	Viajes que debe completar el conductor en el dia para optar al bono. 0 desactiva la regla	2026-10-01 18:03:58.29376	\N
+8aff4a68-0892-4a5a-8eda-25bb59128b30	no_cancel_min_trips	3	Viajes que debe completar el conductor en el día para optar al bono. 0 desactiva la regla	2026-10-01 18:03:58.29376	\N
 71ce6763-8186-4e86-b063-e9401f2dd483	no_cancel_points	100	Puntos del bono diario por trabajar sin cancelar	2026-10-01 18:03:58.29376	\N
 \.
 

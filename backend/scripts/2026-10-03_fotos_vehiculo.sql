@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS drivers.vehiclephotos (
     vehicleid   uuid NOT NULL,
     phototype   character varying(10) NOT NULL,   -- front | side | plate
     url         character varying(500) NOT NULL,
-    createdat   timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    updatedat   timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    createdat   timestamp with time zone DEFAULT now() NOT NULL,
+    updatedat   timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT vehiclephotos_pkey PRIMARY KEY (id),
     CONSTRAINT uq_vehiclephotos_vehicle_type UNIQUE (vehicleid, phototype),
     CONSTRAINT ck_vehiclephotos_type CHECK (phototype IN ('front', 'side', 'plate')),

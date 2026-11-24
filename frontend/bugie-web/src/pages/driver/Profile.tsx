@@ -17,6 +17,18 @@ interface DriverProfile {
   totalRatings: number;
   profilePhotoUrl: string | null;
   faceIdPhotoUrl:  string | null;
+  // Verificación facial: última foto subida si está en revisión o fue rechazada.
+  pendingPhotoUrl?:    string | null;
+  pendingPhotoStatus?: 'pending_review' | 'rejected' | null;
+  pendingPhotoReason?: string | null;
+}
+
+/** Respuesta de POST /drivers/profile/me/photo. */
+interface PhotoUploadResult {
+  photoUrl: string | null;
+  status: 'approved' | 'pending_review';
+  message: string;
+  attemptsLeftToday: number;
 }
 
 const STATUS: Record<number, { label: string; tone: Tone }> = {
@@ -76,14 +88,18 @@ export default function DriverProfile() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
+        // 429 = límite de fotos del día (el mensaje viene del servidor).
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'No se pudo subir la foto.');
       }
-      const data = await res.json();
-      setDriver(prev => prev
-        ? { ...prev, profilePhotoUrl: data.profilePhotoUrl }
-        : prev);
-      toast.success('Foto de perfil actualizada.');
+      const data: PhotoUploadResult = await res.json();
+      const left = data.attemptsLeftToday === 0 ? ' Ya no te quedan intentos por hoy.' : '';
+      if (data.status === 'pending_review') toast.info(`${data.message}${left}`, 'Foto en revisión');
+      else toast.success(data.message || 'Foto de perfil actualizada.');
+      // Recarga la foto vigente y el estado de la foto en revisión.
+      apiFetch<DriverProfile>(`${API.drivers}/drivers/profile/me`).then(setDriver).catch(() => {
+        if (data.status === 'approved') setDriver(prev => prev ? { ...prev, profilePhotoUrl: data.photoUrl } : prev);
+      });
     } catch (err: any) {
       setError(err.message ?? 'Error al subir la foto.');
     } finally {
@@ -100,6 +116,17 @@ export default function DriverProfile() {
       {error && <Notice tone="bad">{error}</Notice>}
 
       {account && <DriverAccountStatus driver={account} onChanged={reloadAccount} />}
+
+      {driver?.pendingPhotoStatus === 'pending_review' && (
+        <Notice tone="info" icon="fa-hourglass-half" title="Tu nueva foto de perfil está en revisión">
+          El equipo de Bugie la revisará. Mientras tanto los pasajeros ven tu foto anterior.
+        </Notice>
+      )}
+      {driver?.pendingPhotoStatus === 'rejected' && (
+        <Notice tone="bad" title="Tu foto de perfil no fue aprobada">
+          {driver.pendingPhotoReason ? `${driver.pendingPhotoReason.replace(/[.\s]+$/, '')}. ` : ''}Sube una foto tuya.
+        </Notice>
+      )}
 
       {/* Cabecera con foto */}
       <SectionCard>

@@ -64,6 +64,7 @@ function kindOf(n: Pick<UserNotification, 'type' | 'alertType' | 'route'>): Kind
       case 'driver_reactivated': return K.accountOk;
       case 'driver_rejected':
       case 'document_rejected':
+      case 'profile_photo_rejected':
       case 'driver_suspended':   return K.accountBad;
       case 'document_expiring':
       case 'review_kept':        return K.accountWarn;

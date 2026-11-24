@@ -154,6 +154,9 @@ public class FcmSender : IFcmSender
                 {
                     ChannelId = channelId,
                     Sound = sound,
+                    // Hora que muestra Android en la notificación. Sin esto la
+                    // librería manda DateTime.MinValue y se ve "1/1/1".
+                    EventTimestamp = DateTime.UtcNow,
                 },
             },
             Apns = new ApnsConfig

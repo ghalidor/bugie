@@ -11,9 +11,9 @@ BEGIN;
 --    Usadas por ContactRepository (MarkAsRead, MarkAsUnread, AddReply).
 -- ---------------------------------------------------------------------
 ALTER TABLE landing.contactmessages
-    ADD COLUMN IF NOT EXISTS readat       timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS readat       timestamp with time zone,
     ADD COLUMN IF NOT EXISTS readbyuserid uuid,
-    ADD COLUMN IF NOT EXISTS lastreplyat  timestamp without time zone;
+    ADD COLUMN IF NOT EXISTS lastreplyat  timestamp with time zone;
 
 -- ---------------------------------------------------------------------
 -- 2) landing.contactreplies: respuestas del admin a un mensaje
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS landing.contactreplies (
     body         text NOT NULL,
     status       character varying(20) DEFAULT 'sent' NOT NULL,
     errormessage text,
-    createdat    timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    createdat    timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT contactreplies_pkey PRIMARY KEY (id),
     CONSTRAINT fk_contactreplies_contact FOREIGN KEY (contactid)
         REFERENCES landing.contactmessages (id) ON DELETE CASCADE,
@@ -60,9 +60,9 @@ CREATE TABLE IF NOT EXISTS auth.passwordresettokens (
     id        uuid DEFAULT gen_random_uuid() NOT NULL,
     userid    uuid NOT NULL,
     tokenhash character varying(64) NOT NULL,
-    expiresat timestamp without time zone NOT NULL,
-    usedat    timestamp without time zone,
-    createdat timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    expiresat timestamp with time zone NOT NULL,
+    usedat    timestamp with time zone,
+    createdat timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT passwordresettokens_pkey PRIMARY KEY (id),
     CONSTRAINT uq_passwordresettokens_hash UNIQUE (tokenhash),
     CONSTRAINT fk_passwordresettokens_user FOREIGN KEY (userid)
@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS ix_passwordresettokens_userid
 ALTER TABLE payments.withdrawals
     ADD COLUMN IF NOT EXISTS drivername      character varying(120),
     ADD COLUMN IF NOT EXISTS operationnumber character varying(50),
-    ADD COLUMN IF NOT EXISTS paidat          timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS paidat          timestamp with time zone,
     ADD COLUMN IF NOT EXISTS paidbyadminid   uuid,
     ADD COLUMN IF NOT EXISTS paidbyadminname character varying(120),
     ADD COLUMN IF NOT EXISTS note            character varying(300),
@@ -118,7 +118,7 @@ ALTER TABLE trips.tripproposals
 -- ---------------------------------------------------------------------
 -- 8) trips.trips.cancelledat: cuando se cancelo el viaje (UTC).
 -- ---------------------------------------------------------------------
-ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS cancelledat timestamp without time zone;
+ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS cancelledat timestamp with time zone;
 
 -- ---------------------------------------------------------------------
 -- 9) Envios: destinatario y confirmacion de entrega en destino.
@@ -128,7 +128,7 @@ ALTER TABLE trips.trips
     ADD COLUMN IF NOT EXISTS recipientname       character varying(120),
     ADD COLUMN IF NOT EXISTS recipientphone      character varying(20),
     ADD COLUMN IF NOT EXISTS deliveryreceivedby  character varying(120),
-    ADD COLUMN IF NOT EXISTS deliveryconfirmedat timestamp without time zone;
+    ADD COLUMN IF NOT EXISTS deliveryconfirmedat timestamp with time zone;
 
 ALTER TABLE trips.tripphotos DROP CONSTRAINT IF EXISTS ck_tripphotos_kind;
 ALTER TABLE trips.tripphotos

@@ -60,8 +60,9 @@ public class SignalRAdminNotifier : IAdminNotifier
         try
         {
             var data = JsonSerializer.Serialize(new { tripId, alertId, userId, userRole });
+            // El link abre esa alerta en el Centro SOS (al abrirla queda "vista").
             notificationId = await _history.AddAsync(
-                "sos", title, message, "/admin/sos",
+                "sos", title, message, $"/admin/sos?alert={alertId}",
                 "view:sos_center,view:live_map", data, ct);
         }
         catch(Exception ex)
@@ -90,6 +91,36 @@ public class SignalRAdminNotifier : IAdminNotifier
         catch(Exception ex)
         {
             _log.LogWarning(ex, "No se pudo notificar SOS vía SignalR (no crítico).");
+        }
+    }
+
+    /// <summary>
+    /// Atención de una alerta SOS: "sos:updated" { alertId, tripId, kind,
+    /// firstSeenAt, firstSeenBy, firstSeenByName, attendingAt, attendingBy,
+    /// attendingByName }. kind = "seen" o "attending". Las marcas aplican a
+    /// todas las alertas activas del viaje (el panel actualiza por tripId).
+    /// </summary>
+    public async Task NotifySosAttentionAsync(SosAdminRow a, string kind, CancellationToken ct = default)
+    {
+        try
+        {
+            await _hub.Clients.Group("admins").SendAsync("sos:updated", new
+            {
+                alertId = a.Id,
+                tripId = a.TripId,
+                kind,
+                firstSeenAt = a.FirstSeenAt,
+                firstSeenBy = a.FirstSeenBy,
+                firstSeenByName = a.FirstSeenByName,
+                attendingAt = a.AttendingAt,
+                attendingBy = a.AttendingBy,
+                attendingByName = a.AttendingByName,
+            }, ct);
+            _log.LogInformation("SignalR: 'sos:updated' ({Kind}) empujado. Trip={TripId}", kind, a.TripId);
+        }
+        catch(Exception ex)
+        {
+            _log.LogWarning(ex, "No se pudo notificar la atención del SOS vía SignalR (no crítico).");
         }
     }
 

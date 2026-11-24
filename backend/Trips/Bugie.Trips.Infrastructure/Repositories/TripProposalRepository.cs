@@ -25,7 +25,7 @@ public class TripProposalRepository : ITripProposalRepository
                            WHEN Status IN ('driver_accepted', 'accepted_by_passenger') THEN 0
                            WHEN Status = 'pending' THEN 1
                            WHEN Status = 'rejected' AND RejectedBy = 'driver'
-                                AND CreatedAt > ((now() at time zone 'utc') - INTERVAL '24 hours') THEN 2
+                                AND CreatedAt > (now() - INTERVAL '24 hours') THEN 2
                            ELSE 99
                        END AS Prioridad
                 FROM trips.TripProposals
@@ -36,7 +36,7 @@ public class TripProposalRepository : ITripProposalRepository
                      -- Propuesta que el pasajero aceptó y espera la confirmación del conductor.
                      OR Status = 'accepted_by_passenger'
                      OR (Status = 'rejected' AND RejectedBy = 'driver'
-                         AND CreatedAt > ((now() at time zone 'utc') - INTERVAL '24 hours'))
+                         AND CreatedAt > (now() - INTERVAL '24 hours'))
                   )
             ),
             Numeradas AS (
@@ -94,7 +94,7 @@ public class TripProposalRepository : ITripProposalRepository
         var n = await _db.ExecuteAsync(@"
             UPDATE trips.TripProposals
                SET Status = 'accepted_by_passenger', RejectedBy = NULL,
-                   AcceptedByPassengerAt = (now() at time zone 'utc')
+                   AcceptedByPassengerAt = now()
              WHERE Id = @Id AND Status = 'pending'",
             new { Id = id });
         return n > 0;
@@ -201,7 +201,7 @@ public class TripProposalRepository : ITripProposalRepository
               AND DriverId = @DriverId
               AND Status = 'rejected'
               AND RejectedBy = 'passenger'
-              AND CreatedAt > ((now() at time zone 'utc') - INTERVAL '24 hours')
+              AND CreatedAt > (now() - INTERVAL '24 hours')
             ORDER BY CreatedAt DESC LIMIT 1",
             new { TripId = tripId, DriverId = driverId });
     }
@@ -326,7 +326,7 @@ public class TripProposalRepository : ITripProposalRepository
                    END
             RETURNING p.Id AS ProposalId, p.TripId, p.DriverId, p.Fare,
                       'accepted_by_passenger' AS OldStatus, t.PassengerId, t.ServiceType",
-            new { Now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Unspecified),
+            new { Now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
                   Imm = immediateMinutes, Sched = scheduledBeforeMinutes });
         return rows.ToList();
     }

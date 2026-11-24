@@ -1,5 +1,6 @@
 import '../api/api_client.dart';
 import '../api/api_config.dart';
+import '../utils/format.dart';
 
 /// Servicio para leer configuración global del admin desde Landing.
 /// Endpoint público: GET /api/landing/settings → lista de {settingKey, value}.
@@ -125,7 +126,7 @@ class FareRules {
 
   const FareRules({this.minFare, this.maxMultiplier = 3});
 
-  static String _soles(double v) => 'S/ ${v.toStringAsFixed(2)}';
+  static String _soles(double v) => formatSoles(v);
 
   /// Rango permitido para ofertar/contraofertar en un viaje cuya tarifa
   /// pedida es [suggestedFare]. El máximo nunca es menor que el mínimo.

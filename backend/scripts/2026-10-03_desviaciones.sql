@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS trips.tripplannedroutes (
     distancemeters  double precision,
     -- Lecturas GPS seguidas fuera de la ruta (para evitar falsos positivos).
     offroutestreak  integer DEFAULT 0 NOT NULL,
-    createdat       timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    createdat       timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT tripplannedroutes_pkey PRIMARY KEY (id),
     CONSTRAINT uq_tripplannedroutes_trip_leg UNIQUE (tripid, leg),
     CONSTRAINT ck_tripplannedroutes_leg CHECK (leg IN ('pickup', 'trip')),
@@ -43,10 +43,10 @@ CREATE TABLE IF NOT EXISTS trips.routedeviations (
     maxdistancem   double precision NOT NULL, -- maxima distancia mientras estuvo desviado
     status         character varying(10) DEFAULT 'open' NOT NULL,
     closereason    character varying(20),     -- back_on_route | trip_ended
-    startedat      timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    endedat        timestamp without time zone,
+    startedat      timestamp with time zone DEFAULT now() NOT NULL,
+    endedat        timestamp with time zone,
     reviewedby     uuid,
-    reviewedat     timestamp without time zone,
+    reviewedat     timestamp with time zone,
     reviewnote     character varying(500),
     CONSTRAINT routedeviations_pkey PRIMARY KEY (id),
     CONSTRAINT ck_routedeviations_status CHECK (status IN ('open', 'closed')),
@@ -73,7 +73,7 @@ ON CONFLICT (settingkey) DO NOTHING;
 
 INSERT INTO landing.systemsettings (settingkey, value, description)
 VALUES ('deviation_threshold_m', '300',
-        'Distancia en metros a la ruta planificada a partir de la cual se considera desvio (por defecto 300).')
+        'Distancia en metros a la ruta planificada a partir de la cual se considera desvío (por defecto 300).')
 ON CONFLICT (settingkey) DO NOTHING;
 
 COMMIT;

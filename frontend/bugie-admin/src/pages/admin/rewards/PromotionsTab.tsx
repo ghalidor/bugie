@@ -5,10 +5,15 @@ import {
   describePromotion, promotionGroup, fmtPoints, fmtDate,
 } from '../../../state/rewards';
 import {
-  ActionItem, Column, DataTable, Drawer, Field, FilterBar, Modal, Page, SectionCard, Select, StatusBadge, Switch, Tone,
+  ActionItem, Column, DataTable, DateField, Drawer, Field, FilterBar, Modal, Page, SectionCard, Select, StatusBadge, Switch, Tone,
   useConfirm, useToast,
 } from '../../../components/ui';
 import { errMsg, FormSection, LoadError, optNum } from './common';
+
+/** Fecha YYYY-MM-DD de un instante, en hora de Perú (America/Lima). */
+const fechaPeru = (iso: string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(iso));
 
 /* ──────────────────────────────────────────────────────────────────────────
    Promociones.
@@ -280,7 +285,12 @@ function PromotionDrawer({ editing, onClose, onSaved }: {
     onClose();
   }
 
+  // Tipos antiguos (descuento / viaje gratis): el motor no los aplica y ya no
+  // se pueden crear ni editar. Para guardar hay que pasarla a un tipo de puntos.
+  const tipoRetirado = f.promotionType === 'discount' || f.promotionType === 'free_trip';
+
   async function save() {
+    if (tipoRetirado) { setError('Este tipo ya no se usa: elige “Multiplicar puntos” o “Puntos extra fijos”. Los descuentos se dan con cupones.'); return; }
     if (franjaIncompleta) { setError('Elige la hora de inicio y la de fin, o quita la franja.'); return; }
     setSaving(true); setError(null);
     try {
@@ -412,7 +422,12 @@ function PromotionDrawer({ editing, onClose, onSaved }: {
               onChange={v => set('promotionType', v as PromotionInput['promotionType'])}
               options={PROMO_TYPES}
             />
-
+            {tipoRetirado && (
+              <p className="bx-field-help" style={{ color: 'var(--bugie-warn)' }}>
+                Esta promoción es de un tipo que ya no se usa (descuento o viaje gratis): las promociones solo dan puntos.
+                Para guardarla elige uno de los tipos de arriba, o apágala o bórrala.
+              </p>
+            )}
           </Field>
           {f.promotionType === 'multiplier' ? (
             <Field label="Multiplicador" help="Con 2 se gana el doble de puntos." required>
@@ -427,8 +442,9 @@ function PromotionDrawer({ editing, onClose, onSaved }: {
 
         <FormSection step={4} title="Vigencia">
           <Field label="Termina el" optional help="Vacío = no tiene fin.">
-            <input type="date" className="form-control" value={f.endDate ? f.endDate.slice(0, 10) : ''}
-                   onChange={e => set('endDate', e.target.value ? new Date(e.target.value + 'T23:59:59').toISOString() : null)} />
+            {/* Fin del día en hora de Perú (UTC-5), no en la zona del navegador. */}
+            <DateField value={f.endDate ? fechaPeru(f.endDate) : ''}
+                       onChange={v => set('endDate', v ? new Date(`${v}T23:59:59-05:00`).toISOString() : null)} />
           </Field>
           <div className="bx-field">
             <span className="bx-field-label">Estado</span>

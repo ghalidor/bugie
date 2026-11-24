@@ -23,7 +23,8 @@ export const NOTICE_COLORS: { value: NoticeColor; label: string }[] = [
 
 /** Avisos en tiempo real (llegan por SignalR). */
 export type LiveType = 'sos' | 'deviation' | 'no_signal' | 'long_stop' | 'trip_delayed'
-  | 'contact_message' | 'complaint' | 'driver_review' | 'passenger_review';
+  | 'contact_message' | 'complaint' | 'driver_review' | 'passenger_review'
+  | 'face_mismatch' | 'profile_photo_review';
 /** Recordatorios periódicos (conteos del resumen). */
 export type ReminderType = 'document_expiring' | 'pending_messages' | 'pending_complaints' | 'pending_registrations';
 export type NoticeType = LiveType | ReminderType;
@@ -62,6 +63,8 @@ export const NOTICE_TYPES: NoticeTypeMeta[] = [
   { type: 'complaint',         kind: 'live', icon: 'fa-book',           label: 'Reclamación nueva',        description: 'Alguien registró una reclamación en el libro.' },
   { type: 'driver_review',     kind: 'live', icon: 'fa-id-card',        label: 'Conductor por revisar',    description: 'Un conductor envió sus documentos a revisión o pidió revisar su suspensión o rechazo.' },
   { type: 'passenger_review',  kind: 'live', icon: 'fa-user-check',     label: 'Pasajero por aprobar',     description: 'Un pasajero subió su DNI.' },
+  { type: 'face_mismatch',     kind: 'live', icon: 'fa-user-secret',    label: 'Rostro no coincide',       description: 'La selfie de conexión de un conductor no coincide con su foto de referencia (verificación facial).' },
+  { type: 'profile_photo_review', kind: 'live', icon: 'fa-id-badge',    label: 'Foto de perfil por revisar', description: 'Un conductor subió una foto de perfil que no se pudo aprobar sola (verificación facial).' },
   { type: 'document_expiring',     kind: 'reminder', icon: 'fa-calendar-xmark', label: 'Documentos por vencer',      description: 'Conductores con documentos que vencen pronto.' },
   { type: 'pending_messages',      kind: 'reminder', icon: 'fa-envelope-open',  label: 'Mensajes sin atender',       description: 'Mensajes de contacto todavía sin respuesta.' },
   { type: 'pending_complaints',    kind: 'reminder', icon: 'fa-book-open',      label: 'Reclamaciones sin atender',  description: 'Reclamaciones pendientes o fuera de plazo.' },
@@ -81,6 +84,8 @@ export const DEFAULT_CONFIG: Record<NoticeType, NoticeConfig> = {
   complaint:             { ...base, color: 'warn' },
   driver_review:         { ...base, color: 'primary' },
   passenger_review:      { ...base, color: 'primary' },
+  face_mismatch:         { ...base, color: 'warn', duration: 8 },
+  profile_photo_review:  { ...base, color: 'primary' },
   document_expiring:     { ...base, color: 'warn',    onLogin: true,  mode: 'interval', everyHours: 6 },
   pending_messages:      { ...base, color: 'info',    onLogin: false, mode: 'fixed', times: ['10:00', '16:00'] },
   pending_complaints:    { ...base, color: 'warn',    onLogin: false, mode: 'fixed', times: ['10:00', '16:00'] },

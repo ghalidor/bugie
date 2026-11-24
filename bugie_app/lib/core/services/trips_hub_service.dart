@@ -79,7 +79,8 @@ class UserNotificationEvent {
 /// Canal en tiempo real con Trips API (hub SignalR `/hubs/trips`).
 ///
 /// UNA conexión por app; las pantallas se suscriben con [joinTrip] /
-/// [joinDriverRequests] (con conteo de referencias) y escuchan los
+/// [joinDriverRequests] / [keepUserChannel] (con conteo de referencias) y
+/// escuchan los
 /// ValueNotifier de cada evento. La conexión se abre cuando hay al menos una
 /// suscripción y el usuario (pasajero o conductor) está logueado; se cierra
 /// al quedarse sin suscripciones, al pasar a segundo plano y al cerrar
@@ -140,6 +141,9 @@ class TripsHubService with WidgetsBindingObserver {
   final Set<String> _tripJoined = {};
   int _requestsRefs = 0;
   bool _requestsJoined = false;
+  /// Cuántos piden la conexión solo por el grupo del usuario (user:{id}, al
+  /// que el servidor la agrega solo al conectar).
+  int _userRefs = 0;
 
   final Map<String, Timer> _debounce = {};
 
@@ -161,6 +165,8 @@ class TripsHubService with WidgetsBindingObserver {
       _attached = true;
       WidgetsBinding.instance.addObserver(this);
     }
+    // Alguien pudo suscribirse antes de este attach (p. ej. ActiveTripService).
+    _ensureConnected();
   }
 
   bool get _canConnect {
@@ -170,7 +176,8 @@ class TripsHubService with WidgetsBindingObserver {
         (s.role == UserRole.passenger || s.role == UserRole.driver);
   }
 
-  bool get _hasSubscriptions => _tripRefs.isNotEmpty || _requestsRefs > 0;
+  bool get _hasSubscriptions =>
+      _tripRefs.isNotEmpty || _requestsRefs > 0 || _userRefs > 0;
 
   void _onSession() {
     if (!_canConnect) {
@@ -178,7 +185,11 @@ class TripsHubService with WidgetsBindingObserver {
       // olvidan las suscripciones para no entrar a grupos de otro usuario.
       _tripRefs.clear();
       _requestsRefs = 0;
+      _userRefs = 0;
       _stop();
+    } else {
+      // Inició sesión con suscripciones ya pedidas: conectar.
+      _ensureConnected();
     }
   }
 
@@ -261,6 +272,21 @@ class TripsHubService with WidgetsBindingObserver {
       _requestsJoined = false;
       await _safeInvoke('LeaveDriverRequests', const []);
     }
+    _closeIfIdle();
+  }
+
+  /// Mantiene la conexión abierta aunque no se siga ningún viaje, para
+  /// recibir los eventos del grupo del usuario (p. ej. TripChanged "created"
+  /// cuando pide un viaje desde la web). Se libera con [releaseUserChannel].
+  void keepUserChannel() {
+    _idleTimer?.cancel();
+    _userRefs++;
+    _ensureConnected();
+  }
+
+  void releaseUserChannel() {
+    if (_userRefs == 0) return;
+    _userRefs--;
     _closeIfIdle();
   }
 

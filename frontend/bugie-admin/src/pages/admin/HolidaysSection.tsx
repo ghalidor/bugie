@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { API, apiFetch, ApiError } from '../../state/api';
 import {
-  DataTable, Drawer, Field, SectionCard, Select, StatusBadge, Switch, Tabs,
+  DataTable, DateField, Drawer, Field, SectionCard, Select, StatusBadge, Switch, Tabs,
   useConfirm, useToast, type Column,
 } from '../../components/ui';
 
@@ -330,7 +330,7 @@ function HolidayDrawer({ holiday, onClose, onSaved }: {
 
         {kind === 'extra' && (
           <Field label="Fecha" required help="Solo ese día de ese año (ej. un feriado decretado por el gobierno).">
-            <input className="form-control" type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <DateField value={date} onChange={setDate} />
           </Field>
         )}
 

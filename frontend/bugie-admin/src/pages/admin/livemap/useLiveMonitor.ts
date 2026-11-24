@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API, apiFetch } from '../../../state/api';
 import { useMonitorHub, MonitorAlertEvent, SosEvent } from '../../../hooks/useMonitorHub';
 import { LivePassenger, MonitorAlert, OnlineDriver, RouteDeviation, SosAlert, VehicleBulk } from './types';
+import { applySosAttention } from './sosAttention';
 import { isTrailStatus, useLiveTrails } from './useLiveTrails';
 
 /** Mínimo entre recargas disparadas por un GPS de un viaje que aún no está en la lista. */
@@ -67,7 +68,8 @@ export function useLiveMonitor({ onNewSos, onNewDeviation, onNewMonitorAlert }: 
     try {
       const [dRes, sRes, pRes, devRes, maRes] = await Promise.allSettled([
         apiFetch<OnlineDriver[]>(`${API.drivers}/drivers/online`),
-        apiFetch<SosAlert[]>(`${API.trips}/sos`),
+        // Con las marcas de atención (visto / atendiendo) para el detalle del viaje.
+        apiFetch<SosAlert[]>(`${API.trips}/sos/admin/active`),
         apiFetch<LivePassenger[]>(`${API.trips}/trips/live-passengers`),
         apiFetch<RouteDeviation[]>(`${API.trips}/trips/admin/deviations/active`),
         apiFetch<{ items: MonitorAlert[]; total: number }>(MONITOR_ALERTS_URL()),
@@ -124,6 +126,8 @@ export function useLiveMonitor({ onNewSos, onNewDeviation, onNewMonitorAlert }: 
   // ── SignalR: SOS instantáneo + GPS push (solo se mueve ese pin) ────
   useMonitorHub({
     onSos: e => { onNewSos?.(e); load(); },
+    // Visto / atendiendo de un SOS (este u otro admin): aplicar sin recargar todo.
+    onSosUpdated: e => setAlerts(prev => applySosAttention(prev, e)),
 
     onDriverLocation: e => {
       // Conductor nuevo (aún no está en la lista): recargar para traer
@@ -211,6 +215,10 @@ export function useLiveMonitor({ onNewSos, onNewDeviation, onNewMonitorAlert }: 
     [alerts],
   );
 
+  /** Marcas de atención recibidas al marcar visto / atendiendo desde este panel. */
+  const applySosMarks = useCallback((m: Parameters<typeof applySosAttention>[1]) =>
+    setAlerts(prev => applySosAttention(prev, m)), []);
+
   const removeDeviation = useCallback((id: string) => setDeviations(prev => prev.filter(d => d.id !== id)), []);
   /** Revisada por un admin: sale de la lista "por revisar" pero sigue marcando el viaje mientras no se resuelva. */
   const markMonitorAlertReviewed = useCallback((id: string) => setMonitorAlerts(prev => prev.map(a =>
@@ -234,6 +242,6 @@ export function useLiveMonitor({ onNewSos, onNewDeviation, onNewMonitorAlert }: 
     trails: trails.byTrip,
     loading, refreshing, lastUpdate, autoRefresh, setAutoRefresh, deviationEnabled,
     deviatedByUserId, sosUserIds, sosDriverUserIds,
-    load, removeDeviation, markMonitorAlertReviewed,
+    load, removeDeviation, markMonitorAlertReviewed, applySosMarks,
   };
 }

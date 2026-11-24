@@ -8,7 +8,7 @@
     {
       "selector": "[data-tour='monitor-map']",
       "title": "Mapa en vivo",
-      "text": "Cada viaje se dibuja según su estado. Buscando conductor: solo el pasajero en el punto de recojo. En camino: el auto, el pasajero esperando y una línea punteada del auto al recojo (lo ya recorrido va en gris). En viaje o SOS: solo el auto (el pasajero va dentro), la bandera del destino, la línea sólida de lo recorrido y la punteada de lo que falta."
+      "text": "Cada viaje se dibuja según su estado; las líneas y la bandera de destino aparecen al seleccionar o seguir el viaje (o todas con el botón «Recorridos»). Buscando conductor: solo el pasajero en el punto de recojo. En camino: el auto, el pasajero esperando y una línea punteada del auto al recojo (lo ya recorrido va en gris). En viaje o SOS: solo el auto (el pasajero va dentro), la bandera del destino, la línea sólida de lo recorrido y la punteada de lo que falta."
     },
     {
       "selector": "[data-tour='monitor-search']",

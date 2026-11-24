@@ -15,7 +15,10 @@ public record PointsProfileDto(
     int       PointsToNextLevel,
     int       ProgressPercentage,
     DateTime? PointsExpiryDate,
-    DateTime? LastActivityDate);
+    DateTime? LastActivityDate,
+    // Puntos por cada S/ 1.00 (tasa configurada para su tipo de usuario). La
+    // usa el pasajero para ver antes cuanto le devuelve un cupon que sobra.
+    decimal   PointsPerSol = 0);
 
 public record PointsTransactionDto(
     Guid      Id,

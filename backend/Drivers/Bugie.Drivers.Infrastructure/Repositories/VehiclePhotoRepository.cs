@@ -25,6 +25,6 @@ public class VehiclePhotoRepository : IVehiclePhotoRepository
             VALUES (@VehicleId, @PhotoType, @Url)
             ON CONFLICT (vehicleid, phototype)
             DO UPDATE SET url = EXCLUDED.url,
-                          updatedat = (now() AT TIME ZONE 'utc')",
+                          updatedat = now()",
             new { VehicleId = vehicleId, PhotoType = photoType, Url = url });
 }

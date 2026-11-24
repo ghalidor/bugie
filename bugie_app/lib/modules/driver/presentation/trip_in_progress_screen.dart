@@ -23,6 +23,7 @@ import '../../trips/domain/route_model.dart';
 import '../../trips/domain/trip_model.dart';
 import '../data/driver_repository.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
+import '../../../core/utils/format.dart';
 
 class TripInProgressScreen extends StatefulWidget {
   const TripInProgressScreen({super.key});
@@ -247,6 +248,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   /// punto de recojo. Se puede repetir si el pasajero no sale.
   Future<void> _arrived() async {
     if (_trip == null) return;
+    if (!await _confirmArrivedIfFar(_trip!) || !mounted || _trip == null) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -264,6 +266,43 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Distancia (m) a partir de la cual "Ya llegué" pide confirmación.
+  static const double _arrivedMaxMeters = 150;
+
+  /// Si el conductor está lejos del punto de recojo (> 150 m en línea recta)
+  /// pregunta antes de avisar al pasajero. Solo informa: sin ubicación
+  /// disponible, o si confirma, se avisa igual (el servidor no valida).
+  Future<bool> _confirmArrivedIfFar(Trip t) async {
+    final pos = context.read<LocationTrackingService>().lastKnownPosition;
+    if (pos == null) return true;
+    final meters = const Distance().as(
+      LengthUnit.Meter,
+      LatLng(pos.latitude, pos.longitude),
+      LatLng(t.originLat, t.originLng),
+    );
+    if (meters <= _arrivedMaxMeters) return true;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Ya llegaste?'),
+        content: Text('Estás a ${_formatDistance(meters)} del punto de recojo. '
+            '¿Avisar igual al pasajero?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Avisar igual'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   /// El conductor cancela un viaje aceptado (antes de iniciarlo).
@@ -438,7 +477,10 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(t.isDelivery ? '¿Completar el envío?' : '¿Completar el viaje?'),
-        content: Text('Cobra S/ ${charge.toStringAsFixed(2)}'),
+        // Cupón que cubre toda la tarifa: que no le cobre nada al pasajero.
+        content: Text(charge <= 0
+            ? '${t.isDelivery ? 'Envío' : 'Viaje'} pagado con cupón: no cobres nada.'
+            : 'Cobra ${formatSoles(charge)}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -688,27 +730,39 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                         // monto YA DESCONTADO. Sin el desglose veria un numero
                         // menor al acordado y no sabria por que: ahi es donde
                         // empiezan los reclamos.
-                        if (t.discountAmount != null) ...[
-                          Text(
-                            'Cobras: S/ '
-                            '${((t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!).toStringAsFixed(2)}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Tarifa S/ ${(t.fareBeforeDiscount ?? t.estimatedFare).toStringAsFixed(2)} · '
-                            'cupón del pasajero −S/ ${t.discountAmount!.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                                fontSize: 12, color: BugieColors.textMuted),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'El descuento lo pone Bugie, no sale de tu ganancia.',
-                            style: TextStyle(
-                                fontSize: 11.5, color: BugieColors.textMuted),
-                          ),
-                        ] else
-                          Text('S/ ${t.estimatedFare.toStringAsFixed(2)}',
+                        // Los tres textos van uno debajo del otro y ocupan el
+                        // ancho libre (en fila se salian de la pantalla).
+                        if (t.discountAmount != null)
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount! <= 0
+                                      ? 'Pagado con cupón: no cobres nada'
+                                      : 'Cobras: '
+                                        '${formatSoles((t.fareBeforeDiscount ?? t.estimatedFare) - t.discountAmount!)}',
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Tarifa ${formatSoles(t.fareBeforeDiscount ?? t.estimatedFare)} · '
+                                  'cupón del pasajero −${formatSoles(t.discountAmount!)}',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: BugieColors.textMuted),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'El descuento lo pone Bugie, no sale de tu ganancia.',
+                                  style: TextStyle(
+                                      fontSize: 11.5, color: BugieColors.textMuted),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Text(formatSoles(t.estimatedFare),
                               style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800,
@@ -718,8 +772,12 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                           child: (_routeInfo != null &&
                                   _routeInfo!.options.isNotEmpty)
                               ? Text(
-                                  '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km · ${_routeInfo!.options.first.durationMinutes.round()} min',
-                                  maxLines: 1,
+                                  // Con cupón queda poco ancho: distancia y
+                                  // tiempo en dos líneas para que no se corten.
+                                  '${_routeInfo!.options.first.distanceKm.toStringAsFixed(1)} km'
+                                  '${t.discountAmount != null ? '\n' : ' · '}'
+                                  '${_routeInfo!.options.first.durationMinutes.round()} min',
+                                  maxLines: t.discountAmount != null ? 2 : 1,
                                   textAlign: TextAlign.right,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -947,6 +1005,11 @@ double _haversineKm(LatLng a, LatLng b) {
 }
 
 double _deg2rad(double deg) => deg * (pi / 180.0);
+
+/// Distancia legible: "350 m" si es menos de 1 km, "3.5 km" desde 1 km.
+String _formatDistance(double meters) => meters.round() < 1000
+    ? '${meters.round()} m'
+    : '${(meters / 1000).toStringAsFixed(1)} km';
 
 String _payLabel(String m) {
   switch (m) {

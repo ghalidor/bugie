@@ -25,6 +25,10 @@
 
 BEGIN;
 
+-- Sesion en UTC: "now()" queda bien tanto en columnas timestamptz (base
+-- migrada) como en timestamp en UTC (base anterior a 2026-10-08).
+SET LOCAL timezone = 'UTC';
+
 -- -- 1. Niveles ------------------------------------------------------
 ALTER TABLE rewards.levels
     ADD COLUMN IF NOT EXISTS monthlydiscountcoupons integer NOT NULL DEFAULT 0;
@@ -39,11 +43,11 @@ ALTER TABLE rewards.levels DROP CONSTRAINT IF EXISTS ck_rewardslevels_freetripma
 ALTER TABLE rewards.levels ADD CONSTRAINT ck_rewardslevels_freetripmax
     CHECK (freetripmaxamount IS NULL OR freetripmaxamount > 0);
 
-UPDATE rewards.levels SET monthlydiscountcoupons = v.cupones, updatedat = now() AT TIME ZONE 'UTC'
+UPDATE rewards.levels SET monthlydiscountcoupons = v.cupones, updatedat = now()
 FROM (VALUES ('bronze', 1), ('silver', 2), ('gold', 3), ('platinum', 4)) AS v(nombre, cupones)
 WHERE usertype = 'passenger' AND name = v.nombre AND monthlydiscountcoupons = 0;
 
-UPDATE rewards.levels SET freetripmaxamount = v.tope, updatedat = now() AT TIME ZONE 'UTC'
+UPDATE rewards.levels SET freetripmaxamount = v.tope, updatedat = now()
 FROM (VALUES ('gold', 15.00), ('platinum', 25.00)) AS v(nombre, tope)
 WHERE usertype = 'passenger' AND name = v.nombre AND freetripmaxamount IS NULL;
 
@@ -63,7 +67,7 @@ CREATE TABLE IF NOT EXISTS rewards.levelbenefitclaims (
     period       varchar(7)  NOT NULL,
     levelname    varchar(20) NOT NULL,
     redemptionid uuid NOT NULL REFERENCES rewards.redemptions(id) ON DELETE CASCADE,
-    createdat    timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+    createdat    timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT ck_levelbenefitclaims_type CHECK (benefittype IN ('discount', 'free_trip'))
 );
 
@@ -74,7 +78,7 @@ CREATE INDEX IF NOT EXISTS ix_levelbenefitclaims_user_period
 CREATE TABLE IF NOT EXISTS rewards.levelbenefitnotices (
     userid    uuid       NOT NULL,
     period    varchar(7) NOT NULL,
-    createdat timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
+    createdat timestamp with time zone NOT NULL DEFAULT now(),
     PRIMARY KEY (userid, period)
 );
 

@@ -1,4 +1,5 @@
-﻿using Bugie.Trips.Domain.Common;
+﻿using Bugie.Trips.Application.Commands;
+using Bugie.Trips.Domain.Common;
 using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
@@ -115,6 +116,11 @@ public class ProposalExpirationService : BackgroundService
             now, settings.NoDriverCancelMinutes, NoDriverReason, ct);
         foreach(var trip in cancelled)
         {
+            // Programado que volvio a "pedido ahora" con cupon: se libera la reserva.
+            if(trip.HasCoupon)
+                await CouponReservation.ReleaseAsync(sp.GetRequiredService<IRewardsClient>(),
+                    sp.GetRequiredService<IOutboxRepository>(), trip.Id, trip.CouponCode, ct);
+
             var drivers = await proposals.CancelOpenByTripAsync(trip.Id, "trip_cancelled", ct);
             foreach(var driverUserId in drivers)
                 _ = _notify.NotifyTripCancelledAsync(driverUserId, trip.Id, "system", NoDriverReason, trip.ServiceType);

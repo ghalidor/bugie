@@ -1,6 +1,8 @@
+import { DateRangeField } from './ui';
+
 /// Filtro "Desde / Hasta" (fechas yyyy-mm-dd) para las barras de filtros.
-/// Usa la clase .ops-filter (src/pages/admin/ops.scss). Si "Hasta" queda antes
-/// que "Desde", se corrige solo para no pedir un rango vacío.
+/// Usa la clase .ops-filter (src/pages/admin/ops.scss). Un solo calendario en
+/// modo rango (con atajos): el rango siempre queda ordenado (desde <= hasta).
 export interface DateRange { from: string; to: string; }
 
 export const EMPTY_RANGE: DateRange = { from: '', to: '' };
@@ -20,20 +22,10 @@ export default function DateRangeFilter({ value, onChange, label = 'Fecha' }: {
   /** Texto para lectores de pantalla (ej. "Fecha del viaje"). */
   label?: string;
 }) {
-  const setFrom = (from: string) => onChange({ from, to: value.to && from && value.to < from ? from : value.to });
-  const setTo = (to: string) => onChange({ to, from: value.from && to && value.from > to ? to : value.from });
   return (
-    <>
-      <label className="ops-filter">
-        <span>Desde</span>
-        <input type="date" className="form-control form-control-sm" aria-label={`${label}: desde`}
-               value={value.from} max={value.to || undefined} onChange={e => setFrom(e.target.value)} />
-      </label>
-      <label className="ops-filter">
-        <span>Hasta</span>
-        <input type="date" className="form-control form-control-sm" aria-label={`${label}: hasta`}
-               value={value.to} min={value.from || undefined} onChange={e => setTo(e.target.value)} />
-      </label>
-    </>
+    <label className="ops-filter">
+      <span>Fechas</span>
+      <DateRangeField value={value} onChange={onChange} size="sm" aria-label={label} />
+    </label>
   );
 }

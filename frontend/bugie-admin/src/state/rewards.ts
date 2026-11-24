@@ -1,4 +1,5 @@
 import { API, apiFetch } from './api';
+import { fmtSoles } from './payouts';
 import type { Tone } from '../components/ui';
 
 // ─────────────────────────────────────────────────────────────
@@ -61,7 +62,8 @@ export interface Redemption {
   amountSoles: number | null;
   quantity:    number | null;
   percentage:  number | null;
-  status:      'active' | 'used' | 'expired' | 'cancelled';
+  /** reserved = aplicado a un viaje que todavía no termina (no se puede anular). */
+  status:      'active' | 'reserved' | 'used' | 'expired' | 'cancelled';
   expiresAt:   string;
   usedAt:      string | null;
   usedNote:    string | null;
@@ -70,6 +72,8 @@ export interface Redemption {
   userId?:     string | null;
   userName?:   string | null;
   userRole?:   string | null;
+  /** Viaje en el que está aplicado (solo con status = reserved). */
+  reservedTripId?: string | null;
 }
 
 export interface Paged<T> {
@@ -118,6 +122,8 @@ export interface RaffleWinner {
   userRole?:    string | null;
   /** Código que el ganador presenta para cobrar (PZ-XXXXXX). */
   prizeCode?:   string | null;
+  /** Valor en soles del premio de ESTE puesto (null = sin monto fijo). */
+  prizeValue?:  number | null;
 }
 
 export interface Raffle {
@@ -138,11 +144,15 @@ export interface Raffle {
   drawSeed:         string | null;
   ticketsNow:       number;
   winners:          RaffleWinner[];
+  /** Premio de los puestos 2 en adelante (null = "Premio secundario #n" sin monto). */
+  secondaryPrizeDescription?: string | null;
+  secondaryPrizeValue?:       number | null;
 }
 
 export type RaffleInput = Pick<Raffle,
   'name' | 'raffleType' | 'prizeDescription' | 'prizeValue' | 'drawDate' |
-  'minLevelRequired' | 'minMonthsActive' | 'targetUserType' | 'winnersCount'
+  'minLevelRequired' | 'minMonthsActive' | 'targetUserType' | 'winnersCount' |
+  'secondaryPrizeDescription' | 'secondaryPrizeValue'
 > & { open: boolean };
 
 /** Resultado de recalcular el sorteo con la semilla guardada. */
@@ -307,6 +317,8 @@ export interface CouponUsage {
   status:             'completed' | 'cancelled' | 'in_progress';
   createdAt:          string;
   completedAt:        string | null;
+  /** Puntos devueltos al pasajero porque el cupón valía más que el viaje (0 si no hubo). */
+  leftoverPoints?:    number;
 }
 
 export interface CouponUsageReport {
@@ -510,6 +522,7 @@ export const needsQuantity   = (t: string) => ['discount_period', 'raffle_ticket
 
 export const STATUS_LABEL: Record<string, string> = {
   active:    'Vigente',
+  reserved:  'En uso en un viaje',
   used:      'Entregado',
   expired:   'Vencido',
   cancelled: 'Anulado',
@@ -518,6 +531,7 @@ export const STATUS_LABEL: Record<string, string> = {
 /** Tono de StatusBadge para cada estado de canje. */
 export const STATUS_TONE: Record<string, Tone> = {
   active:    'warn',
+  reserved:  'info',
   used:      'ok',
   expired:   'neutral',
   cancelled: 'bad',
@@ -541,11 +555,12 @@ export function describeReward(r: {
   rewardType: string; amountSoles: number | null; quantity: number | null; percentage: number | null;
 }) {
   switch (r.rewardType) {
-    case 'discount_amount': return `S/ ${r.amountSoles?.toFixed(2)} de descuento`;
-    case 'free_trip':       return `Viaje gratis hasta S/ ${r.amountSoles?.toFixed(2)}`;
-    case 'discount_period': return `${r.percentage}% por ${r.quantity} días`;
+    case 'discount_amount': return `${fmtSoles(r.amountSoles ?? 0)} de descuento`;
+    case 'free_trip':       return `Viaje gratis hasta ${fmtSoles(r.amountSoles ?? 0)}`;
+    // Los cupones de nivel no traen días (se usan en un viaje).
+    case 'discount_period': return r.quantity ? `${r.percentage}% por ${r.quantity} días` : `${r.percentage}% de descuento`;
     case 'raffle_ticket':   return `${r.quantity} ticket(s) de sorteo`;
-    case 'wallet_bonus':    return `Bono de S/ ${r.amountSoles?.toFixed(2)}`;
+    case 'wallet_bonus':    return `Bono de ${fmtSoles(r.amountSoles ?? 0)}`;
     case 'physical':        return 'Producto físico';
     case 'partner_benefit': return 'Beneficio de socio';
     default:                return r.rewardType;

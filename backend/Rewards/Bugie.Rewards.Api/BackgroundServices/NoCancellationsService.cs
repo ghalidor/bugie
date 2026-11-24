@@ -51,8 +51,8 @@ public class NoCancellationsService : BackgroundService
         {
             try { await Task.Delay(TimeSpan.FromSeconds(60), ct); }
             catch (TaskCanceledException) { return; }
-            await RunOnceAsync(ct);
-            _lastRunDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            if (await RunOnceAsync(ct))
+                _lastRunDate = DateOnly.FromDateTime(DateTime.UtcNow);
         }
 
         while (!ct.IsCancellationRequested)
@@ -60,10 +60,14 @@ public class NoCancellationsService : BackgroundService
             var now   = DateTime.UtcNow;
             var today = DateOnly.FromDateTime(now);
 
+            // Solo se da el día por hecho si terminó bien. Si Trips no
+            // respondió, se reintenta en el siguiente tick (15 min); los días
+            // pendientes quedan en rewards.NoCancellationRuns y el comando se
+            // pone al día cuando Trips vuelve.
             if (_lastRunDate != today && now.Hour >= hour)
             {
-                await RunOnceAsync(ct);
-                _lastRunDate = today;
+                if (await RunOnceAsync(ct))
+                    _lastRunDate = today;
             }
 
             try { await Task.Delay(Tick, ct); }
@@ -71,7 +75,8 @@ public class NoCancellationsService : BackgroundService
         }
     }
 
-    private async Task RunOnceAsync(CancellationToken ct)
+    /// <summary>true si terminó (no hace falta reintentar hoy).</summary>
+    private async Task<bool> RunOnceAsync(CancellationToken ct)
     {
         try
         {
@@ -80,17 +85,22 @@ public class NoCancellationsService : BackgroundService
 
             var r = await mediator.Send(new AwardNoCancellationsCommand(), ct);
 
-            if (r.Reason is not null)
+            if (r.Retry)
+                _log.LogWarning("Bono sin cancelaciones: {Reason}", r.Reason);
+            else if (r.Reason is not null)
                 _log.LogInformation("Bono sin cancelaciones: {Reason}", r.Reason);
             else
                 _log.LogInformation(
-                    "Bono sin cancelaciones: {Awarded} conductores premiados " +
+                    "Bono sin cancelaciones: {Days} día(s), {Awarded} conductores premiados " +
                     "({Points} puntos) de {Checked} con actividad.",
-                    r.Awarded, r.Points, r.DriversChecked);
+                    r.DaysProcessed, r.Awarded, r.Points, r.DriversChecked);
+
+            return !r.Retry;
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Error en el bono de sin cancelaciones.");
+            return false;
         }
     }
 }

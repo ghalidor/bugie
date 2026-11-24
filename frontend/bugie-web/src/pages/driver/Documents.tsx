@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { API, apiFetch, ApiError, driversFileUrl } from '../../state/api';
-import { Notice, Page, SectionCard, Skeleton, StatusBadge, Tone, useToast } from '../../components/ui';
+import { DateField, Notice, Page, SectionCard, Skeleton, StatusBadge, Tone, useToast } from '../../components/ui';
 
 interface Doc {
   id:               string;
@@ -302,12 +302,12 @@ function DocumentRow({ req, doc, uploading, onUpload }: RowProps) {
             <label className="bx-field-label" htmlFor={dateId}>
               Fecha de caducidad <span className="bx-field-req" aria-hidden="true">*</span>
             </label>
-            <input
+            <DateField
               id={dateId}
-              type="date"
-              className="form-control form-control-sm"
+              size="sm"
+              required
               value={expiresAt}
-              onChange={e => { setExpiresAt(e.target.value); setNeedDate(false); }}
+              onChange={v => { setExpiresAt(v); setNeedDate(false); }}
               disabled={lockedByApproval}
               min={new Date().toISOString().slice(0, 10)}
               aria-invalid={needDate && !expiresAt ? true : undefined}

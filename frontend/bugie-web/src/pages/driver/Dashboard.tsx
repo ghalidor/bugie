@@ -139,6 +139,11 @@ export default function DriverDashboard() {
             {activeTrip.passengerName && (
               <InfoList items={[{ label: 'Pasajero', value: activeTrip.passengerName }]} />
             )}
+            <div>
+              <Link className="btn btn-bugie-outline rounded-pill" to="/app/conductor/viaje-en-curso">
+                <i className="fa-solid fa-map-location-dot me-1" aria-hidden="true" />Ver en el mapa
+              </Link>
+            </div>
           </div>
         </SectionCard>
       )}

@@ -34,7 +34,7 @@ ALTER TABLE auth.users
     ADD COLUMN IF NOT EXISTS firstnames       character varying(60),
     ADD COLUMN IF NOT EXISTS lastnamepaternal character varying(40),
     ADD COLUMN IF NOT EXISTS lastnamematernal character varying(40),
-    ADD COLUMN IF NOT EXISTS deletedat        timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS deletedat        timestamp with time zone,
     ADD COLUMN IF NOT EXISTS deletedreason    character varying(500);
 
 -- fullname = nombres (60) + paterno (40) + materno (40) + 2 espacios
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS auth.useraccountaudit (
     reason      text,
     oldvalue    text,
     newvalue    text,
-    createdat   timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    createdat   timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT useraccountaudit_pkey PRIMARY KEY (id),
     CONSTRAINT fk_useraccountaudit_user FOREIGN KEY (userid)
         REFERENCES auth.users (id) ON DELETE CASCADE,

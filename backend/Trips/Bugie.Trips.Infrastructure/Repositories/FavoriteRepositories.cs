@@ -33,7 +33,7 @@ public class FavoriteDriverRepository : IFavoriteDriverRepository {
         // existe. Devolvemos true si se insertó (1 fila afectada), false si no.
         var affected = await _db.ExecuteAsync(@"
             INSERT INTO trips.FavoriteDrivers (PassengerId, DriverUserId, CreatedAt)
-            SELECT @PassengerId, @DriverUserId, (now() at time zone 'utc')
+            SELECT @PassengerId, @DriverUserId, now()
             WHERE NOT EXISTS (
                 SELECT 1 FROM trips.FavoriteDrivers
                 WHERE PassengerId = @PassengerId AND DriverUserId = @DriverUserId

@@ -77,7 +77,7 @@ public static class ComplaintEmailTemplates
             rows.Add(("Padre, madre o apoderado", E(c.GuardianName)));
         rows.Add(("Bien contratado", c.GoodType == "producto" ? "Producto" : "Servicio"));
         if(c.ClaimedAmount is not null)
-            rows.Add(("Monto reclamado", "S/ " + c.ClaimedAmount.Value.ToString("0.00", CultureInfo.InvariantCulture)));
+            rows.Add(("Monto reclamado", Money.Soles(c.ClaimedAmount.Value)));
         if(!string.IsNullOrWhiteSpace(c.GoodDescription))
             rows.Add(("Descripción", E(c.GoodDescription)));
         rows.Add(("Tipo", c.ComplaintType == "queja" ? "Queja" : "Reclamo"));

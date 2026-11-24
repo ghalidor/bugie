@@ -48,7 +48,8 @@ public class GetCouponUsageHandler
                 f.TripId, f.CouponCode, f.ItemName,
                 f.FareBeforeDiscount, f.DiscountAmount, f.AmountPaid,
                 f.PassengerName, f.DriverName,
-                Estado(f.Status), f.CreatedAt, f.CompletedAt)).ToList());
+                Estado(f.Status), f.CreatedAt, f.CompletedAt,
+                f.LeftoverPoints)).ToList());
     }
 
     /// <summary>Los números de TripStatus, en palabras.</summary>

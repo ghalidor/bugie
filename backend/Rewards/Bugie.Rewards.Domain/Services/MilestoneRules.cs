@@ -7,6 +7,12 @@ namespace Bugie.Rewards.Domain.Services;
 public static class MilestoneRules
 {
     /// <summary>
+    /// Días con viaje que se leen como máximo para medir una racha (casi tres
+    /// años seguidos). Es solo un tope de seguridad de la consulta.
+    /// </summary>
+    public const int MaxStreakDays = 1000;
+
+    /// <summary>
     /// Días seguidos viajando que terminan en <paramref name="today"/>.
     ///
     /// Recibe las fechas locales en que el usuario viajó, en cualquier orden y
@@ -29,6 +35,22 @@ public static class MilestoneRules
             cursor = cursor.AddDays(-1);
         }
         return racha;
+    }
+
+    /// <summary>
+    /// Racha que el usuario tiene "viva" hoy, para mostrarla.
+    ///
+    /// Si hoy ya viajó, es la racha que termina hoy. Si todavía no viajó pero
+    /// ayer sí, la racha sigue viva (puede continuarla hoy) y se muestra la que
+    /// termina ayer. Si tampoco viajó ayer, se cortó: 0.
+    /// </summary>
+    public static int LiveStreak(IEnumerable<DateTime> tripDatesLocal, DateTime today)
+    {
+        var dias = tripDatesLocal.Select(d => d.Date).ToHashSet();
+        var hoy  = today.Date;
+        return dias.Contains(hoy)
+            ? CurrentStreak(dias, hoy)
+            : CurrentStreak(dias, hoy.AddDays(-1));
     }
 
     /// <summary>

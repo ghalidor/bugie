@@ -652,10 +652,14 @@ class BugieTheme {
       ),
       // Botón de confirmar en diálogos ("Sí, guardar", "Entendido"...).
       // Mismo radio que los botones de acción (12) y alto 46.
+      // Deshabilitado: gris del tema con texto secundario (legible en claro
+      // y oscuro) en vez del texto oscuro translúcido por defecto.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: BugieColors.primary,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: isDark ? c.surface2 : c.bg2,
+          disabledForegroundColor: c.textMuted,
           minimumSize: const Size(64, 46),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           shape: RoundedRectangleBorder(

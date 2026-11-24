@@ -54,8 +54,6 @@ const SECTIONS: { value: string; label: string; icon: string; groups: Group[] }[
         fields: [
           { key: 'promotions_enabled', kind: 'bool', label: 'Promociones activas',
             help: 'Interruptor general: apagado, ninguna promoción suma puntos.' },
-          { key: 'timezone_offset_hours', kind: 'number', label: 'Zona horaria (horas respecto a UTC)',
-            help: 'Perú es -5.', long: 'Define a qué hora real corresponden los días y las franjas horarias de las promociones.' },
         ],
       },
     ],
@@ -158,6 +156,9 @@ const SECTIONS: { value: string; label: string; icon: string; groups: Group[] }[
 const MAINT = 'mantenimiento';
 const TAB_VALUES = [...SECTIONS.map(s => s.value), MAINT];
 const ALL_FIELDS = SECTIONS.flatMap(s => s.groups.flatMap(g => g.fields));
+
+/** Claves que siguen en la base pero ya no se usan (no se muestran). */
+const RETIRED_KEYS = new Set(['timezone_offset_hours']);   // la zona es America/Lima (fija)
 const LABEL_BY_KEY = Object.fromEntries(ALL_FIELDS.map(f => [f.key, f.label]));
 
 export default function SettingsTab() {
@@ -243,7 +244,7 @@ export default function SettingsTab() {
   ];
 
   const known = new Set(ALL_FIELDS.map(f => f.key));
-  const extra = loaded.filter(s => !known.has(s.settingKey));
+  const extra = loaded.filter(s => !known.has(s.settingKey) && !RETIRED_KEYS.has(s.settingKey));
   const section = SECTIONS.find(s => s.value === tab);
 
   return (

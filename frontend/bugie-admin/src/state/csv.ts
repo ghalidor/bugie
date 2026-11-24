@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 /// Exportar a CSV desde el panel (lo usan Viajes, Pasajeros, Conductores,
 /// Pagos, Pagos a conductores y Libro de Reclamaciones).
 ///
@@ -61,4 +63,33 @@ export function csvResultMessage(r: AllPagesResult<unknown>, singular: string, p
   if (r.truncated)
     return `Se exportaron ${n.toLocaleString('es-PE')} de ${r.total.toLocaleString('es-PE')} ${plural} (máximo por archivo). Usa un rango de fechas más corto para exportar el resto.`;
   return `Se exportaron ${n.toLocaleString('es-PE')} ${n === 1 ? singular : plural}.`;
+}
+
+/// Exportación que una pestaña (componente hijo) ofrece a la cabecera de la
+/// página: el botón "Exportar CSV" vive en Page, pero los filtros en la pestaña.
+/// total = filas del filtro actual (sin filas, el botón queda desactivado).
+export interface CsvExporter { total: number; run: () => Promise<void>; }
+
+/// En la página: guarda la exportación de la pestaña visible y su estado.
+///   const csv = useCsvSlot();
+///   actions={[{ label: 'Exportar CSV', icon: 'fa-file-csv', onClick: csv.run, loading: csv.busy, disabled: !csv.total, hidden: !csv.available }]}
+///   <Pestaña onCsv={csv.register} />
+export function useCsvSlot() {
+  const [exporter, setExporter] = useState<CsvExporter | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (!exporter) return;
+    setBusy(true);
+    try { await exporter.run(); } finally { setBusy(false); }
+  }
+  return { register: setExporter, available: !!exporter, total: exporter?.total ?? 0, busy, run };
+}
+
+/// En la pestaña: ofrece su exportación (con los filtros actuales) mientras
+/// está montada. `run` puede cambiar en cada render: siempre se usa la última.
+export function useCsvExporter(register: ((e: CsvExporter | null) => void) | undefined, total: number, run: () => Promise<void>) {
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => { register?.({ total, run: () => runRef.current() }); }, [register, total]);
+  useEffect(() => () => register?.(null), [register]);
 }

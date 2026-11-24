@@ -12,8 +12,8 @@ using Bugie.Payments.Infrastructure.Repositories;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
-// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+    new NpgsqlConnection(BugieTimeSetup.PeruConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: timestamptz (instantes en UTC), JSON en hora de Peru (ver BugieTime)
 BugieTimeSetup.ConfigureDapper();
 
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
@@ -23,6 +23,7 @@ builder.Services.AddScoped<IPlatformFeeRepository, PlatformFeeRepository>();
 builder.Services.AddScoped<IWalletRepository,  WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
 builder.Services.AddScoped<IUserNames, UserNames>();
+builder.Services.AddScoped<IAdminReportsRepository, AdminReportsRepository>();
 // Lee trips.trips para validar que un pago corresponde a su viaje
 builder.Services.AddScoped<ITripLookup, TripLookup>();
 

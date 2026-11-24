@@ -45,6 +45,14 @@ public static class RedemptionStatus
     /// <summary>Cupon vigente, sin usar.</summary>
     public const string Active = "active";
 
+    /// <summary>
+    /// Aplicado a un viaje que todavia no termina (ReservedTripId). Nadie mas
+    /// lo puede usar, no vence ni se anula mientras el viaje siga activo. Al
+    /// completar el viaje pasa a 'used'; al quitarlo o cancelar el viaje vuelve
+    /// a 'active' (o a 'expired' si ya paso su fecha).
+    /// </summary>
+    public const string Reserved = "reserved";
+
     /// <summary>Ya se aplico o se entrego.</summary>
     public const string Used = "used";
 

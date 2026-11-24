@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Net;
 using MediatR;
+using Bugie.Rewards.Domain.Common;
 using Bugie.Rewards.Domain.External;
 using Bugie.Rewards.Domain.Interfaces;
 
@@ -33,7 +33,7 @@ public class NotifyPayoutHandler : IRequestHandler<NotifyPayoutCommand, bool>
         var user = (await _users.GetByIdsAsync([cmd.UserId], ct)).GetValueOrDefault(cmd.UserId);
         if (user is null) return false;
 
-        var monto  = $"S/ {cmd.Amount.ToString("0.00", CultureInfo.InvariantCulture)}";
+        var monto  = Money.Soles(cmd.Amount);
         var metodo = cmd.Method switch
         {
             "yape" => "Yape", "plin" => "Plin",

@@ -7,7 +7,12 @@ namespace Bugie.Drivers.Application.Commands;
 public class SubmitForReviewHandler : IRequestHandler<SubmitForReviewCommand, DriverDto>
 {
     private readonly IDriverRepository _drivers;
-    public SubmitForReviewHandler(IDriverRepository d) => _drivers = d;
+    private readonly IDriverFaceRepository _faces;
+    public SubmitForReviewHandler(IDriverRepository d, IDriverFaceRepository faces)
+    {
+        _drivers = d;
+        _faces = faces;
+    }
 
     public async Task<DriverDto> Handle(SubmitForReviewCommand cmd, CancellationToken ct)
     {
@@ -19,7 +24,9 @@ public class SubmitForReviewHandler : IRequestHandler<SubmitForReviewCommand, Dr
             throw new InvalidOperationException(
                 "Tu cuenta está rechazada o suspendida. Usa «Solicitar revisión» para que el equipo de Bugie revise tu caso.");
         // La foto de perfil es requisito (junto a los documentos obligatorios).
-        if(string.IsNullOrWhiteSpace(d.ProfilePhotoUrl))
+        // Con la verificación facial encendida, la primera foto queda pendiente
+        // de revisión: también vale para enviar la solicitud (el admin la revisa).
+        if(string.IsNullOrWhiteSpace(d.ProfilePhotoUrl) && !await _faces.HasPendingAsync(d.Id, ct))
             throw new InvalidOperationException(
                 "Sube tu foto de perfil antes de enviar tu solicitud a revisión.");
         d.SubmitForReview();

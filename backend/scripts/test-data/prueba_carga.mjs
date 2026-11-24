@@ -83,7 +83,7 @@ if (REGISTER) {
        FROM generate_series(0, ${n - 1}) i
        ON CONFLICT DO NOTHING`);
   sql(`INSERT INTO drivers.drivers (userid, status, approvedat, isonline)
-       SELECT u.id, 3, now() AT TIME ZONE 'utc', true FROM auth.users u
+       SELECT u.id, 3, now(), true FROM auth.users u
        WHERE u.email LIKE 'cargac%@bugie.test' AND NOT EXISTS (SELECT 1 FROM drivers.drivers d WHERE d.userid = u.id)`);
   sql(`INSERT INTO auth.users (email, passwordhash, role, fullname, phone, isactive, isverified, termsaccepted, doctype, docnumber, firstnames, lastnamepaternal, lastnamematernal)
        SELECT 'cargap' || lpad(i::text, 4, '0') || '@bugie.test', (SELECT passwordhash FROM auth.users WHERE email = 'admin@bugie.pe'), 'passenger',

@@ -97,12 +97,7 @@ public class AccrueRatingPointsHandler
         Guid userId, string userType, RewardsOptions options,
         int points, Guid tripId, string nota, CancellationToken ct)
     {
-        var profile = await _profiles.GetByUserIdAsync(userId, ct);
-        if (profile is null)
-        {
-            profile = PointsProfile.Create(userId, userType);
-            await _profiles.AddAsync(profile, ct);
-        }
+        var profile = await PointsProfileLookup.GetOrCreateAsync(_profiles, userId, userType, ct);
 
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));

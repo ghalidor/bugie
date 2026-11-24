@@ -66,6 +66,9 @@ const META: Record<string, Meta> = {
   monitor_long_stop_min:  { label: 'Detenido', help: 'Minutos con el auto quieto en pleno viaje (lejos del destino) para alertar.', kind: 'number', unit: 'min', step: '1', min: 1, max: 60 },
   monitor_trip_delay_pct: { label: 'Viaje demorado', help: 'Se alerta si el viaje dura este % más que lo estimado (y al menos 10 min más).', kind: 'number', unit: '%', step: '1', min: 10, max: 300 },
   complaint_response_days: { label: 'Plazo de respuesta', help: 'Se aplica a las reclamaciones nuevas; las ya registradas conservan su fecha límite.', kind: 'number', unit: 'días hábiles', step: '1', min: 1, max: 120 },
+  face_verification_enabled: { label: 'Verificación facial de conductores', help: 'Compara la selfie de cada conexión y las fotos de perfil nuevas con su foto de referencia aprobada.', kind: 'bool' },
+  face_match_threshold:      { label: 'Parecido mínimo para coincidir', help: 'Similitud de 0 a 1 (0.363 = recomendado del modelo). Más alto = más estricto, más revisiones.', kind: 'number', step: '0.001', min: 0.1, max: 0.95 },
+  profile_photo_daily_limit: { label: 'Fotos de perfil por día', help: 'Intentos que un conductor puede subir por día (hora de Perú) con la verificación encendida.', kind: 'number', unit: 'fotos', step: '1', min: 1, max: 20 },
   complaint_due_soon_days: { label: 'Aviso de "por vencer"', help: 'Se marca cuando le quedan estos días hábiles o menos.', kind: 'number', unit: 'días hábiles', step: '1', min: 0, max: 120 },
 };
 
@@ -82,6 +85,9 @@ const SECTIONS: { key: string; title: string; icon: string; description: string;
   { key: 'security', title: 'Seguridad: SOS y desvío de ruta', icon: 'fa-shield-halved',
     description: 'Si el conductor se aleja de la ruta en 2 lecturas seguidas, se alerta en Monitoreo y se avisa al pasajero.',
     keys: ['sos_response_min', 'deviation_detection_enabled', 'deviation_threshold_m'] },
+  { key: 'face', title: 'Verificación facial de conductores', icon: 'fa-user-check',
+    description: 'Apagada: solo se guarda la selfie de conexión y la foto de perfil se cambia directo. Encendida: si no coincide, el conductor sigue trabajando y el caso aparece en Personas › Verificación facial.',
+    keys: ['face_verification_enabled', 'face_match_threshold', 'profile_photo_daily_limit'] },
   { key: 'monitor', title: 'Monitoreo: alertas de seguimiento', icon: 'fa-satellite-dish',
     description: 'Alertas automáticas de los viajes en curso. Aparecen en Monitoreo › Alertas y en los avisos del panel.',
     keys: ['monitor_no_signal_min', 'monitor_long_stop_min', 'monitor_trip_delay_pct'] },
@@ -281,13 +287,17 @@ export default function Settings() {
         <div key={key} className="bx-col-full">
           <Switch checked={on} onChange={v => set(key, v ? 'true' : 'false')}
                   label={<>{m.label}{isChanged && <span className="sa-tag-warn ms-2">sin guardar</span>}</>}
-                  description={desc(key) ?? (on ? 'Activada: se vigila la ruta en cada viaje.' : 'Desactivada: no se generan alertas de desvío.')} />
+                  description={desc(key) ?? (key === 'face_verification_enabled'
+                    ? (on ? 'Activada: se compara cada selfie y foto de perfil con la foto de referencia.' : 'Desactivada: solo se guardan las fotos.')
+                    : (on ? 'Activada: se vigila la ruta en cada viaje.' : 'Desactivada: no se generan alertas de desvío.'))} />
         </div>
       );
     }
 
     const inputId = `setting-${key}`;
-    const disabled = key === 'deviation_threshold_m' && values.deviation_detection_enabled !== undefined && !isTrue(values.deviation_detection_enabled);
+    const disabled = (key === 'deviation_threshold_m' && values.deviation_detection_enabled !== undefined && !isTrue(values.deviation_detection_enabled))
+      || ((key === 'face_match_threshold' || key === 'profile_photo_daily_limit')
+        && values.face_verification_enabled !== undefined && !isTrue(values.face_verification_enabled));
     const input = (
       <input
         id={inputId}

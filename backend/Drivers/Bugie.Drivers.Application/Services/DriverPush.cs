@@ -13,9 +13,11 @@ public static class DriverPush
     public const string ReviewKept = "review_kept";
     public const string DocumentRejected = "document_rejected";
     public const string DocumentExpiring = "document_expiring";
+    public const string ProfilePhotoRejected = "profile_photo_rejected";
 
     public const string RouteHome = "/driver";
     public const string RouteDocuments = "/driver/documents";
+    public const string RouteProfile = "/driver/profile";
 
     public static Dictionary<string, string> Data(string alertType, string route) => new()
     {

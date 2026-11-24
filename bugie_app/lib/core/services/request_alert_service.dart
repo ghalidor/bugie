@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../modules/notifications/data/notifications_badge.dart';
 import 'alert_feedback.dart';
+import '../utils/format.dart';
 
 /// Una solicitud nueva recibida por push (app abierta, conductor).
 @immutable
@@ -67,10 +68,11 @@ class IncomingRequestAlert {
     final fare = double.tryParse(
         (s('fare') ?? s('estimated_fare') ?? '').replaceAll(',', '.'));
     if (fare != null) {
-      price = 'S/ ${fare.toStringAsFixed(2)}';
+      price = formatSoles(fare);
     } else {
       final m = RegExp(r'S/\.?\s*(\d+(?:[.,]\d{1,2})?)').firstMatch(body);
-      if (m != null) price = 'S/ ${m.group(1)!.replaceAll(',', '.')}';
+      final v = double.tryParse(m?.group(1)?.replaceAll(',', '.') ?? '');
+      if (v != null) price = formatSoles(v);
     }
 
     // Origen: el último tramo del texto que no sea precio/programado/paquete.

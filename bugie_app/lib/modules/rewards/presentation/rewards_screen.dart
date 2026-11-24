@@ -9,6 +9,7 @@ import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../data/rewards_repository.dart';
 import '../domain/rewards_model.dart';
+import '../../../core/utils/format.dart';
 
 /// Pantalla de puntos.
 ///
@@ -120,37 +121,85 @@ class _Tabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.bugie;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    // Las cinco pestañas reparten el ancho (ícono arriba, texto abajo): se
+    // leen completas incluso en 360 px, sin desplazar ni cortar el texto.
+    return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
-        children: List.generate(_items.length, (i) {
-          final active = i == current;
-          final icon  = _items[i].icon;
-          final label = _items[i].label;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              selected: active,
-              onSelected: (_) => onChanged(i),
-              avatar: Icon(icon, size: 16,
-                  color: active ? Colors.white : c.textMuted),
-              label: Text(label),
-              labelStyle: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: active ? Colors.white : c.textMuted,
-              ),
-              selectedColor: BugieColors.primary,
-              backgroundColor: Colors.transparent,
-              shape: StadiumBorder(
-                side: BorderSide(
-                  color: active ? BugieColors.primary : c.border,
-                ),
+        children: [
+          for (var i = 0; i < _items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Expanded(
+              child: _TabButton(
+                item: _items[i],
+                active: i == current,
+                onTap: () => onChanged(i),
               ),
             ),
-          );
-        }),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  final _TabItem item;
+  final bool active;
+  final VoidCallback onTap;
+  const _TabButton({
+    required this.item,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    // Activa: blanco sobre el azul Bugie (contraste 5.2:1 en ambos modos).
+    final fg = active ? Colors.white : c.textMuted;
+    return Semantics(
+      button: true,
+      selected: active,
+      label: item.label,
+      excludeSemantics: true,
+      child: Material(
+        color: active ? BugieColors.primary : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(BugieRadius.sm),
+          side: BorderSide(color: active ? BugieColors.primary : c.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 52),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(item.icon, size: 18, color: fg),
+                  const SizedBox(height: 3),
+                  // Con letra grande se achica en vez de cortarse.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -264,8 +313,8 @@ class _SummaryTabState extends State<_SummaryTab> {
     final max = b.freeTrips.maxAmount;
     final what = isTrip
         ? 'un cupón de viaje gratis'
-            '${max != null ? ' hasta S/ ${max.toStringAsFixed(2)}' : ''}'
-        : 'un cupón de ${_num(b.discountPercentage)} % de descuento';
+            '${max != null ? ' hasta ${formatSoles(max)}' : ''}'
+        : 'un cupón de ${formatPercent(b.discountPercentage)} de descuento';
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -481,7 +530,7 @@ class _LevelCard extends StatelessWidget {
                     ]),
                     if (profile.discountPercentage > 0) ...[
                       const SizedBox(height: 4),
-                      Text('${_num(profile.discountPercentage)}% de descuento',
+                      Text('${formatPercent(profile.discountPercentage)} de descuento',
                           style: const TextStyle(
                               color: BugieColors.onDarkMuted, fontSize: 12)),
                     ],
@@ -568,7 +617,7 @@ class _LevelBenefitsCard extends StatelessWidget {
           if (b.discountCoupons.total > 0)
             _BenefitLine(
               icon: Icons.percent,
-              text: 'Cupones de ${_num(b.discountPercentage)} %: te quedan '
+              text: 'Cupones de ${formatPercent(b.discountPercentage)}: te quedan '
                   '${b.discountCoupons.available} de ${b.discountCoupons.total}',
               button: 'Reclamar cupón',
               enabled: b.canClaim && b.discountCoupons.available > 0 && claiming == null,
@@ -579,7 +628,7 @@ class _LevelBenefitsCard extends StatelessWidget {
             _BenefitLine(
               icon: Icons.directions_car_filled_outlined,
               text: 'Viajes gratis'
-                  '${max != null ? ' (hasta S/ ${max.toStringAsFixed(2)})' : ''}'
+                  '${max != null ? ' (hasta ${formatSoles(max)})' : ''}'
                   ': te quedan ${trips.available} de ${trips.total}',
               button: 'Reclamar viaje gratis',
               enabled: b.canClaim && trips.available > 0 && claiming == null,
@@ -735,7 +784,7 @@ class _LevelRow extends StatelessWidget {
     final color = levelColor(level.name);
 
     final perks = <String>[
-      if (level.discountPercentage > 0) '${_num(level.discountPercentage)}% de descuento',
+      if (level.discountPercentage > 0) '${formatPercent(level.discountPercentage)} de descuento',
       if (level.monthlyFreeTrips > 0)
         '${level.monthlyFreeTrips} ${level.monthlyFreeTrips == 1 ? 'viaje gratis' : 'viajes gratis'} al mes',
       if (level.monthlyRaffleTickets > 0)
@@ -1046,9 +1095,11 @@ class _CatalogCard extends StatelessWidget {
                 child: FilledButton(
                   onPressed: disabled ? null : onRedeem,
                   child: busy
-                      ? const SizedBox(width: 18, height: 18,
+                      // El botón queda deshabilitado (gris): el indicador
+                      // usa el texto secundario para verse en ambos modos.
+                      ? SizedBox(width: 18, height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
+                              strokeWidth: 2, color: c.textMuted))
                       : const Text('Canjear'),
                 ),
               ),
@@ -1075,6 +1126,7 @@ class _CouponsTabState extends State<_CouponsTab> {
   static const _filters = <_Filter>[
     _Filter(null, 'Todos'),
     _Filter('active', 'Vigentes'),
+    _Filter('reserved', 'En uso'),
     _Filter('used', 'Usados'),
     _Filter('expired', 'Vencidos'),
     _Filter('cancelled', 'Anulados'),
@@ -1295,6 +1347,8 @@ class _CouponCard extends StatelessWidget {
             Text(
               coupon.status == 'active'
                   ? 'Vence el ${formatDate(coupon.expiresAt)}'
+                  : coupon.status == 'reserved'
+                      ? 'Aplicado a un viaje en curso'
                   : coupon.status == 'used' && coupon.usedAt != null
                       ? 'Usado el ${formatDate(coupon.usedAt)}'
                       : 'Venció el ${formatDate(coupon.expiresAt)}',
@@ -1652,6 +1706,15 @@ class _RaffleCard extends StatelessWidget {
                 ),
               ),
             ]),
+          // Premio de SU puesto: el de arriba es el principal del sorteo.
+          if (raffle.iWon && raffle.myPrizeRank != 1 && (raffle.myPrizeDetail ?? '').isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Tu premio: ${raffle.myPrizeDetail}'
+              '${raffle.myPrizeValue != null && !raffle.myPrizeDetail!.contains('S/') ? ' (${formatSoles(raffle.myPrizeValue!)})' : ''}',
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
+          ],
           // Código para cobrar el premio donde el admin (PZ-…).
           if (raffle.iWon && (raffle.myPrizeCode ?? '').isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -2413,7 +2476,8 @@ class _ErrorView extends StatelessWidget {
 
 /* ── Textos y formatos ──────────────────────────────────────────────────── */
 
-final _pointsFormat = NumberFormat.decimalPattern('es_PE');
+// Miles con coma, igual que los montos en soles: "1,943".
+final _pointsFormat = NumberFormat('#,##0', 'en_US');
 
 String formatPoints(int n) => _pointsFormat.format(n);
 
@@ -2422,8 +2486,6 @@ String formatDate(DateTime? d) =>
 
 String formatDateTime(DateTime? d) =>
     d == null ? '—' : DateFormat('dd MMM, HH:mm', 'es_PE').format(d);
-
-String _num(double v) => v % 1 == 0 ? v.toInt().toString() : v.toString();
 
 Color levelColor(String level) {
   switch (level) {
@@ -2438,6 +2500,7 @@ Color levelColor(String level) {
 Color statusColor(String status) {
   switch (status) {
     case 'active':    return BugieColors.success;
+    case 'reserved':  return BugieColors.primary;
     case 'used':      return BugieColors.textMuted;
     case 'expired':   return BugieColors.warning;
     case 'cancelled': return BugieColors.danger;
@@ -2448,6 +2511,7 @@ Color statusColor(String status) {
 String statusLabel(String status) {
   switch (status) {
     case 'active':    return 'Vigente';
+    case 'reserved':  return 'En uso en un viaje';
     case 'used':      return 'Usado';
     case 'expired':   return 'Vencido';
     case 'cancelled': return 'Anulado';
@@ -2470,6 +2534,7 @@ String sourceLabel(String source) {
     case 'trip_completed':     return 'Viaje completado';
     case 'catalog_redemption': return 'Canje de recompensa';
     case 'redemption_refund':  return 'Canje anulado';
+    case 'coupon_leftover':    return 'Sobrante de cupón';
     case 'points_expired':     return 'Puntos vencidos';
     default:                   return source;
   }
@@ -2493,7 +2558,7 @@ IconData rewardIcon(String type) {
 String describeCoupon(RewardRedemption c) {
   if (c.rewardType == 'discount_period' &&
       (c.isLevelBenefit || (c.quantity ?? 0) <= 0)) {
-    return '${_num(c.percentage ?? 0)}% de descuento hasta el '
+    return '${formatPercent(c.percentage ?? 0)} de descuento hasta el '
         '${formatDate(c.expiresAt)}';
   }
   return describeReward(c.rewardType, c.amountSoles, c.quantity, c.percentage);
@@ -2503,15 +2568,15 @@ String describeCoupon(RewardRedemption c) {
 String describeReward(String type, double? amount, int? quantity, double? percentage) {
   switch (type) {
     case 'discount_amount':
-      return 'S/ ${(amount ?? 0).toStringAsFixed(2)} de descuento';
+      return '${formatSoles(amount ?? 0)} de descuento';
     case 'free_trip':
-      return 'Viaje gratis hasta S/ ${(amount ?? 0).toStringAsFixed(2)}';
+      return 'Viaje gratis hasta ${formatSoles(amount ?? 0)}';
     case 'discount_period':
-      return '${_num(percentage ?? 0)}% de descuento por ${quantity ?? 0} días';
+      return '${formatPercent(percentage ?? 0)} de descuento por ${quantity ?? 0} días';
     case 'raffle_ticket':
       return '${quantity ?? 0} ${quantity == 1 ? 'ticket' : 'tickets'} de sorteo';
     case 'wallet_bonus':
-      return 'S/ ${(amount ?? 0).toStringAsFixed(2)} a tu cuenta';
+      return '${formatSoles(amount ?? 0)} a tu cuenta';
     case 'physical':
       return 'Producto físico';
     case 'partner_benefit':

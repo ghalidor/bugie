@@ -1,4 +1,5 @@
 import { Page, Tabs, useTabParam } from '../../../components/ui';
+import { useCsvSlot } from '../../../state/csv';
 import BalanceTab from './BalanceTab';
 import ReferralsTab from './ReferralsTab';
 import CouponUsageCard from './CouponUsageCard';
@@ -42,12 +43,17 @@ export function RewardsSummary() {
 /** /admin/puntos/canjes — entrega de canjes y soporte a usuarios. */
 export function RewardsRedemptions() {
   const [tab] = useTabParam(['canjes', 'soporte']);
+  // "Exportar CSV" solo en la pestaña Canjes (con sus filtros).
+  const csv = useCsvSlot();
   return (
     <Page
       title="Canjes y soporte"
       subtitle="Entrega lo que canjearon y corrige los puntos de quien reclama."
       icon="fa-ticket"
       helpKey="rewards-redemptions"
+      actions={[
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: csv.run, loading: csv.busy, disabled: !csv.total, hidden: !csv.available },
+      ]}
     >
       <div data-tour="rw-red-tabs">
         <Tabs items={[
@@ -55,7 +61,7 @@ export function RewardsRedemptions() {
           { value: 'soporte', label: 'Soporte de usuario',  icon: 'fa-magnifying-glass' },
         ]} />
       </div>
-      {tab === 'canjes'  && <RedemptionsTab />}
+      {tab === 'canjes'  && <RedemptionsTab onCsv={csv.register} />}
       {tab === 'soporte' && <SupportTab />}
     </Page>
   );

@@ -133,3 +133,7 @@ $RECYCLE.BIN/
 
 # Credenciales de Firebase (cuenta de servicio): nunca al repositorio
 firebase-service-account*.json
+
+# Modelos de verificacion facial (OpenCV Zoo, ~40 MB): no se suben.
+# Se descargan con backend/scripts/descargar_modelos_faciales.ps1
+*.onnx

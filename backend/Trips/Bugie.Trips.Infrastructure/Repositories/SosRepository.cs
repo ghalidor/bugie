@@ -72,7 +72,7 @@ public class SosRepository : ISosRepository
             UPDATE trips.SosAlerts SET
                 Resolved         = TRUE,
                 ResolvedBy       = @AdminId,
-                ResolvedAt       = (now() at time zone 'utc'),
+                ResolvedAt       = now(),
                 ResolutionReason = @Reason
             WHERE TripId = @TripId AND Resolved = FALSE",
             new { TripId = tripId, AdminId = adminId, Reason = reason });

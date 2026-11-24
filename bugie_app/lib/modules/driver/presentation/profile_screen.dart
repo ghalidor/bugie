@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../emergency_contact/presentation/emergency_contact_card.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../core/session/session.dart';
 import '../../../core/theme/bugie_theme.dart';
 import '../../../core/widgets/bugie_card.dart';
@@ -39,11 +40,25 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   /// Versión de la foto: se incrementa al subir nueva para forzar a
   /// Image.network a no usar el caché de la URL anterior.
   int _photoVersion = 0;
+  /// Foto de perfil nueva en revisión o rechazada (GET /drivers/profile/me).
+  PendingProfilePhoto? _pendingPhoto;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Aviso de cuenta (ej. foto de perfil rechazada): recargar el perfil.
+    FcmService.driverAccount.addListener(_onAccountPush);
+  }
+
+  @override
+  void dispose() {
+    FcmService.driverAccount.removeListener(_onAccountPush);
+    super.dispose();
+  }
+
+  void _onAccountPush() {
+    if (mounted && !_uploadingPhoto) _load();
   }
 
   Future<void> _load() async {
@@ -56,6 +71,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         dRepo.getMyProfile(),
         tRepo.getHistory().catchError((_) => <Trip>[]),
         aRepo.getMyProfile().then<UserProfile?>((p) => p, onError: (_) => null),
+        dRepo
+            .getMyPendingProfilePhoto()
+            .then<PendingProfilePhoto?>((p) => p, onError: (_) => null),
       ]);
       if (!mounted) return;
       final driver = results[0] as Driver?;
@@ -63,6 +81,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       setState(() {
         _driver = driver;
         _user = results[2] as UserProfile?;
+        _pendingPhoto = results[3] as PendingProfilePhoto?;
         _completedTripsCount =
             history.where((t) => t.status == TripStatus.completed).length;
         _loading = false;
@@ -108,11 +127,21 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
     setState(() => _uploadingPhoto = true);
     try {
-      final newUrl = await context
+      final result = await context
           .read<DriverRepository>()
           .uploadMyProfilePhoto(picked.path);
       if (!mounted) return;
 
+      // En revisión: se sigue mostrando la foto anterior; se recarga el
+      // perfil para ver el aviso con la miniatura de la nueva.
+      if (result.inReview) {
+        _showPhotoMessage(
+            '${ProfilePhotoUploadResult.inReviewText} ${result.attemptsText}');
+        _load();
+        return;
+      }
+
+      final newUrl = result.photoUrl;
       // Actualizar state local sin esperar al GET.
       if (_driver != null && newUrl.isNotEmpty) {
         setState(() {
@@ -126,6 +155,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             createdAt:        _driver!.createdAt,
           );
           _photoVersion++;
+          _pendingPhoto = null; // la nueva ya es la foto de perfil
         });
       }
 
@@ -139,11 +169,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Foto de perfil actualizada')),
-        );
+        _showPhotoMessage(result.attemptsText.isEmpty
+            ? 'Foto de perfil actualizada'
+            : 'Foto de perfil actualizada. ${result.attemptsText}');
       }
     } on ApiException catch (e) {
+      // 429 (límite diario) y demás errores: se muestra el texto del servidor.
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.message)),
@@ -158,6 +189,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     } finally {
       if (mounted) setState(() => _uploadingPhoto = false);
     }
+  }
+
+  void _showPhotoMessage(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text.trim()),
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 
   @override
@@ -251,6 +291,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
+
+                    // ── Foto nueva en revisión o rechazada ───────────────
+                    if (_pendingPhoto?.inReview == true ||
+                        _pendingPhoto?.isRejected == true) ...[
+                      _PendingPhotoNotice(
+                        pending: _pendingPhoto!,
+                        uploading: _uploadingPhoto,
+                        onUpload: _uploadPhoto,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // ── Datos personales (solo lectura) ──────────────────
                     IdentityInfoCard(profile: _user),
@@ -359,6 +410,99 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   ],
                 ),
               ),
+      ),
+    );
+  }
+}
+
+/// Aviso de la foto de perfil nueva: en revisión (con miniatura) o
+/// rechazada (con el motivo y botón para subir otra).
+class _PendingPhotoNotice extends StatelessWidget {
+  final PendingProfilePhoto pending;
+  final bool uploading;
+  final VoidCallback onUpload;
+
+  const _PendingPhotoNotice({
+    required this.pending,
+    required this.uploading,
+    required this.onUpload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.bugie;
+    final rejected = pending.isRejected;
+    final color = rejected ? BugieColors.danger : BugieColors.warning;
+    final thumb = rejected ? null : ApiConfig.resolveMediaUrl(pending.url);
+    final reason = pending.reason?.trim() ?? '';
+    final text = rejected
+        ? (reason.isEmpty
+            ? 'Tu foto no fue aprobada. Sube una foto tuya.'
+            : 'Tu foto no fue aprobada: $reason. Sube una foto tuya.')
+        : ProfilePhotoUploadResult.inReviewText;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(BugieRadius.md),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (thumb != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(BugieRadius.sm),
+                  child: Image.network(
+                    thumb,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 56,
+                      height: 56,
+                      color: color.withValues(alpha: 0.15),
+                      child: Icon(Icons.image_outlined, color: color),
+                    ),
+                  ),
+                )
+              else
+                Icon(
+                  rejected ? Icons.no_photography_outlined : Icons.hourglass_top,
+                  color: color,
+                ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(fontSize: 13, color: c.text),
+                ),
+              ),
+            ],
+          ),
+          if (rejected) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: uploading ? null : onUpload,
+                icon: uploading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Icon(Icons.camera_alt, size: 16),
+                label: const Text('Subir otra foto'),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

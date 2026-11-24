@@ -7,6 +7,13 @@ public interface IPromotionRepository
     /// <summary>Promociones vigentes para ese tipo de usuario, ya filtradas por fecha.</summary>
     Task<List<Promotion>> GetLiveAsync(string userType, CancellationToken ct = default);
 
+    /// <summary>
+    /// Promociones activas que estaban vigentes en ese instante (UTC). Para
+    /// acreditar un viaje se usa la hora del viaje, no la de la acreditación:
+    /// si el evento llega tarde, la promoción que valía al viajar igual aplica.
+    /// </summary>
+    Task<List<Promotion>> GetLiveAtAsync(string userType, DateTime atUtc, CancellationToken ct = default);
+
     Task<List<Promotion>> GetAllAsync(CancellationToken ct = default);
     Task<Promotion?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task AddAsync(Promotion promotion, CancellationToken ct = default);

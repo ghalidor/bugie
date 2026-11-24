@@ -3,6 +3,7 @@ import BugieMapAdmin, { MapClusterOptions, MapLine, MapMarker } from '../../comp
 import { Drawer, IconButton, Page, SectionCard, StatCard, StatGrid, Tone, useMediaQuery, useToast } from '../../components/ui';
 import { useLiveMonitor } from './livemap/useLiveMonitor';
 import { useResolveSos, useReviewDeviation, useReviewMonitorAlert } from './livemap/sosActions';
+import { useAttendSos, useMarkSosSeen } from './livemap/sosAttention';
 import { LivePassenger, liveTripStatus, MonitorAlert, monitorAlertMeta, OnlineDriver, RouteDeviation, SosAlert, roleLabel } from './livemap/types';
 import MonitorPanel, { PanelTab } from './livemap/MonitorPanel';
 import DriversList, { driverState } from './livemap/DriversList';
@@ -73,6 +74,7 @@ export default function LiveMap() {
     monitorAlerts, monitorAlertsByTrip, pendingMonitorAlerts } = m;
 
   const resolveSos = useResolveSos();
+  const attendSos = useAttendSos();
   const reviewDeviation = useReviewDeviation();
   const reviewMonitorAlert = useReviewMonitorAlert();
   // Detalle completo (recorrido, ruta, desvíos) de un viaje que ya no está en curso.
@@ -85,7 +87,9 @@ export default function LiveMap() {
   const [showDrivers,    setShowDrivers]    = useState(true);
   const [showPassengers, setShowPassengers] = useState(true);
   const [showSos,        setShowSos]        = useState(true);
-  const [showTrails,     setShowTrails]     = useState(true);
+  // Rutas de todos los viajes: apagadas al entrar para no amontonar el mapa.
+  // La del viaje que sigues (o seleccionas) se dibuja igual.
+  const [showTrails,     setShowTrails]     = useState(false);
   const [filters,        setFilters]        = useState<MonitorFilter[]>(() => loadFilters());
   // Seguimiento de una unidad
   const [follow,         setFollow]         = useState<FollowTarget | null>(null);
@@ -327,9 +331,19 @@ export default function LiveMap() {
     else if (d.currentLat && d.currentLng) followDriver(d);
   }
 
+  // "Visto" del SOS: se registra al abrir el detalle de su viaje, seguirlo en
+  // el mapa o abrir la alerta desde «Alertas» (solo la primera vez).
+  const [sosOpenedTripId, setSosOpenedTripId] = useState<string | null>(null);
+  const viewedSosIds = useMemo(() => {
+    const trips = new Set([tripDetail?.tripId, followed?.tripId, sosOpenedTripId].filter(Boolean));
+    return alerts.filter(a => !a.firstSeenAt && trips.has(a.tripId)).map(a => a.id);
+  }, [alerts, tripDetail?.tripId, followed?.tripId, sosOpenedTripId]);
+  useMarkSosSeen(viewedSosIds, m.applySosMarks);
+
   /// Detalle del viaje de una alerta SOS. Si el viaje ya no está activo,
   /// abre su detalle completo (el mismo de la sección Viajes).
   function handleOpenSos(a: SosAlert) {
+    setSosOpenedTripId(a.tripId);
     const trip = passengers.find(p => p.tripId === a.tripId);
     if (trip) { openTrip(trip.tripId); return; }
     if (a.tripId) { pastTrip.open(a.tripId); if (!isXl) setPanelOpen(false); }
@@ -381,6 +395,12 @@ export default function LiveMap() {
 
   async function handleResolveSos(a: SosAlert) {
     if (await resolveSos(a)) await m.load();
+  }
+
+  /// "Atendiendo": si ya la tomó otro admin, se avisa y se recarga para mostrar quién.
+  async function handleAttendSos(a: { id: string }) {
+    const row = await attendSos(a.id);
+    if (row) m.applySosMarks(row); else await m.load();
   }
 
   async function handleReviewDeviation(dv: RouteDeviation) {
@@ -570,7 +590,7 @@ export default function LiveMap() {
       }
       alerts={
         <AlertsList alerts={alerts} deviations={deviations} passengers={passengers}
-          driverName={deviationDriverName} onOpenSos={handleOpenSos} onResolveSos={handleResolveSos}
+          driverName={deviationDriverName} onOpenSos={handleOpenSos} onResolveSos={handleResolveSos} onAttendSos={handleAttendSos}
           onOpenDeviation={handleOpenDeviation} onReviewDeviation={handleReviewDeviation}
           monitorAlerts={pendingMonitorAlerts} monitorDriverName={monitorDriverName}
           onFollowMonitor={handleFollowMonitor} canFollowMonitor={canFollowMonitor}
@@ -719,6 +739,7 @@ export default function LiveMap() {
           passengerSosAlert={alerts.find(a => a.userId === tripDetail.passengerId) ?? null}
           driverSosAlert={tripDetail.driverId ? (alerts.find(a => a.userId === tripDetail.driverId) ?? null) : null}
           onResolveSos={handleResolveSos}
+          onAttendSos={handleAttendSos}
           monitorAlerts={monitorAlertsByTrip[tripDetail.tripId] ?? []}
           onClose={() => setTripDetailId(null)}
         />

@@ -10,6 +10,7 @@ import Users from './pages/admin/Users'
 import Drivers from './pages/admin/Drivers'
 import DriverDetail from './pages/admin/DriverDetail'
 import DriverVerification from './pages/admin/DriverVerification'
+import FaceVerification from './pages/admin/FaceVerification'
 import Passengers from './pages/admin/Passengers'
 import PassengerDetail from './pages/admin/PassengerDetail'
 import Trips from './pages/admin/Trips'
@@ -24,6 +25,7 @@ import LegalDocuments from './pages/admin/LegalDocuments'
 import Security from './pages/admin/Security'
 import Faq from './pages/admin/Faq'
 import DriverRanking from './pages/admin/DriverRanking'
+import ManagementSummary from './pages/admin/ManagementSummary'
 import Messages from './pages/admin/Messages'
 import Complaints from './pages/admin/Complaints'
 import CompanyInfo from './pages/admin/CompanyInfo'
@@ -57,6 +59,7 @@ export default function App() {
         <Route path="/admin/conductores/usuario/:userId" element={<DriverByUserRedirect />} />
         <Route path="/admin/conductores/:driverId" element={<DriverDetail />} />
         <Route path="/admin/verificacion" element={<DriverVerification />} />
+        <Route path="/admin/verificacion-facial" element={<FaceVerification />} />
 
         <Route path="/admin/viajes" element={<Trips />} />
         <Route path="/admin/pagos" element={<Payments />} />
@@ -82,6 +85,7 @@ export default function App() {
         <Route path="/admin/comunidad" element={<CommunityManager />} />
         <Route path="/admin/legales"   element={<LegalDocuments />} />
         <Route path="/admin/faq"       element={<Faq />} />
+        <Route path="/admin/reportes/resumen" element={<ManagementSummary />} />
         <Route path="/admin/reportes/ranking-conductores" element={<DriverRanking />} />
         <Route path="/admin/seguridad" element={<Security />} />
 

@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { ApiError } from '../../../state/api';
+import { fmtSoles } from '../../../state/payouts';
 import { EmptyState } from '../../../components/ui';
 import './rewards.css';
 
@@ -43,7 +44,7 @@ export function FormSection({ step, title, help, children }: {
 /** Convierte el texto de un input numérico opcional en número o null. */
 export const optNum = (v: string) => (v.trim() === '' ? null : Number(v));
 
-export const soles = (n: number | null | undefined) => `S/ ${(n ?? 0).toFixed(2)}`;
+export const soles = (n: number | null | undefined) => fmtSoles(n ?? 0);
 
 export const USER_TYPE_CHIPS = [
   { value: 'passenger', label: 'Pasajeros' },

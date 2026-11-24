@@ -8,7 +8,7 @@ import {
 import { payoutsApi, PAYOUT_METHOD, nowLocalInput, fmtSoles } from '../../../state/payouts';
 import PayoutFields, { PayoutDraft, validatePayout } from '../../../components/PayoutFields';
 import {
-  ActionItem, Column, DataTable, Drawer, Field, FilterBar, Page, SectionCard, Select, StatusBadge, Switch,
+  ActionItem, Column, DataTable, DateTimeField, Drawer, Field, FilterBar, Page, SectionCard, Select, StatusBadge, Switch,
   useConfirm, useToast,
 } from '../../../components/ui';
 import { errMsg, FormSection, LoadError, optNum } from './common';
@@ -31,6 +31,7 @@ const emptyRaffle = (): RaffleInput => {
     drawDate: enUnaSemana.toISOString(),
     minLevelRequired: null, minMonthsActive: null,
     targetUserType: 'passenger', winnersCount: 1, open: true,
+    secondaryPrizeDescription: null, secondaryPrizeValue: null,
   };
 };
 
@@ -40,6 +41,8 @@ function toInput(r: Raffle): RaffleInput {
     prizeValue: r.prizeValue, drawDate: r.drawDate,
     minLevelRequired: r.minLevelRequired, minMonthsActive: r.minMonthsActive,
     targetUserType: r.targetUserType, winnersCount: r.winnersCount,
+    secondaryPrizeDescription: r.secondaryPrizeDescription ?? null,
+    secondaryPrizeValue: r.secondaryPrizeValue ?? null,
     open: r.status === 'open',
   };
 }
@@ -302,6 +305,12 @@ function RaffleDetail({ raffle: r, levelNames, busy, onClose, onDraw, onEdit, on
             <div><dt>Valor aproximado</dt><dd>{r.prizeValue ? `S/ ${r.prizeValue}` : '—'}</dd></div>
             <div><dt>Participan</dt><dd>{describeParticipants(r, levelNames)}</dd></div>
             <div><dt>Ganadores</dt><dd>{r.winnersCount}</dd></div>
+            {r.winnersCount > 1 && (
+              <div><dt>Premio secundario</dt><dd>
+                {r.secondaryPrizeDescription || 'Premio secundario'}
+                {r.secondaryPrizeValue ? ` · S/ ${r.secondaryPrizeValue}` : ' · sin monto fijo'}
+              </dd></div>
+            )}
             <div><dt>{sorteado ? 'Sorteado el' : 'Se sortea el'}</dt><dd>{fmtDate(sorteado ? r.drawnAt : r.drawDate, true)}</dd></div>
             <div><dt>Tickets</dt><dd>{fmtPoints(sorteado ? (r.ticketsAtDraw ?? 0) : r.ticketsNow)}</dd></div>
           </dl>
@@ -321,7 +330,11 @@ function RaffleDetail({ raffle: r, levelNames, busy, onClose, onDraw, onEdit, on
           {r.winners.length > 0 && (
             <SectionCard title="Ganadores" icon="fa-trophy" description="A cada ganador le llega una notificación push y un correo con su código de premio (PZ-…). Marca cada premio cuando lo entregues.">
               <div className="rw-stack">
-                {r.winners.map(w => <WinnerRow key={w.id} w={w} prizeValue={r.prizeValue} onDone={onChanged} />)}
+                {r.winners.map(w => (
+                  // Valor de SU puesto: un secundario nunca toma el valor del principal.
+                  <WinnerRow key={w.id} w={w} onDone={onChanged}
+                             prizeValue={w.prizeValue ?? (w.prizeRank === 1 ? r.prizeValue : null)} />
+                ))}
               </div>
             </SectionCard>
           )}
@@ -573,12 +586,24 @@ function RaffleDrawer({ editing, levels, onClose, onSaved }: {
             />
           </Field>
           <Field label="Fecha del sorteo" required>
-            <input type="datetime-local" className="form-control" value={paraInput(f.drawDate)}
-                   onChange={e => { if (e.target.value) set('drawDate', new Date(e.target.value).toISOString()); }} />
+            <DateTimeField value={paraInput(f.drawDate)}
+                           onChange={v => { if (v) set('drawDate', new Date(v).toISOString()); }} />
           </Field>
           <Field label="Cantidad de ganadores" span="full" help="Nadie gana dos premios en el mismo sorteo." helpLong="El mensual del documento de Player Tracking tiene 4: uno principal y tres secundarios.">
             <input type="number" min={1} max={50} className="form-control" value={f.winnersCount} onChange={e => set('winnersCount', Number(e.target.value))} />
           </Field>
+          {f.winnersCount > 1 && (
+            <>
+              <Field label={`Premio secundario (puestos 2 a ${f.winnersCount})`} optional help="Si lo dejas vacío: «Premio secundario #n».">
+                <input className="form-control" value={f.secondaryPrizeDescription ?? ''} placeholder="S/ 300 en créditos Bugie"
+                       onChange={e => set('secondaryPrizeDescription', e.target.value || null)} />
+              </Field>
+              <Field label="Valor del premio secundario (S/)" optional help="Sin valor: al pagar escribes el monto." helpLong="Cada ganador de los puestos 2 en adelante cobra este valor. Nunca se usa el valor del premio principal.">
+                <input type="number" min={0} className="form-control" value={f.secondaryPrizeValue ?? ''}
+                       onChange={e => set('secondaryPrizeValue', optNum(e.target.value))} />
+              </Field>
+            </>
+          )}
           <div className="bx-col-full">
             <Switch checked={f.open} onChange={v => set('open', v)} label="Abierto: reparte tickets" description="Si lo cierras, deja de repartir pero conserva los tickets ya entregados." />
           </div>

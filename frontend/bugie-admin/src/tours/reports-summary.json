@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "selector": "[data-tour='rs-period']",
+      "title": "Elige el período",
+      "text": "Hoy, últimos 7 o 30 días, este mes, el mes pasado o un rango personalizado. Los días son de Perú y el período queda guardado en el enlace."
+    },
+    {
+      "selector": "[data-tour='rs-stats']",
+      "title": "Cifras clave",
+      "text": "Viajes, cancelaciones, montos, comisión de Bugie, personas activas, usuarios nuevos y el tiempo promedio de respuesta a los SOS frente a la meta configurada."
+    },
+    {
+      "selector": "[data-tour='rs-charts']",
+      "title": "Día a día",
+      "text": "Viajes completados y cancelados, y lo pagado con la comisión de Bugie. Pasa el mouse por una barra para ver el detalle. En rangos largos se agrupa por semana."
+    },
+    {
+      "selector": "[data-tour='rs-details']",
+      "title": "Detalle",
+      "text": "Horas pico, medios de pago, cancelaciones, promedios, seguridad, conductores, usuarios y comisiones. Si una parte no carga, solo esa muestra el aviso."
+    },
+    {
+      "selector": "[data-tour='page-actions']",
+      "title": "Exportar",
+      "text": "«Exportar CSV» descarga una fila por día con viajes, pagos, comisión y usuarios nuevos, más una fila de total."
+    }
+  ]
+}

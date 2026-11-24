@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import TripTimeline from '../../components/TripTimeline';
-import ApplyCouponModal, { CouponApplied } from './ApplyCouponModal';
+import ApplyCouponModal, { CouponApplied, couponLeftoverNotice } from './ApplyCouponModal';
 import LevelCouponHint from './LevelCouponHint';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BugieMap from '../../components/BugieMap';
@@ -65,11 +65,16 @@ interface Trip {
   estimatedFare: number;
   proposedFare: number | null;
   status: number;
+  // Inicio del viaje (pasajero a bordo): desde aqui se dibuja el recorrido.
+  startedAt?: string | null;
 
   // Cupon aplicado a este viaje.
   couponCode?: string | null;
   discountAmount?: number | null;
   fareBeforeDiscount?: number | null;
+  // Cupon de monto que vale mas que la tarifa: soles y puntos que vuelven al terminar.
+  couponLeftover?: number | null;
+  couponLeftoverPoints?: number | null;
   waypoints?: Waypoint[];
   // Cuando el conductor aviso que ya esta en el punto de recojo
   driverArrivedAt?: string | null;
@@ -202,6 +207,10 @@ export default function PassengerTracking() {
   // noDriver: Bugie lo canceló porque nadie aceptó a tiempo (no_driver_timeout)
   const [cancelledInfo, setCancelledInfo] = useState<{ by: string; reason: string | null; delivery: boolean; noDriver: boolean } | null>(null);
   const lastTripId = useRef<string | null>(null);
+  const tripRef    = useRef<Trip | null>(null);
+  tripRef.current  = trip;
+  // Recorrido real desde que el pasajero subió (GPS guardado + puntos en vivo).
+  const [trail, setTrail] = useState<{ lat: number; lng: number }[]>([]);
   // Regla de vencimiento que tenía el viaje en el último sondeo
   const lastExpiresReason = useRef<string | null>(null);
   // Oferta que el pasajero aceptó (esperando al conductor) en el último sondeo
@@ -229,6 +238,10 @@ export default function PassengerTracking() {
       setTrip(prev => (prev && prev.id === e.tripId
         ? { ...prev, driverCurrentLat: e.lat, driverCurrentLng: e.lng }
         : prev));
+      // Ya en viaje: el punto nuevo alarga la línea del recorrido.
+      const cur = tripRef.current;
+      if (cur && cur.id === e.tripId && (cur.status === 3 || cur.status === 6))
+        setTrail(prev => [...prev, { lat: e.lat, lng: e.lng }]);
     },
   });
   // Viaje al que la conexión ya entró (JoinTrip aceptado). Si el servidor lo
@@ -246,6 +259,26 @@ export default function PassengerTracking() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub.connected, tripId]);
+  // Recorrido ya guardado desde el inicio del viaje (al entrar o al iniciar).
+  const inTrip    = trip?.status === 3 || trip?.status === 6;
+  const startedAt = trip?.startedAt ?? null;
+  useEffect(() => {
+    setTrail([]);
+    if (!tripId || !inTrip) return;
+    let alive = true;
+    apiFetch<{ path: { lat: number; lng: number; recordedAt: string }[] }>(`${API.trips}/trips/${tripId}/real-path`)
+      .then(p => {
+        if (!alive) return;
+        const from = startedAt ? new Date(startedAt).getTime() : 0;
+        const saved = p.path
+          .filter(x => new Date(x.recordedAt).getTime() >= from)
+          .map(x => ({ lat: x.lat, lng: x.lng }));
+        // Los puntos en vivo que llegaron mientras se cargaba van al final.
+        setTrail(prev => [...saved, ...prev]);
+      })
+      .catch(() => { /* sin recorrido guardado: solo se ve lo que llegue en vivo */ });
+    return () => { alive = false; };
+  }, [tripId, inTrip, startedAt]);
   // Sin viaje basta con estar conectado (TripChanged llega por el grupo del usuario).
   const hubLive = hub.connected && (tripId == null || joinedTripId === tripId);
   const pollMs  = hubLive ? POLL_SLOW_MS : POLL_FAST_MS;
@@ -769,7 +802,7 @@ export default function PassengerTracking() {
                   <div className="v"><CountUp value={toPay} format={money} decimals={2} duration={700} /></div>
                   {trip.discountAmount ? (
                     <div className="small bx-muted text-decoration-line-through">
-                      S/ {(trip.fareBeforeDiscount ?? trip.estimatedFare).toFixed(2)}
+                      {money(trip.fareBeforeDiscount ?? trip.estimatedFare)}
                     </div>
                   ) : null}
                 </div>
@@ -794,7 +827,12 @@ export default function PassengerTracking() {
               {(trip.status === 2 || trip.status === 3) && (
                 trip.discountAmount ? (
                   <Notice tone="ok" icon="fa-tag">
-                    Cupón <strong>{trip.couponCode}</strong> aplicado · −S/ {trip.discountAmount.toFixed(2)}
+                    Cupón <strong>{trip.couponCode}</strong> aplicado · −{money(trip.discountAmount)}
+                    {(trip.couponLeftoverPoints ?? 0) > 0 && (
+                      <div className="small mt-1">
+                        {couponLeftoverNotice(trip.couponLeftover ?? 0, trip.couponLeftoverPoints ?? 0)}
+                      </div>
+                    )}
                   </Notice>
                 ) : (
                   <>
@@ -835,7 +873,7 @@ export default function PassengerTracking() {
                     : p.status === 'driver_accepted' ? 'driverAccepted'
                     : p.proposedByRole === 'passenger' ? 'mine' : 'offer';
                   const isOpen = counteringId === p.id;
-                  const fare   = `S/ ${p.fare.toFixed(2)}`;
+                  const fare   = money(p.fare);
                   const statusText = kind === 'offer' ? `Ofrece ${fare}`
                     : kind === 'mine' ? `Tu contraoferta ${fare} · esperando al conductor`
                     : kind === 'driverAccepted' ? `Aceptó tu precio ${fare}`
@@ -891,7 +929,7 @@ export default function PassengerTracking() {
                             <div className={`t ${p.trend}`}>
                               <i className={`fa-solid ${p.trend === 'down' ? 'fa-arrow-down' : 'fa-arrow-up'} me-1`} aria-hidden="true" />
                               {p.trend === 'down' ? 'Bajó' : 'Subió'}
-                              {p.previousFare != null && <span className="bx-muted fw-normal"> (antes S/ {p.previousFare.toFixed(2)})</span>}
+                              {p.previousFare != null && <span className="bx-muted fw-normal"> (antes {money(p.previousFare)})</span>}
                             </div>
                           )}
                         </div>
@@ -1068,6 +1106,8 @@ export default function PassengerTracking() {
                   waypoints={wpCoords}
                   driver={trip.driverCurrentLat != null && trip.driverCurrentLng != null
                     ? { lat: trip.driverCurrentLat, lng: trip.driverCurrentLng } : null}
+                  trail={inTrip ? trail : undefined}
+                  trailLabel="Recorrido del viaje"
                 />
               </div>
             ) : (
@@ -1125,7 +1165,7 @@ export default function PassengerTracking() {
                 <div key={h.id} className="bx-box d-flex justify-content-between align-items-center gap-2 m-0"
                      style={{ opacity: h.status === 'pending' ? 1 : 0.8 }}>
                   <div>
-                    <div className="fw-bold">S/ {h.fare.toFixed(2)}</div>
+                    <div className="fw-bold">{money(h.fare)}</div>
                     <div className="small bx-muted">{timeAgo(h.createdAt)}</div>
                   </div>
                   <StatusBadge tone={cfg.tone}>{cfg.label}</StatusBadge>
@@ -1147,13 +1187,16 @@ export default function PassengerTracking() {
           onClose={() => setCuponAbierto(false)}
           onApplied={(r: CouponApplied) => {
             setCuponAbierto(false);
-            toast.success(`Cupón ${r.code} aplicado.`);
+            // Cupón que vale más que el viaje: el aviso del servidor (gratis + puntos).
+            toast.success(r.notice ?? `Cupón ${r.code} aplicado.`);
             // Se refleja de inmediato sin esperar al siguiente sondeo.
             setTrip(t => t ? {
               ...t,
               couponCode: r.code,
               discountAmount: r.discountAmount,
               fareBeforeDiscount: r.fareBeforeDiscount,
+              couponLeftover: (r.leftoverPoints ?? 0) > 0 ? r.leftoverSoles ?? 0 : null,
+              couponLeftoverPoints: (r.leftoverPoints ?? 0) > 0 ? r.leftoverPoints ?? 0 : null,
             } : t);
           }}
         />

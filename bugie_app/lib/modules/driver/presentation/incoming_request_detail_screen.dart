@@ -29,6 +29,7 @@ import 'incoming_requests_screen.dart'
         shortPassengerName;
 import 'widgets/new_request_banner.dart';
 import 'widgets/trip_request_card_compact.dart' show haversineKm;
+import '../../../core/utils/format.dart';
 
 /// Pantalla de detalle de UNA solicitud entrante.
 ///
@@ -457,7 +458,9 @@ class _IncomingRequestDetailScreenState
   /// vuelvo a Solicitudes (que se recarga al volver).
   Future<void> _onRequestClosed() async {
     if (_closed || !mounted) return;
-    _closed = true;
+    // Oculta los contadores de vencimiento: no deben seguir corriendo (ni
+    // recargar) detrás del aviso.
+    setState(() => _closed = true);
     _pollingTimer?.cancel();
     final repo = context.read<TripsRepository>();
     final myId = context.read<Session>().user?.userId;
@@ -625,12 +628,6 @@ class _IncomingRequestDetailScreenState
   static IconData _payIcon(String m) =>
       m == 'cash' ? Icons.payments_outlined : Icons.qr_code_2_rounded;
 
-  static String _timeAgo(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inMinutes < 1) return 'ahora';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    return 'hace ${diff.inHours} h';
-  }
 
   /// "a X min" hasta el pasajero: distancia en línea recta a ~22 km/h
   /// (la misma estimación que usa la pantalla de viaje en curso).
@@ -898,7 +895,7 @@ class _IncomingRequestDetailScreenState
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _timeAgo(t.createdAt),
+              timeAgo(t.createdAt),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 12, color: bc.textMuted),
@@ -921,7 +918,9 @@ class _IncomingRequestDetailScreenState
       ],
       // Vencimiento: se cancela por falta de conductor / hora del
       // programado. (El plazo para confirmar va en el aviso de abajo.)
-      if (t.expiresAt != null && t.expiresReason != 'proposal_confirm') ...[
+      if (!_closed &&
+          t.expiresAt != null &&
+          t.expiresReason != 'proposal_confirm') ...[
         const SizedBox(height: 6),
         Align(
           alignment: Alignment.centerLeft,
@@ -1230,7 +1229,7 @@ class _IncomingRequestDetailScreenState
             message: 'Al confirmar, tus demás solicitudes pendientes se '
                 'rechazarán automáticamente.',
           ),
-          if (until != null) ...[
+          if (until != null && !_closed) ...[
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,

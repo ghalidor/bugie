@@ -65,10 +65,10 @@ public class RunPointsExpirationHandler
             var days = profile.DaysUntilExpiry();
 
             await _push.SendToUserAsync(profile.UserId, new FcmPushMessage(
-                Title: "Tus puntos estan por vencer",
+                Title: "Tus puntos están por vencer",
                 Body:  days <= 1
-                    ? $"Tienes {profile.AvailablePoints} puntos que vencen manana. Completa un viaje y renuevas su vigencia."
-                    : $"Tienes {profile.AvailablePoints} puntos que vencen en {days} dias. Completa un viaje y renuevas su vigencia.",
+                    ? $"Tienes {profile.AvailablePoints} puntos que vencen mañana. Completa un viaje y renuevas su vigencia."
+                    : $"Tienes {profile.AvailablePoints} puntos que vencen en {days} días. Completa un viaje y renuevas su vigencia.",
                 Route: "/rewards",
                 ExtraData: new Dictionary<string, string>
                 {

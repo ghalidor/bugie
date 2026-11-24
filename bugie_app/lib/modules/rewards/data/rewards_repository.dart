@@ -130,7 +130,7 @@ class RewardsRepository {
   }
 
   /// GET /api/rewards/me/redemptions
-  /// [status]: active | used | expired | cancelled. null = todos.
+  /// [status]: active | reserved | used | expired | cancelled. null = todos.
   Future<RewardsPage<RewardRedemption>> getMyRedemptions({
     String? status,
     int page = 1,

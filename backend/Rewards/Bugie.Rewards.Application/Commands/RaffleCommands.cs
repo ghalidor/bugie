@@ -2,6 +2,7 @@ using MediatR;
 using Bugie.Rewards.Application.DTOs;
 using Bugie.Rewards.Application.Queries;
 using Bugie.Rewards.Domain.Entities;
+using Bugie.Rewards.Domain.External;
 using Bugie.Rewards.Domain.Interfaces;
 using Bugie.Rewards.Domain.Services;
 
@@ -47,6 +48,10 @@ public class UpsertRaffleHandler : IRequestHandler<UpsertRaffleCommand, RaffleDt
         raffle.RaffleType       = i.RaffleType;
         raffle.PrizeDescription = i.PrizeDescription.Trim();
         raffle.PrizeValue       = i.PrizeValue;
+        // Premio de los puestos 2+: solo tiene sentido con más de un ganador.
+        raffle.SecondaryPrizeDescription = i.WinnersCount > 1 && !string.IsNullOrWhiteSpace(i.SecondaryPrizeDescription)
+            ? i.SecondaryPrizeDescription.Trim() : null;
+        raffle.SecondaryPrizeValue       = i.WinnersCount > 1 ? i.SecondaryPrizeValue : null;
         raffle.DrawDate         = i.DrawDate;
         raffle.MinLevelRequired = string.IsNullOrWhiteSpace(i.MinLevelRequired) ? null : i.MinLevelRequired;
         raffle.MinMonthsActive  = i.MinMonthsActive is > 0 ? i.MinMonthsActive : null;
@@ -78,6 +83,9 @@ public class UpsertRaffleHandler : IRequestHandler<UpsertRaffleCommand, RaffleDt
 
         if (i.WinnersCount is < 1 or > 50)
             throw new ArgumentException("La cantidad de ganadores debe estar entre 1 y 50.");
+
+        if (i.PrizeValue is < 0 || i.SecondaryPrizeValue is < 0)
+            throw new ArgumentException("El valor del premio no puede ser negativo.");
 
         if (i.DrawDate <= DateTime.UtcNow.AddMinutes(-1))
             throw new ArgumentException("La fecha del sorteo debe ser futura.");
@@ -127,58 +135,92 @@ public class DrawRaffleNowHandler : IRequestHandler<DrawRaffleNowCommand, Raffle
 
     public async Task<RaffleDto> Handle(DrawRaffleNowCommand cmd, CancellationToken ct)
     {
-        var raffle = await _raffles.GetByIdAsync(cmd.Id, ct)
+        var previo = await _raffles.GetByIdAsync(cmd.Id, ct)
             ?? throw new KeyNotFoundException("Sorteo no encontrado.");
 
-        if (raffle.Status == RaffleStatus.Drawn)
+        if (previo.Status == RaffleStatus.Drawn)
             throw new InvalidOperationException("Este sorteo ya se ejecutó.");
+        if (previo.Status == RaffleStatus.Cancelled)
+            throw new InvalidOperationException("Este sorteo está cancelado: no se puede sortear.");
 
-        var tickets = await _raffles.GetTicketsAsync(raffle.Id, ct);
-        if (tickets.Count == 0)
-            throw new InvalidOperationException(
-                "No hay tickets repartidos todavía. Ejecuta el mantenimiento primero.");
+        // Todo bajo el bloqueo del sorteo: si el mantenimiento u otro clic lo
+        // sortea al mismo tiempo, solo uno lo ejecuta y avisa.
+        var r = await _raffles.DrawAsync(cmd.Id, RaffleWinnerPicker.Pick, cancelIfNoTickets: false, ct);
 
-        var seed      = raffle.DrawSeed ?? RaffleDraw.NewSeed();
+        switch (r.Outcome)
+        {
+            case RaffleDrawOutcome.NotFound:
+                throw new KeyNotFoundException("Sorteo no encontrado.");
+            case RaffleDrawOutcome.NotPending:
+                throw new InvalidOperationException(r.Raffle?.Status == RaffleStatus.Cancelled
+                    ? "Este sorteo está cancelado: no se puede sortear."
+                    : "Este sorteo ya se ejecutó.");
+            case RaffleDrawOutcome.NoTickets:
+                throw new InvalidOperationException(
+                    "No hay tickets repartidos todavía. Ejecuta el mantenimiento primero.");
+        }
+
+        var raffle = r.Raffle!;
+
+        // Aviso a los ganadores (push + bandeja + correo), solo desde quien
+        // sorteó de verdad. Nunca lanza: el sorteo ya quedó guardado.
+        await _mediator.Send(new NotifyRaffleWinnersCommand(raffle.Id), ct);
+
+        // Se releen para devolver el código PZ que generó la base.
+        var guardados = await _raffles.GetWinnersAsync(raffle.Id, ct);
+        return GetRafflesHandler.ToDto(raffle, r.Tickets, guardados.Count > 0 ? guardados : r.Winners);
+    }
+}
+
+/// <summary>
+/// Elige los ganadores con la semilla del sorteo y marca el sorteo como
+/// sorteado. Lo usan "Sortear ahora" y el mantenimiento (dentro del bloqueo
+/// de IRaffleRepository.DrawAsync). Cada puesto lleva su premio y su valor:
+/// los secundarios nunca heredan el valor del principal.
+/// </summary>
+public static class RaffleWinnerPicker
+{
+    public static List<RaffleWinner> Pick(Raffle raffle, IReadOnlyList<RaffleTicket> tickets)
+    {
+        var now  = DateTime.UtcNow;
+        var seed = string.IsNullOrWhiteSpace(raffle.DrawSeed) ? RaffleDraw.NewSeed() : raffle.DrawSeed!;
         var ganadores = RaffleDraw.Draw(tickets, seed, raffle.WinnersCount);
 
         raffle.DrawSeed      = seed;
-        raffle.DrawnAt       = DateTime.UtcNow;
+        raffle.DrawnAt       = now;
         raffle.TicketsAtDraw = tickets.Count;
         raffle.Status        = RaffleStatus.Drawn;
-        raffle.UpdatedAt     = DateTime.UtcNow;
+        raffle.UpdatedAt     = now;
 
-        var winners = ganadores.Select(g => new RaffleWinner
+        return ganadores.Select(g => new RaffleWinner
         {
             Id           = Guid.NewGuid(),
             RaffleId     = raffle.Id,
             UserId       = g.UserId,
             TicketNumber = g.TicketNumber,
             PrizeRank    = g.PrizeRank,
-            PrizeDetail  = g.PrizeRank == 1 ? raffle.PrizeDescription : $"Premio secundario #{g.PrizeRank}",
+            PrizeDetail  = raffle.PrizeDetailFor(g.PrizeRank),
+            PrizeValue   = raffle.PrizeValueFor(g.PrizeRank),
             Status       = "pending",
-            CreatedAt    = DateTime.UtcNow,
+            CreatedAt    = now,
         }).ToList();
-
-        await _raffles.SaveDrawAsync(raffle, winners, ct);
-
-        // Aviso a los ganadores (push + bandeja + correo). Nunca rompe el
-        // sorteo, que ya quedó guardado.
-        try { await _mediator.Send(new NotifyRaffleWinnersCommand(raffle.Id), ct); }
-        catch { /* el push y el correo registran sus fallos en el log */ }
-
-        // Se releen para devolver el código PZ que generó la base.
-        var guardados = await _raffles.GetWinnersAsync(raffle.Id, ct);
-        return GetRafflesHandler.ToDto(raffle, tickets.Count, guardados.Count > 0 ? guardados : winners);
     }
 }
 
-/// <summary>Admin: marca un premio como entregado.</summary>
-public record DeliverPrizeCommand(Guid WinnerId, Guid? AdminId, string? Note) : IRequest<Unit>;
+/// <summary>
+/// Admin: marca un premio como entregado.
+/// NotifyUser = true solo desde el botón "Entregar" del admin (push + bandeja).
+/// El pago con código no avisa desde aquí: ya avisa con NotifyPayoutCommand.
+/// </summary>
+public record DeliverPrizeCommand(Guid WinnerId, Guid? AdminId, string? Note, bool NotifyUser = false) : IRequest<Unit>;
 
 public class DeliverPrizeHandler : IRequestHandler<DeliverPrizeCommand, Unit>
 {
     private readonly IRaffleRepository _raffles;
-    public DeliverPrizeHandler(IRaffleRepository raffles) => _raffles = raffles;
+    private readonly IFcmSender        _push;
+
+    public DeliverPrizeHandler(IRaffleRepository raffles, IFcmSender push)
+        => (_raffles, _push) = (raffles, push);
 
     public async Task<Unit> Handle(DeliverPrizeCommand cmd, CancellationToken ct)
     {
@@ -194,6 +236,31 @@ public class DeliverPrizeHandler : IRequestHandler<DeliverPrizeCommand, Unit>
         winner.Note        = cmd.Note;
 
         await _raffles.UpdateWinnerAsync(winner, ct);
+
+        // Entrega manual del admin: push + bandeja (FcmSender pasa por Trips).
+        // Nunca lanza: el premio ya quedó marcado como entregado.
+        if (cmd.NotifyUser)
+        {
+            Raffle? raffle = null;
+            try { raffle = await _raffles.GetByIdAsync(winner.RaffleId, ct); }
+            catch { /* sin el nombre del sorteo el aviso igual sale */ }
+            var premio = !string.IsNullOrWhiteSpace(winner.PrizeDetail) ? winner.PrizeDetail!
+                       : raffle?.PrizeDescription ?? "tu premio";
+            var sorteo = raffle is null ? "" : $" del sorteo {raffle.Name}";
+
+            await _push.SendToUserAsync(winner.UserId, new FcmPushMessage(
+                Title: "Tu premio fue entregado",
+                Body:  $"Bugie marcó como entregado tu premio{sorteo}: {premio}.",
+                Route: "/rewards?tab=promos",
+                ExtraData: new Dictionary<string, string>
+                {
+                    ["type"]       = "prize_delivered",
+                    ["alert_type"] = "accepted",
+                    ["tab"]        = "promos",
+                    ["raffle_id"]  = winner.RaffleId.ToString(),
+                    ["winner_id"]  = winner.Id.ToString(),
+                }), ct);
+        }
         return Unit.Value;
     }
 }

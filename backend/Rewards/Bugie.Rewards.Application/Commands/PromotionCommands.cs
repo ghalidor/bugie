@@ -93,10 +93,13 @@ public class UpsertPromotionHandler : IRequestHandler<UpsertPromotionCommand, Pr
         if (string.IsNullOrWhiteSpace(i.Name))
             throw new ArgumentException("El nombre es requerido.");
 
+        // Al crear Y al editar. 'discount' y 'free_trip' quedan solo en
+        // promociones antiguas: el motor no los aplica (las promociones dan
+        // puntos; los descuentos se dan con cupones).
         if (!TiposValidos.Contains(i.PromotionType))
             throw new ArgumentException(
-                "Por ahora solo se pueden crear promociones de puntos: multiplicador o puntos extra. " +
-                "Las de descuento sobre la tarifa todavía no las aplica el motor.");
+                "Las promociones solo pueden dar puntos: multiplicador o puntos extra. " +
+                "Los descuentos y viajes gratis se dan con cupones, no con promociones.");
 
         if (!UserTypes.IsValid(i.TargetUserType) && i.TargetUserType != "both")
             throw new ArgumentException("El destinatario debe ser pasajeros, conductores o ambos.");

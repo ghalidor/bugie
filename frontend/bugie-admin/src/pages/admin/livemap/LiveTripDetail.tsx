@@ -13,6 +13,7 @@ import { PlannedRoute, fetchPlannedRoute } from '../../../components/tripRoutes'
 import { LiveTrail } from './useLiveTrails';
 import { buildTripScene, fmtKm, Pt, SCENE_COLORS, sceneLines, TripScene } from './tripScene';
 import PersonAvatar from './PersonAvatar';
+import { SosAttendControl } from './sosAttention';
 
 /** Largo aproximado (m) de una línea [[lat, lng], ...]. */
 function lengthMeters(pts: [number, number][]): number {
@@ -48,6 +49,8 @@ interface Props {
   /** SOS activo del conductor. */
   driverSosAlert: SosAlert | null;
   onResolveSos: (a: SosAlert) => void;
+  /** "Atendiendo" del SOS (el admin lo toma). */
+  onAttendSos: (a: SosAlert) => Promise<unknown>;
   /** Alertas de seguimiento abiertas del viaje (sin señal, detenido, demorado). */
   monitorAlerts?: MonitorAlert[];
   onClose: () => void;
@@ -86,7 +89,7 @@ function SceneLegend({ sc, loading }: { sc: TripScene; loading: boolean }) {
   );
 }
 
-export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated, passengerSosAlert, driverSosAlert, onResolveSos, monitorAlerts = [], onClose }: Props) {
+export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated, passengerSosAlert, driverSosAlert, onResolveSos, onAttendSos, monitorAlerts = [], onClose }: Props) {
   // Ruta del sistema (no cambia durante el viaje). El recorrido real viene
   // del padre (trail) y crece con cada GPS que llega por SignalR.
   const [planned, setPlanned] = useState<PlannedRoute | null>(null);
@@ -242,9 +245,12 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
               </a>
             )}
             {driverSosAlert && (
-              <button type="button" className="btn btn-sm btn-danger w-100 mt-2" onClick={() => onResolveSos(driverSosAlert)}>
-                <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />Desactivar alerta SOS
-              </button>
+              <div className="d-grid gap-2 mt-2">
+                <SosAttendControl alert={driverSosAlert} onAttend={() => onAttendSos(driverSosAlert)} size="sm" block />
+                <button type="button" className="btn btn-sm btn-danger w-100" onClick={() => onResolveSos(driverSosAlert)}>
+                  <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />Desactivar alerta SOS
+                </button>
+              </div>
             )}
           </section>
 
@@ -268,9 +274,12 @@ export default function LiveTripDetail({ trip, driver, vehicle, trail, deviated,
               </div>
             </div>
             {passengerSosAlert && (
-              <button type="button" className="btn btn-sm btn-danger w-100 mt-2" onClick={() => onResolveSos(passengerSosAlert)}>
-                <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />Desactivar alerta SOS
-              </button>
+              <div className="d-grid gap-2 mt-2">
+                <SosAttendControl alert={passengerSosAlert} onAttend={() => onAttendSos(passengerSosAlert)} size="sm" block />
+                <button type="button" className="btn btn-sm btn-danger w-100" onClick={() => onResolveSos(passengerSosAlert)}>
+                  <i className="fa-solid fa-circle-check me-1" aria-hidden="true" />Desactivar alerta SOS
+                </button>
+              </div>
             )}
           </section>
 

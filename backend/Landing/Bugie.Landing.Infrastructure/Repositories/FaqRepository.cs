@@ -69,7 +69,7 @@ public class FaqRepository : IFaqRepository
         if(batch.Count == 0) return;
 
         await _db.ExecuteAsync(
-            "UPDATE landing.FaqItems SET SortOrder = @SortOrder, UpdatedAt = (now() at time zone 'utc') WHERE Id = @Id",
+            "UPDATE landing.FaqItems SET SortOrder = @SortOrder, UpdatedAt = now() WHERE Id = @Id",
             batch);
     }
 

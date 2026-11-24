@@ -6,7 +6,7 @@ import {
   nowLocalInput, fmtSoles, downloadPayoutsCsv, payoutCode,
 } from '../../state/payouts';
 import {
-  Column, DataTable, Drawer, EmptyState, Field, FilterBar, Page, Pagination, SectionCard, Skeleton,
+  Column, DataTable, DateField, Drawer, EmptyState, Field, FilterBar, Page, Pagination, SectionCard, Skeleton,
   Select, StatCard, StatGrid, StatusBadge, useConfirm, useDebouncedValue, useToast,
 } from '../../components/ui';
 import { DriverLink } from '../../components/EntityLinks';
@@ -152,8 +152,8 @@ export default function DriverPayouts() {
             activeCount={activeCount}
             onClear={() => setFilters({})}
           >
-            <label className="ops-filter"><span>Desde</span><input type="date" className="form-control form-control-sm" value={filters.from ?? ''} onChange={e => set('from', e.target.value)} /></label>
-            <label className="ops-filter"><span>Hasta</span><input type="date" className="form-control form-control-sm" value={filters.to ?? ''} onChange={e => set('to', e.target.value)} /></label>
+            <label className="ops-filter"><span>Desde</span><DateField size="sm" value={filters.from ?? ''} onChange={v => set('from', v)} /></label>
+            <label className="ops-filter"><span>Hasta</span><DateField size="sm" value={filters.to ?? ''} onChange={v => set('to', v)} /></label>
             <label className="ops-filter"><span>Método</span>
               <Select
                 size="sm"

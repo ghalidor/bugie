@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Field, Modal } from './ui';
+import { DateField, Field, Modal } from './ui';
 
 /// Suspender a un conductor aprobado: motivo obligatorio (10-500) y duración.
 /// `until` = ÚLTIMO día de suspensión (yyyy-MM-dd, hora de Perú) o null = indefinida.
@@ -105,8 +105,8 @@ export default function DriverSuspendModal({ driverName, submitting, error, onSu
         {duration === 'date' && (
           <Field label="Último día de suspensión" required error={date ? dateError ?? undefined : undefined}
                  help={`Entre ${ymdToDisplay(minDate)} y ${ymdToDisplay(maxDate)}.`}>
-            <input type="date" className="form-control" min={minDate} max={maxDate} value={date}
-                   onChange={e => setDate(e.target.value)} disabled={submitting} />
+            <DateField min={minDate} max={maxDate} value={date}
+                       onChange={setDate} disabled={submitting} />
           </Field>
         )}
 

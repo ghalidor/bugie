@@ -14,6 +14,8 @@ public class OutboxEvent
 {
     public const string TypeTripCompleted = "trip.completed";
     public const string TypeTripRated     = "trip.rated";
+    public const string TypeCouponUsed     = "trip.coupon_used";
+    public const string TypeCouponReleased = "trip.coupon_released";
 
     public long      Id          { get; set; }
     public string    EventType   { get; set; } = string.Empty;
@@ -23,6 +25,35 @@ public class OutboxEvent
     public string?   LastError   { get; set; }
     public DateTime  CreatedAt   { get; set; }
     public DateTime? SentAt      { get; set; }
+    /// <summary>Próximo intento (espera creciente entre reintentos). Null = ya.</summary>
+    public DateTime? NextAttemptAt { get; set; }
+
+    /// <summary>
+    /// Viaje completado con cupón: Rewards consume la reserva y devuelve el
+    /// sobrante en puntos. Por la bandeja para que no se pierda si Rewards no
+    /// responde (Rewards es idempotente por viaje).
+    /// </summary>
+    public static OutboxEvent CouponUsed(Guid tripId, string code, decimal appliedDiscount) => new()
+    {
+        EventType   = TypeCouponUsed,
+        PayloadJson = JsonSerializer.Serialize(new CouponUsedPayload(code, tripId, appliedDiscount)),
+        Status      = "pending",
+        Attempts    = 0,
+        CreatedAt   = DateTime.UtcNow,
+    };
+
+    /// <summary>
+    /// Se quitó el cupón o se canceló el viaje y Rewards no respondió al
+    /// momento: la reserva se libera cuando vuelva.
+    /// </summary>
+    public static OutboxEvent CouponReleased(Guid tripId, string code, DateTime requestedAtUtc) => new()
+    {
+        EventType   = TypeCouponReleased,
+        PayloadJson = JsonSerializer.Serialize(new CouponReleasedPayload(code, tripId, requestedAtUtc)),
+        Status      = "pending",
+        Attempts    = 0,
+        CreatedAt   = DateTime.UtcNow,
+    };
 
     /// <summary>
     /// Calificación registrada. Usa la misma bandeja que el viaje completado,
@@ -41,12 +72,13 @@ public class OutboxEvent
 
     public static OutboxEvent TripCompleted(
         Guid tripId, Guid passengerId, Guid? driverId,
-        decimal amount, string paymentMethod, DateTime completedAt) => new()
+        decimal amount, string paymentMethod, DateTime completedAt,
+        decimal? baseAmount = null) => new()
     {
         EventType   = TypeTripCompleted,
         PayloadJson = JsonSerializer.Serialize(new TripCompletedPayload(
             tripId, passengerId, driverId, amount, paymentMethod ?? string.Empty,
-            completedAt)),
+            completedAt, baseAmount ?? amount)),
         Status      = "pending",
         Attempts    = 0,
         CreatedAt   = DateTime.UtcNow,
@@ -63,6 +95,12 @@ public record TripRatedPayload(
     Guid DriverId,
     byte Stars);
 
+/// <param name="AppliedDiscount">Lo que de verdad se descontó de la tarifa.</param>
+public record CouponUsedPayload(string Code, Guid TripId, decimal AppliedDiscount);
+
+/// <param name="RequestedAt">Cuándo se quitó (UTC): una reserva posterior no se libera.</param>
+public record CouponReleasedPayload(string Code, Guid TripId, DateTime RequestedAt);
+
 public record TripCompletedPayload(
     Guid     TripId,
     Guid     PassengerId,
@@ -70,4 +108,10 @@ public record TripCompletedPayload(
     decimal  Amount,
     string   PaymentMethod,
     /// <summary>Hora de finalización en UTC. La usan las promociones.</summary>
-    DateTime CompletedAt);
+    DateTime CompletedAt,
+    /// <summary>
+    /// Tarifa acordada antes del cupón. Amount es lo que pagó el pasajero; el
+    /// conductor gana sus puntos sobre esta tarifa (el descuento lo asume Bugie).
+    /// Sin cupón es igual a Amount.
+    /// </summary>
+    decimal  BaseAmount);

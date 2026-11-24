@@ -239,14 +239,24 @@ class DriverRepository {
 
   /// POST /api/drivers/profile/me/photo — sube/reemplaza la foto de PERFIL
   /// del conductor (distinta de la de verificación facial diaria).
-  /// Devuelve la URL relativa para usar con ApiConfig.resolveMediaUrl.
-  Future<String> uploadMyProfilePhoto(String filePath) async {
+  /// La foto puede quedar aprobada o en revisión (status); la URL es
+  /// relativa, para usar con ApiConfig.resolveMediaUrl. Si ya se pasó del
+  /// límite diario, el backend responde 429 (ApiException con su mensaje).
+  Future<ProfilePhotoUploadResult> uploadMyProfilePhoto(String filePath) async {
     final json = await _api.postMultipart(
       '${ApiConfig.drivers}/drivers/profile/me/photo',
       fields: {},
       filePath: filePath,
     );
-    return (json as Map<String, dynamic>)['profilePhotoUrl'] as String? ?? '';
+    return ProfilePhotoUploadResult.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// GET /api/drivers/profile/me — solo los datos de la foto de perfil
+  /// pendiente (en revisión o rechazada).
+  Future<PendingProfilePhoto> getMyPendingProfilePhoto() async {
+    final json = await _api.get('${ApiConfig.drivers}/drivers/profile/me');
+    if (json is! Map<String, dynamic>) return const PendingProfilePhoto();
+    return PendingProfilePhoto.fromJson(json);
   }
 
   /// GET /api/drivers/documents/me/can-upload/{docType}

@@ -23,8 +23,8 @@ BEGIN;
 
 -- ── 1) Plazos ───────────────────────────────────────────────────────────
 INSERT INTO landing.systemsettings (settingkey, value, description) VALUES
-  ('complaint_response_days', '15', 'Plazo para responder una reclamacion, en dias habiles (sin sabados, domingos ni feriados). Se aplica a las nuevas.'),
-  ('complaint_due_soon_days', '3',  'Una reclamacion pendiente se marca "por vencer" cuando le quedan estos dias habiles o menos.')
+  ('complaint_response_days', '15', 'Plazo para responder una reclamación, en días hábiles (sin sábados, domingos ni feriados). Se aplica a las nuevas.'),
+  ('complaint_due_soon_days', '3',  'Una reclamación pendiente se marca "por vencer" cuando le quedan estos días hábiles o menos.')
 ON CONFLICT (settingkey) DO NOTHING;
 
 -- ── 2) Feriados ────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS landing.holidays (
     Movable    VARCHAR(20)  CHECK (Movable IN ('jueves_santo', 'viernes_santo')), -- movil
     Date       DATE,                                                 -- extra
     IsActive   BOOLEAN      NOT NULL DEFAULT TRUE,
-    CreatedAt  TIMESTAMP    NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    CreatedAt  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT ck_holidays_kind CHECK (
         (Kind = 'fijo'  AND Month IS NOT NULL AND Day IS NOT NULL AND Movable IS NULL AND Date IS NULL) OR
         (Kind = 'movil' AND Movable IS NOT NULL AND Month IS NULL AND Day IS NULL AND Date IS NULL) OR
@@ -92,7 +92,7 @@ ALTER TABLE landing.complaints ADD CONSTRAINT complaints_status_check
     CHECK (Status IN ('pendiente', 'respondida', 'descartada', 'anulada'));
 
 ALTER TABLE landing.complaints ADD COLUMN IF NOT EXISTS ClosedReason VARCHAR(500);
-ALTER TABLE landing.complaints ADD COLUMN IF NOT EXISTS ClosedAt     TIMESTAMP;
+ALTER TABLE landing.complaints ADD COLUMN IF NOT EXISTS ClosedAt     TIMESTAMPTZ;
 ALTER TABLE landing.complaints ADD COLUMN IF NOT EXISTS ClosedBy     UUID;
 ALTER TABLE landing.complaints ADD COLUMN IF NOT EXISTS ClosedByName VARCHAR(150);
 

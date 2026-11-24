@@ -14,13 +14,28 @@ import 'package:path_provider/path_provider.dart';
 class FaceCaptureResult {
   final String filePath;
   final double qualityScore;
-  FaceCaptureResult({required this.filePath, required this.qualityScore});
+
+  /// true si el conductor completó la prueba de vida antes de la foto.
+  final bool livenessPassed;
+
+  FaceCaptureResult({
+    required this.filePath,
+    required this.qualityScore,
+    this.livenessPassed = false,
+  });
 }
 
 /// Pantalla de captura de selfie con detección facial en vivo.
 /// Solo cierra con foto válida (POP con FaceCaptureResult) o cancelada (POP con null).
+///
+/// Si [livenessChallenges] es true (interruptor del admin
+/// `face_verification_enabled`), antes de la foto se piden 2 retos en orden
+/// aleatorio: parpadear y girar la cabeza hacia un lado. Si es false, la
+/// pantalla funciona igual que siempre.
 class FaceCaptureScreen extends StatefulWidget {
-  const FaceCaptureScreen({super.key});
+  final bool livenessChallenges;
+
+  const FaceCaptureScreen({super.key, this.livenessChallenges = false});
 
   @override
   State<FaceCaptureScreen> createState() => _FaceCaptureScreenState();
@@ -54,12 +69,41 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   /// True mientras estamos tomando la foto (entre takePicture y el cierre).
   bool _capturing = false;
 
+  // ── Prueba de vida (solo si widget.livenessChallenges) ───────────────
+  /// Retos en el orden en que se piden (se sortea al empezar).
+  List<_Challenge> _challenges = const [];
+  /// Índice del reto actual. Igual a _challenges.length = todos completados.
+  int _challengeIdx = 0;
+  /// Primera mitad del reto cumplida (ojos cerrados / cabeza girada);
+  /// falta la segunda (ojos abiertos / volver al frente).
+  bool _challengeHalfDone = false;
+  /// Cuándo empezó el intento actual del reto (para el tiempo límite).
+  /// Null = todavía no hay un rostro válido para empezar.
+  DateTime? _challengeStartedAt;
+  /// trackingId de ML Kit del rostro que está haciendo la prueba.
+  int? _livenessFaceId;
+  /// Desde cuándo no se ve el rostro (tolerancia a frames sueltos).
+  DateTime? _faceLostAt;
+  /// Aviso temporal ("No detectamos el movimiento…") y hasta cuándo se ve.
+  String? _livenessHint;
+  DateTime? _livenessHintUntil;
+
+  static const _challengeTimeout = Duration(seconds: 8);
+  static const _faceLostTolerance = Duration(milliseconds: 700);
+
+  bool get _livenessPending =>
+      widget.livenessChallenges && _challengeIdx < _challenges.length;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.livenessChallenges) _resetLiveness();
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
+        // Seguimiento del rostro (trackingId) solo para la prueba de vida:
+        // así sabemos que es la misma cara durante todo el proceso.
+        enableTracking: widget.livenessChallenges,
         // performanceMode.fast: 30 FPS aprox. Suficiente para verificar.
         // performanceMode.accurate sería para análisis post-mortem, gasta más batería.
         performanceMode: FaceDetectorMode.fast,
@@ -131,6 +175,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       _selectedCameraIdx = (_selectedCameraIdx + 1) % _availableCameras.length;
       _cancelCountdown();   // reset checks al cambiar
       _checks = _FaceChecks.empty();
+      if (widget.livenessChallenges) _resetLiveness();
     });
     await _initializeCamera();
   }
@@ -152,9 +197,15 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       final checks = _evaluateFaces(faces, image.width, image.height);
 
       if (!mounted) return;
-      setState(() => _checks = checks);
+      setState(() {
+        _checks = checks;
+        if (widget.livenessChallenges) _updateLiveness(faces, checks);
+      });
 
-      if (checks.allOk()) {
+      // Con prueba de vida: la foto se toma recién al completar los retos.
+      if (_livenessPending) {
+        _cancelCountdown();
+      } else if (checks.allOk()) {
         _startCountdownIfIdle();
       } else {
         _cancelCountdown();
@@ -316,6 +367,129 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Prueba de vida: parpadear + girar la cabeza (en orden aleatorio).
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /// Empieza la prueba desde cero, con un orden y un lado nuevos.
+  void _resetLiveness() {
+    final rnd = math.Random();
+    final turn = rnd.nextBool() ? _Challenge.turnLeft : _Challenge.turnRight;
+    _challenges = rnd.nextBool()
+        ? [_Challenge.blink, turn]
+        : [turn, _Challenge.blink];
+    _challengeIdx = 0;
+    _challengeHalfDone = false;
+    _challengeStartedAt = null;
+    _livenessFaceId = null;
+    _faceLostAt = null;
+  }
+
+  /// Muestra un aviso temporal sobre la prueba de vida.
+  void _showLivenessHint(String text) {
+    _livenessHint = text;
+    _livenessHintUntil = DateTime.now().add(const Duration(seconds: 3));
+  }
+
+  /// Reinicia la prueba porque el rostro cambió o desapareció. Solo avisa
+  /// si ya había empezado (para no mostrar el aviso al entrar).
+  void _restartLiveness() {
+    final started = _livenessFaceId != null || _challengeStartedAt != null;
+    _resetLiveness();
+    if (started) {
+      _showLivenessHint('Mantén tu rostro en el óvalo. Empecemos de nuevo.');
+    }
+  }
+
+  /// Avanza la prueba de vida con el frame actual. Se llama dentro de
+  /// setState. Además de los retos, vigila que sea siempre UNA sola cara y
+  /// la misma (trackingId) hasta que se toma la foto.
+  void _updateLiveness(List<Face> faces, _FaceChecks checks) {
+    final now = DateTime.now();
+    final started = _livenessFaceId != null || _challengeStartedAt != null;
+
+    // Dos o más personas: se reinicia.
+    if (faces.length > 1) {
+      if (started) _restartLiveness();
+      return;
+    }
+
+    // Sin rostro: se tolera un instante (frames sueltos sin detección).
+    if (faces.isEmpty) {
+      if (!started) return;
+      _faceLostAt ??= now;
+      if (now.difference(_faceLostAt!) > _faceLostTolerance) _restartLiveness();
+      return;
+    }
+    _faceLostAt = null;
+
+    final face = faces.first;
+    final id = face.trackingId;
+    // Otra cara distinta a la que empezó: se reinicia.
+    if (_livenessFaceId != null && id != null && id != _livenessFaceId) {
+      _restartLiveness();
+      return;
+    }
+
+    // Retos ya completados: solo se vigila que siga siendo la misma cara.
+    if (!_livenessPending) return;
+
+    // Para empezar: un solo rostro a buena distancia.
+    if (_challengeStartedAt == null) {
+      if (!checks.goodSize) return;
+      _livenessFaceId = id;
+      _challengeStartedAt = now;
+      _challengeHalfDone = false;
+    }
+    _livenessFaceId ??= id;
+
+    final challenge = _challenges[_challengeIdx];
+    final done = challenge == _Challenge.blink
+        ? _evalBlink(face)
+        : _evalTurn(face, challenge == _Challenge.turnLeft);
+
+    if (done) {
+      _challengeIdx++;
+      _challengeHalfDone = false;
+      _challengeStartedAt = now; // el siguiente reto arranca su tiempo
+      return;
+    }
+
+    // Tiempo agotado: se repite el mismo reto.
+    if (now.difference(_challengeStartedAt!) > _challengeTimeout) {
+      _challengeHalfDone = false;
+      _challengeStartedAt = now;
+      _showLivenessHint('No detectamos el movimiento, inténtalo de nuevo');
+    }
+  }
+
+  /// Parpadeo: primero ambos ojos cerrados (< 0.2) y luego abiertos (> 0.6).
+  bool _evalBlink(Face face) {
+    final l = face.leftEyeOpenProbability;
+    final r = face.rightEyeOpenProbability;
+    if (l == null || r == null) return false;
+    if (!_challengeHalfDone) {
+      if (l < 0.2 && r < 0.2) _challengeHalfDone = true;
+      return false;
+    }
+    return l > 0.6 && r > 0.6;
+  }
+
+  /// Giro: más de 18° hacia el lado pedido y luego volver al frente (< 10°).
+  ///
+  /// ML Kit: headEulerAngleY positivo = la cara gira hacia la derecha de la
+  /// imagen del sensor (sin espejo), que es la IZQUIERDA de la persona.
+  bool _evalTurn(Face face, bool toLeft) {
+    final yaw = face.headEulerAngleY;
+    if (yaw == null) return false;
+    if (!_challengeHalfDone) {
+      final towardSide = toLeft ? yaw : -yaw;
+      if (towardSide > 18) _challengeHalfDone = true;
+      return false;
+    }
+    return yaw.abs() < 10;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Countdown + captura
   // ═══════════════════════════════════════════════════════════════════════
   void _startCountdownIfIdle() {
@@ -365,7 +539,11 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
 
       if (!mounted) return;
       Navigator.of(context).pop(
-        FaceCaptureResult(filePath: finalPath, qualityScore: score),
+        FaceCaptureResult(
+          filePath: finalPath,
+          qualityScore: score,
+          livenessPassed: widget.livenessChallenges && !_livenessPending,
+        ),
       );
     } catch (e) {
       setState(() {
@@ -386,6 +564,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     if (state == AppLifecycleState.inactive) {
       _camera?.dispose();
     } else if (state == AppLifecycleState.resumed) {
+      // La prueba de vida vuelve a empezar al regresar a la app.
+      if (widget.livenessChallenges) _resetLiveness();
       _initializeCamera();
     }
   }
@@ -453,7 +633,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         Positioned.fill(
           child: CustomPaint(
             painter: _OvalGuidePainter(
-              allOk: _checks.allOk(),
+              allOk: _checks.allOk() && !_livenessPending,
               countdown: _countdownSecs,
             ),
           ),
@@ -481,9 +661,10 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         ),
 
         // ── Instrucción principal (arriba) ─────────────────────────────
+        // Con prueba de vida pendiente se muestra el reto en su lugar.
         Positioned(
           top: 80, left: 16, right: 16,
-          child: Container(
+          child: _livenessPending ? _buildChallengeCard() : Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.55),
@@ -585,6 +766,215 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Tarjeta del reto actual de la prueba de vida: progreso (reto N de 2),
+  /// ícono animado, instrucción, tiempo restante y avisos.
+  Widget _buildChallengeCard() {
+    final challenge = _challenges[_challengeIdx];
+    final started = _challengeStartedAt != null;
+
+    // Segunda mitad del reto: qué falta hacer.
+    String? detail;
+    if (!started) {
+      detail = _checks.mainInstruction();
+    } else if (_challengeHalfDone) {
+      detail = challenge == _Challenge.blink
+          ? 'Ahora abre los ojos'
+          : 'Ahora vuelve a mirar al frente';
+    } else if (challenge == _Challenge.blink) {
+      // Un parpadeo muy rápido puede no captarse entre dos frames.
+      detail = 'Cierra los ojos un momento y vuelve a abrirlos';
+    }
+
+    // Tiempo restante del intento (0..1).
+    double remaining = 1;
+    if (started) {
+      final elapsed = DateTime.now().difference(_challengeStartedAt!);
+      remaining = 1 -
+          (elapsed.inMilliseconds / _challengeTimeout.inMilliseconds)
+              .clamp(0.0, 1.0);
+    }
+
+    final hintUntil = _livenessHintUntil;
+    final hint = (hintUntil != null && DateTime.now().isBefore(hintUntil))
+        ? _livenessHint
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Progreso de los retos.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Reto ${_challengeIdx + 1} de ${_challenges.length}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              for (var i = 0; i < _challenges.length; i++)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i < _challengeIdx
+                        ? Colors.greenAccent
+                        : i == _challengeIdx
+                            ? Colors.white
+                            : Colors.white24,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _ChallengeIcon(challenge: challenge),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      challenge.instruction,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (detail != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 13),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (started) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: remaining,
+                minHeight: 4,
+                backgroundColor: Colors.white24,
+                color: remaining > 0.3 ? Colors.greenAccent : Colors.amber,
+              ),
+            ),
+          ],
+          if (hint != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.amber, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    hint,
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Retos de la prueba de vida.
+// ═══════════════════════════════════════════════════════════════════════════
+enum _Challenge {
+  blink,
+  turnLeft,
+  turnRight;
+
+  String get instruction {
+    switch (this) {
+      case _Challenge.blink:     return 'Parpadea';
+      case _Challenge.turnLeft:  return 'Gira un poco la cabeza hacia la izquierda';
+      case _Challenge.turnRight: return 'Gira un poco la cabeza hacia la derecha';
+    }
+  }
+}
+
+/// Ícono animado del reto: un ojo que se abre y cierra (parpadeo) o una
+/// flecha que se mueve hacia el lado pedido (giro).
+class _ChallengeIcon extends StatefulWidget {
+  final _Challenge challenge;
+  const _ChallengeIcon({required this.challenge});
+
+  @override
+  State<_ChallengeIcon> createState() => _ChallengeIconState();
+}
+
+class _ChallengeIconState extends State<_ChallengeIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: AnimatedBuilder(
+        animation: _anim,
+        builder: (_, __) {
+          if (widget.challenge == _Challenge.blink) {
+            return Icon(
+              _anim.value < 0.5 ? Icons.visibility : Icons.visibility_off,
+              color: Colors.white,
+              size: 26,
+            );
+          }
+          // La vista previa es en espejo: la flecha a la izquierda de la
+          // pantalla coincide con la izquierda del conductor.
+          final toLeft = widget.challenge == _Challenge.turnLeft;
+          return Transform.translate(
+            offset: Offset((toLeft ? -6 : 6) * _anim.value, 0),
+            child: Icon(
+              toLeft ? Icons.arrow_back_rounded : Icons.arrow_forward_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          );
+        },
       ),
     );
   }

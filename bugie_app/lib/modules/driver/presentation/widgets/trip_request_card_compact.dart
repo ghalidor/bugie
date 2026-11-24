@@ -7,6 +7,7 @@ import '../../../../core/widgets/service_badge.dart';
 import '../../../../core/widgets/schedule_picker.dart';
 import '../../../trips/domain/trip_model.dart';
 import '../../../trips/domain/proposal_model.dart';
+import '../../../../core/utils/format.dart';
 
 /// Card compacto para la lista de solicitudes entrantes.
 ///
@@ -41,12 +42,6 @@ class TripRequestCardCompact extends StatelessWidget {
     this.onExpired,
   });
 
-  static String _timeAgo(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    return 'hace ${diff.inHours} h';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -184,7 +179,7 @@ class TripRequestCardCompact extends StatelessWidget {
                             color: serviceColor(trip.isDelivery),
                           ),
                           Text(
-                            _timeAgo(trip.createdAt),
+                            timeAgo(trip.createdAt),
                             style:
                                 TextStyle(fontSize: 11.5, color: c.textMuted),
                           ),

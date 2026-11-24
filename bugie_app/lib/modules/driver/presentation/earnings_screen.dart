@@ -8,6 +8,7 @@ import '../../payments/domain/payment_model.dart';
 import '../../rewards/data/rewards_repository.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import 'widgets/payout_code_card.dart';
+import '../../../core/utils/format.dart';
 
 class EarningsScreen extends StatefulWidget {
   /// false = pestaña del menú inferior (sin botón volver).
@@ -129,7 +130,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
             Text(debe ? 'Comisión pendiente de pago' : 'Estás al día con Bugie',
                 style: const TextStyle(color: BugieColors.textMuted, fontSize: 12)),
             const SizedBox(height: 4),
-            Text('S/ ${w.pendingDebt.toStringAsFixed(2)}',
+            Text(formatSoles(w.pendingDebt),
                 style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
@@ -137,7 +138,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
             const SizedBox(height: 8),
             Text(
               'Cobras todo en mano. Por cada viaje Bugie cobra una comisión '
-              '(${w.currentFeePercent.toStringAsFixed(w.currentFeePercent % 1 == 0 ? 0 : 2)}%) '
+              '(${formatPercent(w.currentFeePercent)}) '
               'que le pagas por Yape, Plin, transferencia o efectivo.',
               style: const TextStyle(color: BugieColors.textMuted, fontSize: 12),
             ),
@@ -162,14 +163,14 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 title: Text(m.isCommission ? 'Comisión de viaje' : 'Pago de comisión'),
                 subtitle: Text([
                   if (m.isCommission && m.tripAmount != null)
-                    'Viaje S/ ${m.tripAmount!.toStringAsFixed(2)}',
+                    'Viaje ${formatSoles(m.tripAmount!)}',
                   if (!m.isCommission) m.methodLabel,
                   if (m.operationNumber != null) 'op ${m.operationNumber}',
                   fecha.format(m.paidAt ?? m.createdAt),
                   if (m.note != null) m.note!,
                 ].join(' · ')),
                 trailing: Text(
-                  '${m.isCommission ? '-' : '+'} S/ ${m.amount.toStringAsFixed(2)}',
+                  '${m.isCommission ? '-' : '+'} ${formatSoles(m.amount)}',
                   style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: m.isCommission ? BugieColors.danger : BugieColors.primary),
@@ -243,7 +244,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
         child: Row(
           children: [
             Expanded(child: Text(label, style: const TextStyle(color: BugieColors.textMuted))),
-            Text('S/ ${value.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(formatSoles(value), style: const TextStyle(fontWeight: FontWeight.w600)),
           ],
         ),
       );
@@ -278,7 +279,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                   style: TextStyle(color: Colors.white70)),
                               const SizedBox(height: 4),
                               Text(
-                                'S/ ${_earnings!.earningsThisMonth.toStringAsFixed(2)}',
+                                formatSoles(_earnings!.earningsThisMonth),
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 36,
@@ -300,7 +301,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                       style: TextStyle(color: BugieColors.textMuted, fontSize: 12)),
                                   const SizedBox(height: 4),
                                   Text(
-                                      'S/ ${_earnings!.totalEarnings.toStringAsFixed(2)}',
+                                      formatSoles(_earnings!.totalEarnings),
                                       style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold)),
@@ -344,7 +345,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           ),
                           if (_payouts != null && _payouts!.items.isNotEmpty)
-                            Text('S/ ${_payouts!.totalAmount.toStringAsFixed(2)}',
+                            Text(formatSoles(_payouts!.totalAmount),
                                 style: const TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       ),
@@ -390,7 +391,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                     ].join(' · ')),
                                   ],
                                 ),
-                                trailing: Text('S/ ${p.amount.toStringAsFixed(2)}',
+                                trailing: Text(formatSoles(p.amount),
                                     style: const TextStyle(fontWeight: FontWeight.bold)),
                               ),
                             )),

@@ -18,7 +18,10 @@ public record RaffleDto(
     int?      TicketsAtDraw,
     string?   DrawSeed,
     int       TicketsNow,
-    List<RaffleWinnerDto> Winners);
+    List<RaffleWinnerDto> Winners,
+    // Premio de los puestos 2+ (null = sin definir: el admin fija el monto al pagar)
+    string?   SecondaryPrizeDescription = null,
+    decimal?  SecondaryPrizeValue       = null);
 
 public record RaffleWinnerDto(
     Guid      Id,
@@ -33,7 +36,9 @@ public record RaffleWinnerDto(
     string?   UserName = null,
     string?   UserRole = null,
     // Codigo que el ganador presenta para cobrar (PZ-XXXXXX)
-    string?   PrizeCode = null);
+    string?   PrizeCode = null,
+    // Valor en soles del premio de este puesto (null = sin monto fijo)
+    decimal?  PrizeValue = null);
 
 public record RaffleInput(
     string    Name,
@@ -45,7 +50,10 @@ public record RaffleInput(
     int?      MinMonthsActive,
     string    TargetUserType,
     int       WinnersCount,
-    bool      Open);
+    bool      Open,
+    // Premio de los puestos 2 en adelante (solo si WinnersCount > 1)
+    string?   SecondaryPrizeDescription = null,
+    decimal?  SecondaryPrizeValue       = null);
 
 /// <summary>Admin: un ticket del sorteo con su propietario.</summary>
 public record RaffleTicketAdminDto(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../../modules/trips/domain/trip_model.dart';
 import '../services/active_trip_service.dart';
 import '../theme/bugie_theme.dart';
 
@@ -95,7 +96,14 @@ class _ActiveTripFrameState extends State<ActiveTripFrame>
     // Pantallas bajas (celular en horizontal): franja más delgada.
     final barH = mq.size.height < 480 ? 38.0 : 46.0;
     final full = topPad + barH;
-    final isDelivery = _svc.active.value?.isDelivery ?? false;
+    final trip = _svc.active.value;
+    final isDelivery = trip?.isDelivery ?? false;
+    // Pasajero con un programado ya aceptado que todavía no inicia (aunque
+    // ya pasó su hora): no está "en curso".
+    final isScheduled = _svc.isPassenger &&
+        trip != null &&
+        trip.status == TripStatus.accepted &&
+        trip.scheduledAt != null;
 
     return AnimatedBuilder(
       animation: _show,
@@ -122,6 +130,7 @@ class _ActiveTripFrameState extends State<ActiveTripFrame>
                           topPad: topPad,
                           height: barH,
                           isDelivery: isDelivery,
+                          isScheduled: isScheduled,
                           onTap: _open,
                         ),
                       ),
@@ -147,17 +156,20 @@ class _StripBar extends StatelessWidget {
   final double topPad;
   final double height;
   final bool isDelivery;
+  final bool isScheduled;
   final VoidCallback onTap;
   const _StripBar({
     required this.topPad,
     required this.height,
     required this.isDelivery,
+    required this.isScheduled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final label = isDelivery ? 'Envío en curso' : 'Viaje en curso';
+    final service = isDelivery ? 'Envío' : 'Viaje';
+    final label = isScheduled ? '$service programado' : '$service en curso';
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Material(
@@ -190,9 +202,11 @@ class _StripBar extends StatelessWidget {
                       child: Row(
                         children: [
                           Icon(
-                            isDelivery
-                                ? Icons.local_shipping_rounded
-                                : Icons.directions_car_rounded,
+                            isScheduled
+                                ? Icons.event_rounded
+                                : isDelivery
+                                    ? Icons.local_shipping_rounded
+                                    : Icons.directions_car_rounded,
                             color: Colors.white,
                             size: 20,
                           ),

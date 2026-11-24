@@ -32,6 +32,11 @@ public class Trip
     public decimal? DiscountAmount     { get; set; }
     /// <summary>Tarifa antes del descuento. Sin esto no se puede auditar nada.</summary>
     public decimal? FareBeforeDiscount { get; set; }
+    /// <summary>Cupon de monto que vale mas que la tarifa: soles que sobran y vuelven
+    /// al pasajero como puntos al completar. null si no sobra nada.</summary>
+    public decimal? CouponLeftover       { get; set; }
+    /// <summary>Ese sobrante en puntos (estimado al aplicar; Rewards acredita al completar).</summary>
+    public int?     CouponLeftoverPoints { get; set; }
 
     /// <summary>Lo que el pasajero paga de verdad, ya con el descuento.</summary>
     public decimal AmountToPay =>
@@ -276,7 +281,8 @@ public class Trip
     /// Deja el cupon anotado en el viaje. NO lo consume: eso pasa al
     /// completar. Si el viaje se cancela, el cupon queda libre.
     /// </summary>
-    public void ApplyCoupon(string code, decimal discount, decimal fareBefore)
+    public void ApplyCoupon(string code, decimal discount, decimal fareBefore,
+        decimal leftover = 0, int leftoverPoints = 0)
     {
         if(discount <= 0)
             throw new InvalidOperationException("El descuento debe ser mayor a cero.");
@@ -288,6 +294,9 @@ public class Trip
         CouponCode         = code;
         DiscountAmount     = discount;
         FareBeforeDiscount = fareBefore;
+        // Solo hay sobrante si devuelve al menos 1 punto.
+        CouponLeftover       = leftoverPoints > 0 ? leftover : null;
+        CouponLeftoverPoints = leftoverPoints > 0 ? leftoverPoints : null;
     }
 
     public void RemoveCoupon()
@@ -295,6 +304,8 @@ public class Trip
         CouponCode         = null;
         DiscountAmount     = null;
         FareBeforeDiscount = null;
+        CouponLeftover       = null;
+        CouponLeftoverPoints = null;
     }
 
     public bool HasCoupon => !string.IsNullOrWhiteSpace(CouponCode);

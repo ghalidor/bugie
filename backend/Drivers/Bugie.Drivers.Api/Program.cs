@@ -21,8 +21,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── Base de datos ────────────────────────────────────────────────────────
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
-// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+    new NpgsqlConnection(BugieTimeSetup.PeruConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: timestamptz (instantes en UTC), JSON en hora de Peru (ver BugieTime)
 BugieTimeSetup.ConfigureDapper();
 
 // URLs de la web y del admin para los enlaces de los correos (en produccion: el dominio)
@@ -39,7 +39,9 @@ builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 builder.Services.AddScoped<IDocumentNotificationRepository, DocumentNotificationRepository>();
 builder.Services.AddScoped<ILocationHistoryRepository, LocationHistoryRepository>();
 builder.Services.AddScoped<IDriverPresenceCheckInRepository, DriverPresenceCheckInRepository>();
+builder.Services.AddScoped<IDriverFaceRepository, DriverFaceRepository>();
 builder.Services.AddScoped<IApprovalAuditRepository, ApprovalAuditRepository>();
+builder.Services.AddScoped<IAdminReportsRepository, AdminReportsRepository>();
 builder.Services.AddScoped<IDriverReviewRequestRepository, DriverReviewRequestRepository>();
 builder.Services.AddScoped<ITripPathRepository, TripPathRepository>();
 builder.Services.AddScoped<IGpsArchiveRepository, GpsArchiveRepository>();
@@ -79,6 +81,15 @@ builder.Services.AddSingleton<Bugie.Drivers.Application.Services.Location.Driver
 builder.Services.AddSingleton<Bugie.Drivers.Application.Services.Location.LocationQueue>();
 builder.Services.AddScoped<Bugie.Drivers.Application.Services.Location.LocationIngestService>();
 builder.Services.AddHostedService<LocationWriterService>();
+
+// ── Verificación facial ──────────────────────────────────────────────────
+// Interruptor face_verification_enabled (Configuración). Motor intercambiable:
+// IFaceRecognizer (hoy YuNet + SFace de OpenCV Zoo con ONNX Runtime). Singleton
+// thread-safe con carga perezosa; modelos en FaceRecognition:ModelsPath.
+builder.Services.Configure<Bugie.Drivers.Infrastructure.FaceRecognition.FaceRecognitionOptions>(
+    builder.Configuration.GetSection("FaceRecognition"));
+builder.Services.AddSingleton<IFaceRecognizer, Bugie.Drivers.Infrastructure.FaceRecognition.SFaceRecognizer>();
+builder.Services.AddScoped<Bugie.Drivers.Application.Services.FaceVerificationService>();
 
 // ── Almacenamiento ───────────────────────────────────────────────────────
 builder.Services.Configure<LocalStorageOptions>(

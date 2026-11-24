@@ -60,7 +60,7 @@ public class RedemptionRepository : IRedemptionRepository
             {
                 var stockUpdated = await _db.ExecuteAsync(@"
                     UPDATE rewards.CatalogItems
-                    SET Stock = Stock - 1, UpdatedAt = (now() AT TIME ZONE 'utc')
+                    SET Stock = Stock - 1, UpdatedAt = now()
                     WHERE Id = @Id AND Stock IS NOT NULL AND Stock > 0",
                     new { Id = redemption.CatalogItemId }, trx);
 
@@ -127,31 +127,43 @@ public class RedemptionRepository : IRedemptionRepository
                 return false;
             }
 
-            await _db.ExecuteAsync(@"
+            // Saldo atomico: se bloquea la fila del perfil, el libro guarda el
+            // saldo REAL antes/despues y el UPDATE suma en la base. Asi una
+            // acreditacion o un canje simultaneos no se pisan con esta devolucion.
+            var saldoAntes = await _db.ExecuteScalarAsync<int>(@"
+                SELECT AvailablePoints FROM rewards.PointsProfiles
+                WHERE Id = @Id FOR UPDATE",
+                new { profile.Id }, trx);
+
+            await _db.ExecuteAsync(LedgerSql.InsertMovement,
+                LedgerSql.MovementParams(movement, saldoAntes, saldoAntes + movement.Points), trx);
+
+            var saldo = await _db.QuerySingleAsync<RefundBalanceRow>(@"
                 UPDATE rewards.PointsProfiles SET
-                    AvailablePoints = @AvailablePoints,
-                    RedeemedPoints  = @RedeemedPoints,
-                    UpdatedAt       = @UpdatedAt
-                WHERE Id = @Id",
+                    AvailablePoints  = AvailablePoints + @Points,
+                    RedeemedPoints   = GREATEST(0, RedeemedPoints - @Points),
+                    PointsExpiryDate = COALESCE(PointsExpiryDate, @PointsExpiryDate),
+                    UpdatedAt        = @UpdatedAt
+                WHERE Id = @Id
+                RETURNING TotalPoints, AvailablePoints, RedeemedPoints, CurrentLevel",
                 new
                 {
                     profile.Id,
-                    profile.AvailablePoints,
-                    profile.RedeemedPoints,
+                    movement.Points,
+                    profile.PointsExpiryDate,
                     profile.UpdatedAt
                 }, trx);
-
-            await _db.ExecuteAsync(InsertTransactionSql, movement, trx);
 
             // Devolver el stock si el item lo controlaba.
             if (redemption.CatalogItemId is not null)
                 await _db.ExecuteAsync(@"
                     UPDATE rewards.CatalogItems
-                    SET Stock = Stock + 1, UpdatedAt = (now() AT TIME ZONE 'utc')
+                    SET Stock = Stock + 1, UpdatedAt = now()
                     WHERE Id = @Id AND Stock IS NOT NULL",
                     new { Id = redemption.CatalogItemId }, trx);
 
             trx.Commit();
+            profile.SyncBalances(saldo.TotalPoints, saldo.AvailablePoints, saldo.RedeemedPoints, saldo.CurrentLevel);
             return true;
         }
         catch
@@ -163,6 +175,15 @@ public class RedemptionRepository : IRedemptionRepository
         {
             if (wasClosed && _db.State == ConnectionState.Open) _db.Close();
         }
+    }
+
+    /// <summary>Saldo real del perfil despues de la devolucion.</summary>
+    private sealed class RefundBalanceRow
+    {
+        public int    TotalPoints     { get; set; }
+        public int    AvailablePoints { get; set; }
+        public int    RedeemedPoints  { get; set; }
+        public string CurrentLevel    { get; set; } = string.Empty;
     }
 
     private const string InsertTransactionSql = @"
@@ -276,9 +297,85 @@ public class RedemptionRepository : IRedemptionRepository
     /// Vence los cupones que pasaron su fecha. No devuelve puntos: el usuario
     /// ya los gasto al canjear, igual que un cupon de papel que se vence.
     /// </summary>
+    // Los 'reserved' no se tocan: estan aplicados a un viaje que sigue activo.
     public async Task<int> ExpireOverdueAsync(CancellationToken ct = default) =>
         await _db.ExecuteAsync(@"
             UPDATE rewards.Redemptions
             SET Status = 'expired'
-            WHERE Status = 'active' AND ExpiresAt < (now() AT TIME ZONE 'utc')");
+            WHERE Status = 'active' AND ExpiresAt < now()");
+
+    // ------------------------------------------------------------------------
+    // Reserva del cupon en un viaje. Cada cambio es un UPDATE condicionado al
+    // estado: si dos peticiones llegan a la vez, solo una afecta la fila.
+    // ------------------------------------------------------------------------
+    public async Task<bool> TryReserveAsync(
+        Guid redemptionId, Guid userId, Guid tripId, CancellationToken ct = default) =>
+        await _db.ExecuteAsync(@"
+            UPDATE rewards.Redemptions
+               SET Status = 'reserved', ReservedTripId = @TripId, ReservedAt = now()
+             WHERE Id = @Id AND UserId = @UserId
+               AND ((Status = 'active' AND ExpiresAt > now())
+                 OR (Status = 'reserved' AND ReservedTripId = @TripId))",
+            new { Id = redemptionId, UserId = userId, TripId = tripId }) > 0;
+
+    public Task<string?> ReleaseAsync(
+        string code, Guid tripId, DateTime? requestedAtUtc, CancellationToken ct = default) =>
+        _db.QuerySingleOrDefaultAsync<string?>(@"
+            UPDATE rewards.Redemptions
+               SET Status = CASE WHEN ExpiresAt > now() THEN 'active' ELSE 'expired' END,
+                   ReservedTripId = NULL, ReservedAt = NULL
+             WHERE Code = @Code AND Status = 'reserved' AND ReservedTripId = @TripId
+               AND (@RequestedAt::timestamptz IS NULL OR ReservedAt <= @RequestedAt::timestamptz)
+            RETURNING Status",
+            new
+            {
+                Code        = code,
+                TripId      = tripId,
+                RequestedAt = requestedAtUtc is null
+                    ? (DateTime?)null
+                    : DateTime.SpecifyKind(requestedAtUtc.Value, DateTimeKind.Utc),
+            });
+
+    public async Task<bool> TryConsumeForTripAsync(
+        Guid redemptionId, Guid tripId, string note, CancellationToken ct = default) =>
+        await _db.ExecuteAsync(@"
+            UPDATE rewards.Redemptions
+               SET Status = 'used', UsedAt = now(), UsedReferenceId = @TripId, UsedNote = @Note
+             WHERE Id = @Id
+               AND ((Status = 'reserved' AND ReservedTripId = @TripId)
+                 OR (Status = 'active' AND ExpiresAt > now()))",
+            new { Id = redemptionId, TripId = tripId, Note = note }) > 0;
+
+    // Las dos redes de seguridad leen trips.Trips (misma base, igual que
+    // AdminQueryRepository). Status del viaje: 4 = completado, 5 = cancelado.
+    public async Task<int> ReleaseOrphanReservationsAsync(int graceMinutes, CancellationToken ct = default) =>
+        await _db.ExecuteAsync(@"
+            UPDATE rewards.Redemptions r
+               SET Status = CASE WHEN r.ExpiresAt > now() THEN 'active' ELSE 'expired' END,
+                   ReservedTripId = NULL, ReservedAt = NULL
+             WHERE r.Status = 'reserved'
+               AND r.ReservedAt < now() - make_interval(mins => @Grace)
+               AND NOT EXISTS (
+                   SELECT 1 FROM trips.Trips t
+                    WHERE t.Id = r.ReservedTripId
+                      AND t.Status <> 5
+                      AND upper(t.CouponCode) = upper(r.Code))",
+            new { Grace = graceMinutes });
+
+    public async Task<List<PendingTripCoupon>> GetUnconsumedCompletedAsync(
+        int graceMinutes, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<PendingTripCoupon>(@"
+            SELECT r.Code, t.Id AS TripId,
+                   GREATEST(t.EstimatedFare - COALESCE(t.FinalFare, t.EstimatedFare), 0) AS AppliedDiscount
+              FROM rewards.Redemptions r
+              JOIN trips.Trips t ON t.Id = r.ReservedTripId
+             WHERE r.Status = 'reserved'
+               AND t.Status = 4
+               AND upper(t.CouponCode) = upper(r.Code)
+               AND t.CompletedAt < now() - make_interval(mins => @Grace)
+             LIMIT 100",
+            new { Grace = graceMinutes });
+        return rows.ToList();
+    }
 }

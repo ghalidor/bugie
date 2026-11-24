@@ -149,7 +149,7 @@ export default function DriverEarnings() {
                       <span className="bx-list-text">
                         <span className="bx-list-title">{comision ? 'Comisión de viaje' : 'Pago de comisión'}</span>
                         <span className="bx-list-sub d-block">
-                          {comision && m.tripAmount != null && <>Viaje S/ {m.tripAmount.toFixed(2)} · </>}
+                          {comision && m.tripAmount != null && <>Viaje {money(m.tripAmount)} · </>}
                           {!comision && m.method && <>{PAYOUT_METHOD[m.method]?.label ?? m.method} · </>}
                           {m.operationNumber && <>op {m.operationNumber} · </>}
                           {fmtFecha(m.paidAt ?? m.createdAt)}
@@ -157,7 +157,7 @@ export default function DriverEarnings() {
                         {m.note && <span className="bx-list-sub d-block">{m.note}</span>}
                       </span>
                       <span className={`bx-list-end amount ${comision ? 'bx-text-bad' : 'bx-text-ok'}`}>
-                        {comision ? '−' : '+'} S/ {m.amount.toFixed(2)}
+                        {comision ? '−' : '+'} {money(m.amount)}
                       </span>
                     </li>
                   );

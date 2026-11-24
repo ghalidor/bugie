@@ -100,7 +100,7 @@ export function calcularTarifa(km: number, cfg: PlatformConfig): number {
 }
 
 /** "S/ 12.50" (igual que los mensajes del backend). */
-const soles = (n: number) => `S/ ${n.toFixed(2)}`;
+const soles = (n: number) => `S/ ${n.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
  * Rango permitido para ofertar o contraofertar en un viaje (igual que el

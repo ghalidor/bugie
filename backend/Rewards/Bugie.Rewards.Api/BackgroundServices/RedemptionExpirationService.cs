@@ -1,4 +1,6 @@
+using MediatR;
 using Microsoft.Extensions.Options;
+using Bugie.Rewards.Application.Commands;
 using Bugie.Rewards.Domain.Interfaces;
 
 namespace Bugie.Rewards.Api.BackgroundServices;
@@ -7,6 +9,12 @@ public class RedemptionExpirationOptions
 {
     /// <summary>Cada cuantos minutos revisar. Default 60.</summary>
     public int CheckIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Minutos de espera antes de que la red de seguridad toque una reserva
+    /// (da tiempo a que llegue el aviso normal de Trips). Default 10.
+    /// </summary>
+    public int ReservationGraceMinutes { get; set; } = 10;
 }
 
 /// <summary>
@@ -18,6 +26,11 @@ public class RedemptionExpirationOptions
 ///
 /// OJO: esto vence CUPONES, no puntos. La caducidad de los puntos en si es un
 /// paso aparte que todavia no esta implementado.
+///
+/// Los cupones 'reserved' (aplicados a un viaje activo) no vencen. Ademas hace
+/// de red de seguridad de las reservas, por si un aviso de Trips se perdio:
+///   - viaje cancelado, sin el cupon o inexistente: libera la reserva;
+///   - viaje completado y cupon sin consumir: lo consume (idempotente).
 /// </summary>
 public class RedemptionExpirationService : BackgroundService
 {
@@ -50,6 +63,8 @@ public class RedemptionExpirationService : BackgroundService
                 var count = await repo.ExpireOverdueAsync(ct);
                 if (count > 0)
                     _log.LogInformation("{Count} cupones marcados como vencidos.", count);
+
+                await ReconcileReservationsAsync(scope.ServiceProvider, repo, ct);
             }
             catch (Exception ex)
             {
@@ -58,6 +73,31 @@ public class RedemptionExpirationService : BackgroundService
 
             try { await Task.Delay(delay, ct); }
             catch (TaskCanceledException) { break; }
+        }
+    }
+
+    private async Task ReconcileReservationsAsync(
+        IServiceProvider sp, IRedemptionRepository repo, CancellationToken ct)
+    {
+        var grace = Math.Max(1, _opt.ReservationGraceMinutes);
+
+        var released = await repo.ReleaseOrphanReservationsAsync(grace, ct);
+        if (released > 0)
+            _log.LogWarning("{Count} reservas de cupon liberadas: su viaje ya no estaba activo.", released);
+
+        var mediator = sp.GetRequiredService<IMediator>();
+        foreach (var p in await repo.GetUnconsumedCompletedAsync(grace, ct))
+        {
+            try
+            {
+                await mediator.Send(new UseTripCouponCommand(p.Code, p.TripId, p.AppliedDiscount), ct);
+                _log.LogWarning("Cupon {Code} del viaje completado {TripId} consumido por la red de seguridad.",
+                    p.Code, p.TripId);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "No se pudo consumir el cupon {Code} del viaje {TripId}.", p.Code, p.TripId);
+            }
         }
     }
 }

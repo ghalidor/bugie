@@ -8,11 +8,11 @@ namespace Bugie.Trips.Infrastructure.Repositories;
 
 /// <summary>
 /// Rutas planificadas (trips.TripPlannedRoutes) y alertas de desvio
-/// (trips.RouteDeviations). Las horas se ponen en SQL, en UTC.
+/// (trips.RouteDeviations). Las horas se ponen en SQL con now() (timestamptz).
 /// </summary>
 public class RouteDeviationRepository : IRouteDeviationRepository
 {
-    private const string NowUtc = "(NOW() AT TIME ZONE 'utc')";
+    private const string NowUtc = "now()";
 
     private readonly IDbConnection _db;
     public RouteDeviationRepository(IDbConnection db) => _db = db;

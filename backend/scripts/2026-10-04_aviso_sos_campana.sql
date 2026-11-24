@@ -14,7 +14,7 @@ BEGIN;
 INSERT INTO landing.SystemSettings (SettingKey, Value, Description) VALUES
  ('admin_notify_sos',
   '{"enabled":true,"color":"bad","duration":10}',
-  'Aviso en vivo: un pasajero o conductor activo el boton SOS (Centro SOS).')
+  'Aviso en vivo: un pasajero o conductor activó el botón SOS (Centro SOS).')
 ON CONFLICT (SettingKey) DO NOTHING;
 
 COMMIT;

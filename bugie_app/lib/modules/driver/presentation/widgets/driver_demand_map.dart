@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../../core/theme/bugie_theme.dart';
 import '../../../../core/widgets/bugie_map.dart';
 import '../../data/driver_demand.dart';
+import '../../../../core/utils/format.dart';
 
 /// Mapa del inicio del conductor:
 ///  - su posición,
@@ -80,8 +81,8 @@ class DriverDemandMap extends StatelessWidget {
         list.add(BugieMarker(
           position: LatLng(r.originLat, r.originLng),
           label: r.isDelivery
-              ? 'Envío, S/ ${r.estimatedFare.toStringAsFixed(2)}'
-              : 'Viaje, S/ ${r.estimatedFare.toStringAsFixed(2)}',
+              ? 'Envío, ${formatSoles(r.estimatedFare)}'
+              : 'Viaje, ${formatSoles(r.estimatedFare)}',
           width: 84,
           height: 64,
           onTap: () => onTapRequest(r),
@@ -264,7 +265,7 @@ class _RequestPin extends StatelessWidget {
               ],
             ),
             child: Text(
-              'S/ ${request.estimatedFare.toStringAsFixed(0)}',
+              formatSoles(request.estimatedFare),
               maxLines: 1,
               style: const TextStyle(
                 color: Colors.white,

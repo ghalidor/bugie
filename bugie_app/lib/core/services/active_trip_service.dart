@@ -18,7 +18,9 @@ import 'trips_hub_service.dart';
 ///  - al volver la app a primer plano,
 ///  - cada [_period] mientras la app está abierta,
 ///  - cuando llega un push (FcmService llama a [refresh]),
-///  - pasajero: con los eventos del hub de su viaje y sus avisos,
+///  - pasajero: con los eventos del hub (su viaje, sus avisos y su grupo de
+///    usuario, que avisa al instante si crea un viaje desde la web) y al
+///    (re)conectarse el hub,
 ///  - cuando alguna pantalla lo pide (Solicitudes en su consulta, la
 ///    pantalla del viaje al cerrarse).
 ///
@@ -83,6 +85,7 @@ class ActiveTripService with WidgetsBindingObserver {
 
   bool get _isDriver => _session?.role == UserRole.driver;
   bool get _isPassenger => _session?.role == UserRole.passenger;
+  bool get isPassenger => _isPassenger;
   bool get _tracks => _isDriver || _isPassenger;
 
   void _onSession() {
@@ -104,7 +107,9 @@ class ActiveTripService with WidgetsBindingObserver {
     }
   }
 
-  /// Pasajero: el hub (su viaje y sus avisos) dispara una nueva consulta.
+  /// Pasajero: el hub (su viaje, sus avisos y su grupo de usuario) dispara
+  /// una nueva consulta. La conexión se mantiene abierta mientras tanto para
+  /// recibir TripChanged del grupo user:{id} aunque no tenga viaje.
   void _listenHub(bool on) {
     if (on == _hubListening) return;
     _hubListening = on;
@@ -112,14 +117,25 @@ class ActiveTripService with WidgetsBindingObserver {
     if (on) {
       hub.tripChanged.addListener(_onHubEvent);
       hub.userNotification.addListener(_onHubEvent);
+      hub.connected.addListener(_onHubConnected);
+      hub.keepUserChannel();
     } else {
       hub.tripChanged.removeListener(_onHubEvent);
       hub.userNotification.removeListener(_onHubEvent);
+      hub.connected.removeListener(_onHubConnected);
+      hub.releaseUserChannel();
     }
   }
 
   void _onHubEvent() {
     if (_isPassenger) refresh(force: true);
+  }
+
+  /// Hub (re)conectado: pudo perderse un evento mientras estaba caído.
+  void _onHubConnected() {
+    if (_isPassenger && TripsHubService().connected.value) {
+      refresh(force: true);
+    }
   }
 
   /// Pasajero: entra al grupo del hub de su viaje activo (y sale del

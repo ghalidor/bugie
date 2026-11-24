@@ -1,14 +1,28 @@
 import BugieMap from '../../components/BugieMap';
 import { useLandingContent } from '../../hooks/useLandingContent';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { SAFETY } from '../../content/landing/safety';
 import LandingPage from '../../components/landing/LandingPage';
 import Eyebrow from '../../components/landing/Eyebrow';
 import IconFeature from '../../components/landing/IconFeature';
 
+/** Rellena {sosMin} con el tiempo objetivo de respuesta SOS configurado en el admin. */
+function fillSosMin<T>(value: T, min: number): T {
+  if (typeof value === 'string') return value.split('{sosMin}').join(String(min)) as T;
+  if (Array.isArray(value)) return value.map(v => fillSosMin(v, min)) as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = fillSosMin(v, min);
+    return out as T;
+  }
+  return value;
+}
+
 /** /seguridad. Textos en src/content/landing/safety.ts (sección 'safety'). */
 export default function Safety() {
   const { section } = useLandingContent();
-  const d = section('safety', SAFETY);
+  const { sosResponseMin } = usePlatformConfig();
+  const d = fillSosMin(section('safety', SAFETY), sosResponseMin);
 
   return (
     <LandingPage>

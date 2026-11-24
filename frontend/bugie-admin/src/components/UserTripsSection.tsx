@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { API, ApiError, apiFetch } from '../state/api';
+import { fmtSoles } from '../state/payouts';
 import TripDetailModal, { ServiceIcon, TripDetail } from './TripDetailModal';
 import DateRangeFilter, { appendRange, DateRange, EMPTY_RANGE, rangeCount } from './DateRangeFilter';
 import { Column, DataTable, FilterBar, Pagination, SectionCard, StatusBadge, Tone } from './ui';
@@ -88,7 +89,7 @@ export default function UserTripsSection({ mode, userId }: { mode: 'passenger' |
     { key: 'date', header: 'Fecha', priority: 2, render: t => <span className="ops-nowrap small">{fmtDate(t.createdAt)}</span> },
     {
       key: 'fare', header: 'Monto', priority: 1, align: 'right',
-      render: t => <span className="ops-amount">S/ {(t.finalFare ?? t.estimatedFare).toFixed(2)}</span>,
+      render: t => <span className="ops-amount">{fmtSoles(t.finalFare ?? t.estimatedFare)}</span>,
     },
   ];
 

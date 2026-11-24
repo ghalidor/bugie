@@ -5,10 +5,15 @@ using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.External;
 using Bugie.Rewards.Domain.Interfaces;
 using Bugie.Rewards.Domain.Services;
+using Bugie.Rewards.Domain.Common;
 
 namespace Bugie.Rewards.Application.Commands;
 
-public record NoCancelResult(int Awarded, int Points, int DriversChecked, string? Reason);
+/// <param name="DaysProcessed">Días evaluados en esta pasada (se pone al día si quedaron pendientes).</param>
+/// <param name="Retry">true si Trips no respondió y quedan días por evaluar.</param>
+public record NoCancelResult(
+    int Awarded, int Points, int DriversChecked, string? Reason,
+    int DaysProcessed = 1, bool Retry = false);
 
 /// <summary>
 /// Bono diario para el conductor que trabajó sin cancelar.
@@ -59,13 +64,51 @@ public class AwardNoCancellationsHandler
         if (options.NoCancelMinTrips <= 0 || options.NoCancelPoints <= 0)
             return new NoCancelResult(0, 0, 0, "La regla está desactivada.");
 
-        // Por defecto, el día de ayer en hora local.
-        var dia = cmd.LocalDate?.Date
-                  ?? DateTime.UtcNow.AddHours(options.TimezoneOffsetHours).Date.AddDays(-1);
+        // Un día pedido a mano (admin): solo ese día.
+        if (cmd.LocalDate is not null)
+            return await ProcessDayAsync(cmd.LocalDate.Value.Date, options, ct)
+                   ?? new NoCancelResult(0, 0, 0, "Trips no respondió. Se reintenta más tarde.", Retry: true);
 
+        // Automático: todos los días pendientes desde el último evaluado,
+        // hasta ayer (hora de Perú) y como mucho MaxCatchUpDays hacia atrás.
+        // Si Trips no responde, el día queda pendiente y se retoma cuando
+        // vuelva, en vez de perderse.
+        var ayer   = BugieTime.Today.AddDays(-1);
+        var ultimo = await _milestones.GetLastNoCancelDayAsync(ct);
+        var desde  = ultimo is null ? ayer : ultimo.Value.Date.AddDays(1);
+        if (desde < ayer.AddDays(-(MaxCatchUpDays - 1)))
+            desde = ayer.AddDays(-(MaxCatchUpDays - 1));
+
+        int premiados = 0, puntos = 0, revisados = 0, dias = 0;
+        for (var dia = desde; dia <= ayer; dia = dia.AddDays(1))
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var r = await ProcessDayAsync(dia, options, ct);
+            if (r is null)
+                return new NoCancelResult(premiados, puntos, revisados,
+                    $"Trips no respondió para el {dia:yyyy-MM-dd}. Se reintenta más tarde.",
+                    dias, Retry: true);
+
+            premiados += r.Awarded;
+            puntos    += r.Points;
+            revisados += r.DriversChecked;
+            dias++;
+        }
+
+        return new NoCancelResult(premiados, puntos, revisados,
+            dias == 0 ? "No había días pendientes." : null, dias);
+    }
+
+    /// <summary>Máximo de días hacia atrás que se recuperan si Trips estuvo caído.</summary>
+    public const int MaxCatchUpDays = 7;
+
+    /// <summary>Evalúa y paga un día. Null si Trips no respondió.</summary>
+    private async Task<NoCancelResult?> ProcessDayAsync(
+        DateTime dia, RewardsOptions options, CancellationToken ct)
+    {
         var stats = await _trips.GetDriverDayAsync(dia, ct);
-        if (stats is null)
-            return new NoCancelResult(0, 0, 0, "Trips no respondió. Se reintenta mañana.");
+        if (stats is null) return null;
 
         var periodo = dia.ToString("yyyy-MM-dd");
         var pagados = 0;
@@ -89,24 +132,25 @@ public class AwardNoCancellationsHandler
                 Detail    = d.Completed,
             };
 
-            // El índice único decide: si ya se pagó ese día, no se repite.
-            if (!await _milestones.TryAwardAsync(award, ct)) continue;
-
-            await CreditAsync(profile, options, award.Points,
-                $"{d.Completed} viajes sin cancelar", ct);
-            pagados++;
+            // Logro y abono en una sola transacción; el índice único decide:
+            // si ya se pagó ese día, no se repite.
+            if (await CreditAsync(profile, options, award,
+                    $"{d.Completed} viajes sin cancelar", ct))
+                pagados++;
         }
+
+        await _milestones.MarkNoCancelDayAsync(dia, stats.Count, pagados, ct);
 
         return new NoCancelResult(
             pagados, pagados * options.NoCancelPoints, stats.Count, null);
     }
 
-    private async Task CreditAsync(
-        PointsProfile profile, RewardsOptions options, int points,
+    private async Task<bool> CreditAsync(
+        PointsProfile profile, RewardsOptions options, MilestoneAward award,
         string nota, CancellationToken ct)
     {
         var balanceBefore = profile.AvailablePoints;
-        profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
+        profile.Earn(award.Points, options.ExpiryMonthsFor(profile.UserType));
 
         var levels = await _levels.GetByUserTypeAsync(profile.UserType, ct);
         var level  = PointsRules.ResolveLevel(levels, profile.PointsForLevel(options.LevelBasis));
@@ -114,13 +158,13 @@ public class AwardNoCancellationsHandler
 
         var movement = PointsTransaction.Earn(
             profileId:     profile.Id,
-            points:        points,
+            points:        award.Points,
             sourceEvent:   SourceEvents.NoCancellations,
             referenceId:   null,
             balanceBefore: balanceBefore,
             expiryDate:    profile.PointsExpiryDate,
             notes:         nota);
 
-        await _profiles.ApplyEarnAsync(profile, movement, ct);
+        return await _profiles.ApplyMilestoneAsync(profile, movement, award, ct);
     }
 }

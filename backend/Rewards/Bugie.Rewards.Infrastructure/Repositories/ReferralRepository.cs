@@ -99,6 +99,26 @@ public class ReferralRepository : IReferralRepository
             WHERE Id = @Id",
             r);
 
+    public Task<int> SyncTripsCompletedAsync(Guid referralId, CancellationToken ct = default) =>
+        _db.ExecuteScalarAsync<int>(@"
+            UPDATE rewards.Referrals r SET
+                TripsCompleted = (
+                    SELECT COUNT(*) FROM rewards.TripActivity a
+                    WHERE a.UserId       = r.ReferredUserId
+                      AND a.CompletedAt >= r.CreatedAt)
+            WHERE r.Id = @Id
+            RETURNING r.TripsCompleted",
+            new { Id = referralId });
+
+    public async Task<bool> MarkQualifiedAsync(Guid referralId, int qualifyPoints, CancellationToken ct = default) =>
+        await _db.ExecuteAsync(@"
+            UPDATE rewards.Referrals SET
+                Status        = 'qualified',
+                QualifyPoints = @QualifyPoints,
+                QualifiedAt   = now()
+            WHERE Id = @Id AND Status = 'pending'",
+            new { Id = referralId, QualifyPoints = qualifyPoints }) > 0;
+
     /* ── Invitaciones ────────────────────────────────────────────────── */
 
     public Task AddInvitationAsync(ReferralInvitation i, CancellationToken ct = default) =>
@@ -117,7 +137,7 @@ public class ReferralRepository : IReferralRepository
         _db.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) FROM rewards.ReferralInvitations
             WHERE ReferrerUserId = @Id
-              AND (SentAt AT TIME ZONE 'UTC' AT TIME ZONE 'America/Lima')::date
+              AND (SentAt AT TIME ZONE 'America/Lima')::date
                   = (now() AT TIME ZONE 'America/Lima')::date",
             new { Id = referrerUserId });
 
@@ -216,7 +236,7 @@ public class ReferralRepository : IReferralRepository
     public Task MarkInvitationAcceptedAsync(string email, string code, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             UPDATE rewards.ReferralInvitations
-            SET AcceptedAt = (now() AT TIME ZONE 'utc')
+            SET AcceptedAt = now()
             WHERE lower(Email) = lower(@Email)
               AND upper(Code)  = upper(@Code)
               AND AcceptedAt IS NULL",

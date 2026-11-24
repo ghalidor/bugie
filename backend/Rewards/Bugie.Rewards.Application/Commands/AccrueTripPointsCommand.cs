@@ -13,10 +13,17 @@ namespace Bugie.Rewards.Application.Commands;
 /// promociones por día y por franja horaria. Si no llega, se usa la hora
 /// actual, que para un evento recién emitido es prácticamente la misma.
 /// </param>
+/// <param name="Amount">Lo que pagó el pasajero (ya con el descuento del cupón).</param>
+/// <param name="BaseAmount">
+/// Tarifa acordada antes del cupón. El conductor gana sus puntos sobre esta
+/// tarifa: el descuento lo asume Bugie, no él. Null en eventos antiguos: se
+/// usa <paramref name="Amount"/>.
+/// </param>
 public record AccrueTripPointsCommand(
     Guid      TripId,
     Guid      PassengerId,
     Guid?     DriverId,
     decimal   Amount,
     string    PaymentMethod,
-    DateTime? CompletedAt = null) : IRequest<AccrueTripPointsResultDto>;
+    DateTime? CompletedAt = null,
+    decimal?  BaseAmount  = null) : IRequest<AccrueTripPointsResultDto>;

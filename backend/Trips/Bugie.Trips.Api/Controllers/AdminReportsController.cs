@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Security;
 using Bugie.Trips.Application.Queries;
+using Bugie.Trips.Domain.Common;
 
 namespace Bugie.Trips.Api.Controllers;
 
@@ -59,5 +60,22 @@ public class AdminReportsController : ControllerBase
 
         return Ok(await _mediator.Send(
             new GetDriverRankingAnalysisQuery(months, top, endYear, endMonth), ct));
+    }
+
+    /// <summary>
+    /// GET /api/trips/admin/reports/summary?from=2026-09-01&amp;to=2026-09-30
+    /// Resumen de gestion del periodo (dias de Peru, ambos inclusive).
+    /// Sin fechas: ultimos 30 dias hasta hoy.
+    /// </summary>
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null,
+        CancellationToken ct = default)
+    {
+        var period = ReportPeriod.TryCreate(from, to, out var error);
+        if(period is null) return BadRequest(new { error });
+
+        return Ok(await _mediator.Send(new GetTripsSummaryQuery(period), ct));
     }
 }

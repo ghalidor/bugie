@@ -31,6 +31,7 @@ public class GetProgramBalanceHandler
         ["anniversary"]        = "Aniversarios",
         ["promotion"]          = "Promociones",
         ["redemption_refund"]  = "Canjes anulados",
+        ["coupon_leftover"]    = "Sobrante de cupones",
         ["admin_adjustment"]   = "Ajustes manuales",
     };
 

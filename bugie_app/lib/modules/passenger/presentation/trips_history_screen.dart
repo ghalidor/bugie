@@ -13,6 +13,7 @@ import '../../favorites/data/favorites_repository.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/service_badge.dart';
 import '../../../core/widgets/schedule_picker.dart';
+import '../../../core/utils/format.dart';
 
 /// Historial de viajes del pasajero con opción de reportar/ver incidencias.
 /// Misma lógica que el conductor — el backend distingue rol automáticamente
@@ -325,7 +326,7 @@ class _TripCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'S/ ${(trip.finalFare ?? trip.estimatedFare).toStringAsFixed(2)}',
+                  formatSoles(trip.finalFare ?? trip.estimatedFare),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16),
                 ),

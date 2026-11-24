@@ -20,8 +20,8 @@ using Bugie.Trips.Api.Realtime;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new NpgsqlConnection(BugieTimeSetup.UtcConnectionString(builder.Configuration.GetConnectionString("Default"))));
-// Fechas: base en UTC, JSON en hora de Peru (ver BugieTime)
+    new NpgsqlConnection(BugieTimeSetup.PeruConnectionString(builder.Configuration.GetConnectionString("Default"))));
+// Fechas: timestamptz (instantes en UTC), JSON en hora de Peru (ver BugieTime)
 BugieTimeSetup.ConfigureDapper();
 
 // Configuración tipada (binding con appsettings.json)
@@ -214,7 +214,7 @@ var app = builder.Build();
 try
 {
     using var _fixConn = new NpgsqlConnection(
-        BugieTimeSetup.UtcConnectionString(app.Configuration.GetConnectionString("Default")));
+        BugieTimeSetup.PeruConnectionString(app.Configuration.GetConnectionString("Default")));
     _fixConn.Open();
     using var _fixCmd = _fixConn.CreateCommand();
     _fixCmd.CommandText = @"

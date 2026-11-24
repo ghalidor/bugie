@@ -1,6 +1,7 @@
 using MediatR;
 using Bugie.Rewards.Application.Config;
 using Bugie.Rewards.Application.DTOs;
+using Bugie.Rewards.Domain.Common;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.Interfaces;
 
@@ -36,7 +37,7 @@ public class GetActivePromotionsHandler
         if (!options.PromotionsEnabled) return new List<ActivePromotionDto>();
 
         var live = await _promotions.GetLiveAsync(q.UserType, ct);
-        var ahoraLocal = DateTime.UtcNow.AddHours(options.TimezoneOffsetHours);
+        var ahoraLocal = BugieTime.Now;
 
         return live
             // Las de descuento sobre la tarifa todavía no se aplican: no se
@@ -57,7 +58,7 @@ public class GetActivePromotionsHandler
             : $"+{p.BonusPoints} puntos";
 
     private static string Numero(decimal v) =>
-        v % 1 == 0 ? ((int)v).ToString() : v.ToString("0.#");
+        v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Las condiciones, en una frase.</summary>
     private static string When(PromotionConditions c)
@@ -80,7 +81,7 @@ public class GetActivePromotionsHandler
         if (c.FirstTripOfDay == true)     partes.Add("en tu primer viaje del día");
         if (c.PaymentMethods is { Length: > 0 })
             partes.Add($"pagando con {string.Join(" o ", c.PaymentMethods.Select(Capitalizar))}");
-        if (c.MinAmount is > 0)           partes.Add($"en viajes desde S/ {c.MinAmount}");
+        if (c.MinAmount is > 0)           partes.Add($"en viajes desde {Money.Soles(c.MinAmount.Value)}");
 
         return partes.Count == 0 ? "En todos tus viajes" : string.Join(", ", partes);
     }
@@ -186,7 +187,10 @@ public class GetUserRafflesHandler
                 TicketCouponsAvailable: cuponesTicket.Count,
                 CanUseTicketCoupon: cuponesTicket.Count > 0 && puede
                                     && r.IsOpen && r.DrawDate > DateTime.UtcNow,
-                NextTicketCouponId: proximoCupon));
+                NextTicketCouponId: proximoCupon,
+                // Premio de SU puesto (el secundario si no salió 1.º).
+                MyPrizeDetail: premio is null ? null : premio.PrizeDetail ?? r.PrizeDetailFor(premio.PrizeRank),
+                MyPrizeValue:  premio is null ? null : premio.PrizeValue  ?? r.PrizeValueFor(premio.PrizeRank)));
         }
 
         return salida.OrderBy(r => r.Status == "drawn" ? 1 : 0)

@@ -47,6 +47,21 @@ export interface SosEvent {
   lng: number;
 }
 
+/// Cambió la atención de un SOS ("sos:updated"): un admin lo vio (kind 'seen')
+/// o lo tomó (kind 'attending'). Las marcas valen para todas las alertas
+/// activas del viaje (tripId).
+export interface SosUpdatedEvent {
+  alertId: string;
+  tripId: string;
+  kind: 'seen' | 'attending' | string;
+  firstSeenAt: string | null;
+  firstSeenBy: string | null;
+  firstSeenByName: string | null;
+  attendingAt: string | null;
+  attendingBy: string | null;
+  attendingByName: string | null;
+}
+
 /// Alerta de desvío de ruta detectada en el backend (Trips.Api).
 export interface RouteDeviationEvent {
   /// Id del aviso guardado en el historial (solo en deviation:new).
@@ -104,6 +119,8 @@ export interface AdminEvent {
 interface UseMonitorHubOpts {
   /// Alerta SOS nueva. Admin debería refrescar.
   onSos?: (payload: SosEvent) => void;
+  /// Un admin vio o tomó ("Atendiendo") un SOS ("sos:updated").
+  onSosUpdated?: (payload: SosUpdatedEvent) => void;
   /// Nueva posición de un conductor (broadcast por GPS push).
   /// El admin debería actualizar SOLO ese pin en el mapa sin recargar todo.
   onDriverLocation?: (payload: DriverLocationEvent) => void;
@@ -161,6 +178,24 @@ export function useMonitorHub(opts: UseMonitorHubOpts) {
           lng:      payload.lng,
         });
       } catch (e) { console.warn('Error procesando sos:new', e); }
+    });
+
+    conn.on('sos:updated', (payload: any) => {
+      try {
+        if (!payload?.tripId) return;
+        const str = (v: unknown) => (v ? String(v) : null);
+        optsRef.current.onSosUpdated?.({
+          alertId:         String(payload.alertId ?? ''),
+          tripId:          String(payload.tripId),
+          kind:            String(payload.kind ?? ''),
+          firstSeenAt:     str(payload.firstSeenAt),
+          firstSeenBy:     str(payload.firstSeenBy),
+          firstSeenByName: str(payload.firstSeenByName),
+          attendingAt:     str(payload.attendingAt),
+          attendingBy:     str(payload.attendingBy),
+          attendingByName: str(payload.attendingByName),
+        });
+      } catch (e) { console.warn('Error procesando sos:updated', e); }
     });
 
     conn.on('driver:location', (payload: any) => {

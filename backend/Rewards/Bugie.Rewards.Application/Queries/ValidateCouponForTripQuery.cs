@@ -1,7 +1,9 @@
 using MediatR;
 using Bugie.Rewards.Application.Config;
 using Bugie.Rewards.Application.DTOs;
+using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Interfaces;
+using Bugie.Rewards.Domain.Services;
 
 namespace Bugie.Rewards.Application.Queries;
 
@@ -11,11 +13,15 @@ namespace Bugie.Rewards.Application.Queries;
 /// Lo pregunta Trips antes de tocar la tarifa. Responde siempre, con el motivo
 /// cuando no se puede: así Trips le muestra al pasajero por qué, en vez de un
 /// error genérico.
+///
+/// TripId (opcional): el viaje donde se quiere aplicar. Un cupón ya reservado
+/// para ESE viaje se considera válido (reintento); reservado para otro, no.
 /// </summary>
 public record ValidateCouponForTripQuery(
     string  Code,
     Guid    UserId,
-    decimal Fare) : IRequest<CouponValidationDto>;
+    decimal Fare,
+    Guid?   TripId = null) : IRequest<CouponValidationDto>;
 
 public class ValidateCouponForTripHandler
     : IRequestHandler<ValidateCouponForTripQuery, CouponValidationDto>
@@ -49,13 +55,20 @@ public class ValidateCouponForTripHandler
         if (cupon.UserId != q.UserId)
             return No("Ese cupón es de otra persona.");
 
-        if (cupon.Status == "used")
+        if (cupon.Status == RedemptionStatus.Used)
             return No("Ese cupón ya se usó.");
 
-        if (cupon.Status == "cancelled")
+        if (cupon.Status == RedemptionStatus.Cancelled)
             return No("Ese cupón fue anulado.");
 
-        if (cupon.Status == "expired" || cupon.ExpiresAt <= DateTime.UtcNow)
+        // Reservado para este mismo viaje: es un reintento y no vence mientras
+        // el viaje siga activo. Reservado para otro: no se puede.
+        var reservadoAqui = q.TripId is Guid tripId && cupon.IsReservedFor(tripId);
+        if (cupon.Status == RedemptionStatus.Reserved && !reservadoAqui)
+            return No(AlreadyAppliedElsewhere);
+
+        if (!reservadoAqui &&
+            (cupon.Status == RedemptionStatus.Expired || cupon.ExpiresAt <= DateTime.UtcNow))
             return No("Ese cupón ya venció.");
 
         if (!AplicanATarifa.Contains(cupon.RewardType))
@@ -82,6 +95,14 @@ public class ValidateCouponForTripHandler
         if (bruto <= 0)
             return No("Ese cupón no tiene un descuento configurado.");
 
+        // Cupón de monto que vale más que el viaje: el viaje sale gratis y lo
+        // que sobra vuelve como puntos al completarlo. Acá solo se calcula
+        // para avisarle al pasajero antes; se acredita en UseTripCoupon.
+        var sobranteSoles  = CouponLeftoverRules.LeftoverSoles(
+            cupon.RewardType, cupon.AmountSoles, bruto);
+        var sobrantePuntos = CouponLeftoverRules.ToPoints(
+            sobranteSoles, options.RateFor(UserTypes.Passenger));
+
         // El descuento se aplica entero. La comisión se calcula después sobre
         // lo que de verdad se pagó, así que un cupón grande no deja al
         // conductor debiendo nada: simplemente cobra menos y la comisión de
@@ -94,8 +115,14 @@ public class ValidateCouponForTripHandler
             DiscountAmount: bruto,
             FullDiscount:   bruto,
             Reason:         null,
-            Warning:        null);
+            Warning:        null,
+            // Si el sobrante no llega a 1 punto, no hay nada que devolver.
+            LeftoverSoles:  sobrantePuntos > 0 ? sobranteSoles : 0,
+            LeftoverPoints: sobrantePuntos);
     }
+
+    /// <summary>Mensaje cuando el cupón ya está aplicado (reservado) en otro viaje.</summary>
+    public const string AlreadyAppliedElsewhere = "Este cupón ya está aplicado a otro viaje.";
 
     private static CouponValidationDto No(string motivo) =>
         new(false, null, null, null, 0, 0, motivo, null);

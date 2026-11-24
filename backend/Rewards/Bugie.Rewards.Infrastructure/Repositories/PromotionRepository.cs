@@ -20,11 +20,25 @@ public class PromotionRepository : IPromotionRepository
         var rows = await _db.QueryAsync<Promotion>(@"
             SELECT * FROM rewards.Promotions
             WHERE IsActive = true
-              AND StartDate <= (now() AT TIME ZONE 'utc')
-              AND (EndDate IS NULL OR EndDate > (now() AT TIME ZONE 'utc'))
+              AND StartDate <= now()
+              AND (EndDate IS NULL OR EndDate > now())
               AND (TargetUserType = 'both' OR TargetUserType = @UserType)
             ORDER BY CreatedAt",
             new { UserType = userType });
+        return rows.ToList();
+    }
+
+    public async Task<List<Promotion>> GetLiveAtAsync(
+        string userType, DateTime atUtc, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<Promotion>(@"
+            SELECT * FROM rewards.Promotions
+            WHERE IsActive = true
+              AND StartDate <= @At
+              AND (EndDate IS NULL OR EndDate > @At)
+              AND (TargetUserType = 'both' OR TargetUserType = @UserType)
+            ORDER BY CreatedAt",
+            new { UserType = userType, At = atUtc });
         return rows.ToList();
     }
 
@@ -96,7 +110,7 @@ public class PromotionRepository : IPromotionRepository
             INSERT INTO rewards.PromotionApplications
                 (PromotionId, ProfileId, TripId, PointsAdded, CreatedAt)
             VALUES
-                (@PromotionId, @ProfileId, @TripId, @PointsAdded, (now() AT TIME ZONE 'utc'))
+                (@PromotionId, @ProfileId, @TripId, @PointsAdded, now())
             ON CONFLICT DO NOTHING",
             rows);
     }

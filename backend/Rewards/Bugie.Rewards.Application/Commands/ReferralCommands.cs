@@ -116,6 +116,7 @@ public class RegisterReferralHandler
     private readonly IPointsProfileRepository     _profiles;
     private readonly IRewardLevelRepository       _levels;
     private readonly IRewardSettingsRepository    _settings;
+    private readonly IUserDirectory               _users;
     private readonly IMediator                    _mediator;
 
     public RegisterReferralHandler(
@@ -123,12 +124,14 @@ public class RegisterReferralHandler
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
         IRewardSettingsRepository settings,
+        IUserDirectory users,
         IMediator mediator)
     {
         _referrals = referrals;
         _profiles  = profiles;
         _levels    = levels;
         _settings  = settings;
+        _users     = users;
         _mediator  = mediator;
     }
 
@@ -193,15 +196,8 @@ public class RegisterReferralHandler
         Guid userId, int points, Guid referenceId, string nota,
         RewardsOptions options, CancellationToken ct)
     {
-        var profile = await _profiles.GetByUserIdAsync(userId, ct);
-        if (profile is null)
-        {
-            // Sin viajes previos no se sabe el tipo de cuenta; se asume
-            // pasajero, que es el caso habitual. Al completar su primer viaje
-            // el perfil ya existe y se usa el correcto.
-            profile = PointsProfile.Create(userId, UserTypes.Passenger);
-            await _profiles.AddAsync(profile, ct);
-        }
+        // Si todavía no tiene perfil, se crea con el tipo de su cuenta (rol).
+        var profile = await PointsProfileLookup.GetOrCreateAsync(_profiles, _users, userId, ct);
 
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));
@@ -226,8 +222,13 @@ public class RegisterReferralHandler
 }
 
 /// <summary>
-/// Suma un viaje al referido y, si llegó a la meta, paga el bono extra.
+/// Actualiza los viajes del referido y, si llegó a la meta, paga el bono extra.
 /// Se llama desde la acreditación de puntos del viaje.
+///
+/// No suma "uno más": recuenta los viajes del referido registrados en
+/// rewards.TripActivity desde que fue referido. Cada viaje está una sola vez
+/// en esa tabla (PK usuario + viaje), así que un viaje reintentado por el
+/// outbox no cuenta dos veces, y dos viajes a la vez no se pisan el conteo.
 /// </summary>
 public record CountReferralTripCommand(Guid ReferredUserId) : IRequest<Unit>;
 
@@ -237,6 +238,7 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IUserDirectory            _users;
     private readonly IMediator                 _mediator;
 
     public CountReferralTripHandler(
@@ -244,12 +246,14 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
         IRewardSettingsRepository settings,
+        IUserDirectory users,
         IMediator mediator)
     {
         _referrals = referrals;
         _profiles  = profiles;
         _levels    = levels;
         _settings  = settings;
+        _users     = users;
         _mediator  = mediator;
     }
 
@@ -263,34 +267,28 @@ public class CountReferralTripHandler : IRequestHandler<CountReferralTripCommand
         var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
         if (!options.ReferralsEnabled) return Unit.Value;
 
-        referral.TripsCompleted++;
+        var viajes = await _referrals.SyncTripsCompletedAsync(referral.Id, ct);
 
         var meta = options.ReferralQualifyTrips;
-        if (meta > 0 && referral.TripsCompleted >= meta && referral.QualifyPoints == 0)
+        if (meta > 0 && viajes >= meta && referral.QualifyPoints == 0)
         {
+            // El bono es idempotente (índice único perfil + origen + referido):
+            // si dos viajes llegan a la meta a la vez, se paga una sola vez.
             var bono = options.ReferralQualifyPoints;
             if (bono > 0)
-            {
                 await AwardQualifyAsync(referral.ReferrerUserId, bono, referral.Id, options, ct);
-                referral.QualifyPoints = bono;
-            }
-            referral.Status      = ReferralStatus.Qualified;
-            referral.QualifiedAt = DateTime.UtcNow;
+
+            await _referrals.MarkQualifiedAsync(referral.Id, Math.Max(0, bono), ct);
         }
 
-        await _referrals.UpdateReferralAsync(referral, ct);
         return Unit.Value;
     }
 
     private async Task AwardQualifyAsync(
         Guid userId, int points, Guid referenceId, RewardsOptions options, CancellationToken ct)
     {
-        var profile = await _profiles.GetByUserIdAsync(userId, ct);
-        if (profile is null)
-        {
-            profile = PointsProfile.Create(userId, UserTypes.Passenger);
-            await _profiles.AddAsync(profile, ct);
-        }
+        // Si todavía no tiene perfil, se crea con el tipo de su cuenta (rol).
+        var profile = await PointsProfileLookup.GetOrCreateAsync(_profiles, _users, userId, ct);
 
         var balanceBefore = profile.AvailablePoints;
         profile.Earn(points, options.ExpiryMonthsFor(profile.UserType));

@@ -15,8 +15,15 @@ public class OutboxDispatcherOptions
     /// <summary>Cuantos eventos procesar por pasada. Default 50.</summary>
     public int BatchSize { get; set; } = 50;
 
-    /// <summary>Intentos antes de marcar el evento como 'failed'. Default 10.</summary>
+    /// <summary>
+    /// Intentos antes de marcar el evento como 'failed' cuando el destino lo
+    /// RECHAZA (4xx). Si el destino esta caido no cuenta: se sigue
+    /// reintentando con espera creciente. Default 10.
+    /// </summary>
     public int MaxAttempts { get; set; } = 10;
+
+    /// <summary>Tope de espera entre reintentos, en minutos. Default 15.</summary>
+    public int MaxRetryDelayMinutes { get; set; } = 15;
 }
 
 /// <summary>
@@ -82,19 +89,24 @@ public class OutboxDispatcherService : BackgroundService
         {
             if (ct.IsCancellationRequested) break;
 
-            var ok = await rewards.SendAsync(evt.EventType, evt.PayloadJson, ct);
+            var result = await rewards.SendAsync(evt.EventType, evt.PayloadJson, ct);
 
-            if (ok)
+            if (result == OutboxDelivery.Sent)
             {
                 await outbox.MarkSentAsync(evt.Id, ct);
             }
             else
             {
+                var permanent = result == OutboxDelivery.Rejected;
                 await outbox.MarkAttemptAsync(
-                    evt.Id, "El destino no acepto el evento.", _opt.MaxAttempts, ct);
+                    evt.Id,
+                    permanent ? "El destino rechazo el evento." : "El destino no respondio.",
+                    _opt.MaxAttempts, permanent,
+                    TimeSpan.FromSeconds(Math.Max(1, _opt.CheckIntervalSeconds)),
+                    TimeSpan.FromMinutes(Math.Max(1, _opt.MaxRetryDelayMinutes)), ct);
                 _log.LogWarning(
-                    "Evento {Id} ({Type}) no entregado. Intento {Attempt}.",
-                    evt.Id, evt.EventType, evt.Attempts + 1);
+                    "Evento {Id} ({Type}) no entregado ({Result}). Intento {Attempt}.",
+                    evt.Id, evt.EventType, result, evt.Attempts + 1);
             }
         }
     }

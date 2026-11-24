@@ -18,6 +18,7 @@ import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/negotiation/negotiation.dart';
 import 'driver_idle_tracking.dart';
 import 'widgets/trip_request_card_compact.dart';
+import '../../../core/utils/format.dart';
 
 /// Solicitudes entrantes para el conductor.
 /// Polling cada 10s a /api/trips/pending + /api/trips/my-counter-proposals.
@@ -521,13 +522,6 @@ class DriverHistoryDialogState extends State<DriverHistoryDialog> {
     }
   }
 
-  String _timeAgo(DateTime d) {
-    final diff = DateTime.now().difference(d);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    if (diff.inHours < 24)   return 'hace ${diff.inHours} h';
-    return 'hace ${diff.inDays} d';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -610,7 +604,7 @@ class DriverHistoryDialogState extends State<DriverHistoryDialog> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'S/ ${h.fare.toStringAsFixed(2)}',
+                                        formatSoles(h.fare),
                                         style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 16),
@@ -631,7 +625,7 @@ class DriverHistoryDialogState extends State<DriverHistoryDialog> {
                                             const SizedBox(width: 6),
                                           ],
                                           Text(
-                                            _timeAgo(h.createdAt),
+                                            timeAgo(h.createdAt),
                                             style: const TextStyle(
                                                 fontSize: 11,
                                                 color: BugieColors.textMuted),
@@ -704,10 +698,7 @@ class _OfflineBanner extends StatelessWidget {
 
   String _staleText() {
     if (lastSuccessAt == null) return 'sin actualizar';
-    final diff = DateTime.now().difference(lastSuccessAt!);
-    if (diff.inSeconds < 60) return 'hace ${diff.inSeconds}s';
-    if (diff.inMinutes < 60) return 'hace ${diff.inMinutes} min';
-    return 'hace ${diff.inHours} h';
+    return timeAgo(lastSuccessAt!);
   }
 
   @override

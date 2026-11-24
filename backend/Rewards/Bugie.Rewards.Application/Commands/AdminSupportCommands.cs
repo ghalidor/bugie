@@ -148,17 +148,20 @@ public class AdjustUserPointsHandler
     private readonly IPointsProfileRepository  _profiles;
     private readonly IRewardLevelRepository    _levels;
     private readonly IRewardSettingsRepository _settings;
+    private readonly IUserDirectory            _users;
     private readonly IMediator                 _mediator;
 
     public AdjustUserPointsHandler(
         IPointsProfileRepository profiles,
         IRewardLevelRepository levels,
         IRewardSettingsRepository settings,
+        IUserDirectory users,
         IMediator mediator)
     {
         _profiles = profiles;
         _levels   = levels;
         _settings = settings;
+        _users    = users;
         _mediator = mediator;
     }
 
@@ -179,14 +182,10 @@ public class AdjustUserPointsHandler
 
         var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
 
-        var profile = await _profiles.GetByUserIdAsync(cmd.UserId, ct);
-        if (profile is null)
-        {
-            // Se crea para poder compensar a alguien que nunca viajó, que es
-            // justo el caso de un error de configuración del sistema.
-            profile = PointsProfile.Create(cmd.UserId, UserTypes.Passenger);
-            await _profiles.AddAsync(profile, ct);
-        }
+        // Se crea si no existe, para poder compensar a alguien que nunca viajó
+        // (justo el caso de un error de configuración del sistema). El tipo
+        // sale del rol de su cuenta: un conductor no queda como pasajero.
+        var profile = await PointsProfileLookup.GetOrCreateAsync(_profiles, _users, cmd.UserId, ct);
 
         var balanceBefore = profile.AvailablePoints;
         int aplicados;

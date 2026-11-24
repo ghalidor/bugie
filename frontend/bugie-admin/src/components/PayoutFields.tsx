@@ -1,5 +1,5 @@
 import { PAYOUT_METHOD, PayoutMethod } from '../state/payouts';
-import { Field, FormGrid, Select } from './ui';
+import { DateTimeField, Field, FormGrid, Select } from './ui';
 
 /** Datos del pago que llena el admin. */
 export interface PayoutDraft {
@@ -53,8 +53,7 @@ export default function PayoutFields({ value, onChange, amountLocked = false, am
                readOnly={amountLocked} aria-readonly={amountLocked || undefined} />
       </Field>
       <Field label="Fecha y hora del pago">
-        <input className="form-control" type="datetime-local"
-               value={value.paidAt} onChange={e => set('paidAt', e.target.value)} />
+        <DateTimeField value={value.paidAt} onChange={v => set('paidAt', v)} />
       </Field>
       <Field label={noteLabel ?? 'Nota'} required={noteRequired} optional={!noteRequired && !noteLabel} span="full">
         <input className="form-control" value={value.note} maxLength={300}

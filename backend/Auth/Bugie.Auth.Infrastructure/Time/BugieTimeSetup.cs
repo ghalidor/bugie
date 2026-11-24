@@ -10,17 +10,21 @@ namespace Bugie.Auth.Infrastructure.Time;
 
 /// <summary>
 /// Configuracion de hora del servicio (ver BugieTime):
-///   * conexion a Postgres en UTC,
-///   * Dapper lee las fechas como UTC,
+///   * columnas timestamptz y sesion de Postgres en hora de Peru (igual que la base),
+///   * Dapper lee y manda las fechas en UTC (Kind = Utc),
 ///   * el JSON sale en hora de Peru sin zona y entra como hora de Peru si no trae zona.
 /// </summary>
 public static class BugieTimeSetup
 {
     private static bool _dapperListo;
 
-    /// <summary>Fuerza la zona UTC en la sesion de Postgres.</summary>
-    public static string UtcConnectionString(string? connectionString) =>
-        new NpgsqlConnectionStringBuilder(connectionString) { Timezone = "UTC" }.ConnectionString;
+    /// <summary>
+    /// Fija la zona de la sesion de Postgres en hora de Peru (America/Lima).
+    /// Los instantes no dependen de la zona; solo como se ven en texto y el
+    /// dia/hora de ::date, date_trunc, etc. (el SQL de Bugie lo pone explicito).
+    /// </summary>
+    public static string PeruConnectionString(string? connectionString) =>
+        new NpgsqlConnectionStringBuilder(connectionString) { Timezone = BugieTime.ZoneId }.ConnectionString;
 
     /// <summary>Registra el handler de Dapper (una sola vez por proceso).</summary>
     public static void ConfigureDapper()
@@ -32,20 +36,31 @@ public static class BugieTimeSetup
         SqlMapper.AddTypeHandler(new UtcDateTimeHandler());
     }
 
-    /// <summary>Lo que viene de la base es UTC: se marca asi.</summary>
+    /// <summary>
+    /// Fechas entre Dapper y la base, siempre en UTC (Kind = Utc; Npgsql lo exige
+    /// para timestamptz). Dentro del backend un DateTime sin zona que va o viene de
+    /// la base es UTC (convencion desde 2026-10-02); la hora de Peru sin zona solo
+    /// entra por JSON/query y se convierte antes (BugieTime.ToUtcFromInput).
+    /// </summary>
     private sealed class UtcDateTimeHandler : SqlMapper.TypeHandler<DateTime>
     {
         public override DateTime Parse(object value)
         {
             var d = value is DateTime dt ? dt : Convert.ToDateTime(value, CultureInfo.InvariantCulture);
-            return d.Kind == DateTimeKind.Utc ? d : DateTime.SpecifyKind(d.Kind == DateTimeKind.Local ? d.ToUniversalTime() : d, DateTimeKind.Utc);
+            return AsUtc(d);
         }
 
         public override void SetValue(IDbDataParameter parameter, DateTime value)
         {
-            // Se manda tal cual: Utc -> timestamptz (sesion UTC), Unspecified -> timestamp.
-            parameter.Value = value;
+            parameter.Value = AsUtc(value);
         }
+
+        private static DateTime AsUtc(DateTime d) => d.Kind switch
+        {
+            DateTimeKind.Utc   => d,
+            DateTimeKind.Local => d.ToUniversalTime(),
+            _                  => DateTime.SpecifyKind(d, DateTimeKind.Utc),
+        };
     }
 }
 

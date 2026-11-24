@@ -133,7 +133,8 @@ public class RewardsAdminController : ControllerBase
         try
         {
             var dto = await _mediator.Send(
-                new UseRedemptionCommand(code, null, body?.Note ?? "Entregado por el administrador."), ct);
+                new UseRedemptionCommand(code, null, body?.Note ?? "Entregado por el administrador.",
+                                         NotifyUser: true), ct);
             return Ok(dto);
         }
         catch (KeyNotFoundException ex)    { return NotFound(new { error = ex.Message }); }
@@ -410,7 +411,7 @@ public class RewardsAdminController : ControllerBase
     {
         try
         {
-            await _mediator.Send(new DeliverPrizeCommand(winnerId, CurrentUserId, body?.Note), ct);
+            await _mediator.Send(new DeliverPrizeCommand(winnerId, CurrentUserId, body?.Note, NotifyUser: true), ct);
             return Ok(new { message = "Premio marcado como entregado." });
         }
         catch (KeyNotFoundException ex)      { return NotFound(new { error = ex.Message }); }

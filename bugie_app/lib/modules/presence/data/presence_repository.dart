@@ -13,14 +13,18 @@ class PresenceRepository {
   ///
   /// [filePath] = ruta al JPG temporal generado por la cámara local.
   /// [faceQualityScore] = score 0-1 que devolvió ML Kit (informativo).
+  /// [livenessPassed] = true si el conductor completó la prueba de vida
+  /// (parpadeo + giro de cabeza). Se manda como liveness=passed.
   Future<PresenceCheckIn> checkIn({
     required String filePath,
     double? faceQualityScore,
+    bool livenessPassed = false,
   }) async {
     final fields = <String, String>{};
     if (faceQualityScore != null) {
       fields['faceQualityScore'] = faceQualityScore.toStringAsFixed(3);
     }
+    if (livenessPassed) fields['liveness'] = 'passed';
     final json = await _api.postMultipart(
       '${ApiConfig.drivers}/drivers/me/presence/checkin',
       fields: fields,

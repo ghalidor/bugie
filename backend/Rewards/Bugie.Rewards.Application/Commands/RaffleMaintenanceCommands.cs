@@ -4,6 +4,7 @@ using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.Interfaces;
 using Bugie.Rewards.Domain.Services;
+using Bugie.Rewards.Domain.Common;
 
 namespace Bugie.Rewards.Application.Commands;
 
@@ -76,19 +77,28 @@ public class RunRaffleMaintenanceHandler
         if (abiertos.Count == 0) return 0;
 
         // Inicio del mes local, para contar los puntos del mes.
-        var ahoraLocal  = DateTime.UtcNow.AddHours(options.TimezoneOffsetHours);
+        var ahoraLocal  = BugieTime.Now;
         var inicioMes   = new DateTime(ahoraLocal.Year, ahoraLocal.Month, 1);
-        var inicioMesUtc = inicioMes.AddHours(-options.TimezoneOffsetHours);
+        var inicioMesUtc = BugieTime.PeruToUtc(inicioMes);
 
         var total = 0;
+
+        // Los niveles son los mismos para todos los sorteos: una sola consulta.
+        var niveles = await _levels.GetAllAsync(ct);
 
         foreach (var raffle in abiertos)
         {
             if (ct.IsCancellationRequested) break;
 
-            var niveles    = await _levels.GetAllAsync(ct);
             var candidatos = await _candidates.GetCandidatesAsync(
                 raffle.TargetUserType, inicioMesUtc, ct);
+
+            // Lo que ya tiene cada usuario, en una consulta. Sirve para saltar
+            // a quien ya está completo sin abrir una transacción; a quien le
+            // falta, GrantMissingTicketsAsync vuelve a contar con el sorteo
+            // bloqueado (así dos mantenimientos a la vez no duplican).
+            var yaTienen = await _raffles.CountTicketsByUserAsync(raffle.Id, ct);
+            int Tiene(Guid userId, string source) => yaTienen.GetValueOrDefault((userId, source));
 
             var entregados = 0;
 
@@ -115,33 +125,19 @@ public class RunRaffleMaintenanceHandler
 
                 // 1. Tickets por nivel.
                 var porNivel = raffle.TicketsForLevel(nivel);
-                if (porNivel > 0)
-                {
-                    var yaTiene = await _raffles.CountUserTicketsAsync(
-                        raffle.Id, c.UserId, TicketSources.LevelBenefit, ct);
-
-                    var faltan = porNivel - yaTiene;
-                    if (faltan > 0)
-                        entregados += await _raffles.GrantTicketsAsync(
-                            raffle.Id, c.UserId, c.ProfileId, faltan,
-                            TicketSources.LevelBenefit, null, ct);
-                }
+                if (porNivel > Tiene(c.UserId, TicketSources.LevelBenefit))
+                    entregados += await _raffles.GrantMissingTicketsAsync(
+                        raffle.Id, c.UserId, c.ProfileId, porNivel,
+                        TicketSources.LevelBenefit, ct);
 
                 // 2. Tickets por puntos acumulados en el mes.
                 if (options.RafflePointsPerTicket > 0)
                 {
                     var merece = c.PointsEarnedThisMonth / options.RafflePointsPerTicket;
-                    if (merece > 0)
-                    {
-                        var yaTiene = await _raffles.CountUserTicketsAsync(
-                            raffle.Id, c.UserId, TicketSources.MonthlyPoints, ct);
-
-                        var faltan = merece - yaTiene;
-                        if (faltan > 0)
-                            entregados += await _raffles.GrantTicketsAsync(
-                                raffle.Id, c.UserId, c.ProfileId, faltan,
-                                TicketSources.MonthlyPoints, null, ct);
-                    }
+                    if (merece > Tiene(c.UserId, TicketSources.MonthlyPoints))
+                        entregados += await _raffles.GrantMissingTicketsAsync(
+                            raffle.Id, c.UserId, c.ProfileId, merece,
+                            TicketSources.MonthlyPoints, ct);
                 }
             }
 
@@ -161,52 +157,27 @@ public class RunRaffleMaintenanceHandler
         var pendientes = await _raffles.GetDueAsync(ct);
         var hechos = 0;
 
-        foreach (var raffle in pendientes)
+        foreach (var pendiente in pendientes)
         {
             if (ct.IsCancellationRequested) break;
 
-            var tickets = await _raffles.GetTicketsAsync(raffle.Id, ct);
+            // Bajo el bloqueo del sorteo: si "Sortear ahora" se adelantó (o lo
+            // cancelaron), aquí no se vuelve a sortear ni a avisar.
+            var r = await _raffles.DrawAsync(
+                pendiente.Id, RaffleWinnerPicker.Pick, cancelIfNoTickets: true, ct);
 
-            if (tickets.Count == 0)
+            if (r.Outcome == RaffleDrawOutcome.NoTickets)
             {
-                raffle.Status    = RaffleStatus.Cancelled;
-                raffle.UpdatedAt = DateTime.UtcNow;
-                await _raffles.UpdateAsync(raffle, ct);
-                mensajes.Add($"{raffle.Name}: sin participantes, se canceló.");
+                mensajes.Add($"{pendiente.Name}: sin participantes, se canceló.");
                 continue;
             }
+            if (r.Outcome != RaffleDrawOutcome.Drawn) continue;
 
-            // Si no se fijó semilla antes, se genera ahora.
-            var seed = string.IsNullOrWhiteSpace(raffle.DrawSeed)
-                ? RaffleDraw.NewSeed()
-                : raffle.DrawSeed!;
-
-            var ganadores = RaffleDraw.Draw(tickets, seed, raffle.WinnersCount);
-
-            raffle.DrawSeed      = seed;
-            raffle.DrawnAt       = DateTime.UtcNow;
-            raffle.TicketsAtDraw = tickets.Count;
-            raffle.Status        = RaffleStatus.Drawn;
-            raffle.UpdatedAt     = DateTime.UtcNow;
-
-            var winners = ganadores.Select(g => new RaffleWinner
-            {
-                Id           = Guid.NewGuid(),
-                RaffleId     = raffle.Id,
-                UserId       = g.UserId,
-                TicketNumber = g.TicketNumber,
-                PrizeRank    = g.PrizeRank,
-                PrizeDetail  = g.PrizeRank == 1
-                    ? raffle.PrizeDescription
-                    : $"Premio secundario #{g.PrizeRank}",
-                Status       = "pending",
-                CreatedAt    = DateTime.UtcNow,
-            }).ToList();
-
-            await _raffles.SaveDrawAsync(raffle, winners, ct);
+            var raffle  = r.Raffle!;
+            var winners = r.Winners;
 
             mensajes.Add(
-                $"{raffle.Name}: sorteado con {tickets.Count} tickets, " +
+                $"{raffle.Name}: sorteado con {r.Tickets} tickets, " +
                 $"{winners.Count} ganador(es).");
             hechos++;
 

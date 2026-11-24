@@ -43,5 +43,7 @@ public class GetRafflesHandler : IRequestHandler<GetRafflesQuery, List<RaffleDto
         r.Status, r.DrawnAt, r.TicketsAtDraw, r.DrawSeed, tickets,
         winners.Select(w => new RaffleWinnerDto(
             w.Id, w.UserId, w.TicketNumber, w.PrizeRank, w.PrizeDetail,
-            w.Status, w.DeliveredAt, w.Note, PrizeCode: w.PrizeCode)).ToList());
+            w.Status, w.DeliveredAt, w.Note, PrizeCode: w.PrizeCode,
+            PrizeValue: w.PrizeValue)).ToList(),
+        r.SecondaryPrizeDescription, r.SecondaryPrizeValue);
 }

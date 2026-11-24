@@ -428,11 +428,11 @@ async function faseRewardsConfig() {
   const promos = [
     { name: 'Doble puntos de lanzamiento', description: 'Todos los viajes suman el doble de puntos.', promotionType: 'multiplier', targetUserType: 'both',
       multiplierValue: 2, bonusPoints: 0, startDate: new Date(now - 40 * 864e5).toISOString(), endDate: new Date(now + 30 * 864e5).toISOString(), isActive: true, firstTripOfDay: false },
-    { name: 'Bono primer viaje del dia', description: '+50 puntos en tu primer viaje del dia.', promotionType: 'bonus_points', targetUserType: 'passenger',
+    { name: 'Bono primer viaje del día', description: '+50 puntos en tu primer viaje del día.', promotionType: 'bonus_points', targetUserType: 'passenger',
       multiplierValue: 1, bonusPoints: 50, startDate: new Date(now - 40 * 864e5).toISOString(), endDate: new Date(now + 60 * 864e5).toISOString(), isActive: true, firstTripOfDay: true },
-    { name: 'Yape suma mas (conductores)', description: '+30 puntos por viaje pagado con Yape.', promotionType: 'bonus_points', targetUserType: 'driver',
+    { name: 'Yape suma más (conductores)', description: '+30 puntos por viaje pagado con Yape.', promotionType: 'bonus_points', targetUserType: 'driver',
       multiplierValue: 1, bonusPoints: 30, startDate: new Date(now - 40 * 864e5).toISOString(), endDate: new Date(now + 60 * 864e5).toISOString(), isActive: true, firstTripOfDay: false, paymentMethods: ['yape'] },
-    { name: 'Fiestas Patrias (finalizada)', description: 'Promocion historica, ya inactiva.', promotionType: 'multiplier', targetUserType: 'both',
+    { name: 'Fiestas Patrias (finalizada)', description: 'Promoción histórica, ya inactiva.', promotionType: 'multiplier', targetUserType: 'both',
       multiplierValue: 3, bonusPoints: 0, startDate: new Date(now - 90 * 864e5).toISOString(), endDate: new Date(now - 60 * 864e5).toISOString(), isActive: false, firstTripOfDay: false },
   ];
   for (const p of promos) {
@@ -440,7 +440,7 @@ async function faseRewardsConfig() {
     catch (e) { fail('Rewards', `promocion "${p.name}"`, e); }
   }
   const raffles = [
-    { name: 'Sorteo mensual: 1 mes de viajes gratis', raffleType: 'monthly', prizeDescription: 'S/ 200 en viajes Bugie', prizeValue: 200,
+    { name: 'Sorteo mensual: 1 mes de viajes gratis', raffleType: 'monthly', prizeDescription: 'S/ 200.00 en viajes Bugie', prizeValue: 200,
       drawDate: new Date(now + 20 * 864e5).toISOString(), targetUserType: 'passenger', winnersCount: 1, open: true },
     { name: 'Sorteo semanal conductores: kit de mantenimiento', raffleType: 'weekly', prizeDescription: 'Cambio de aceite + lavado', prizeValue: 120,
       drawDate: new Date(now + 5 * 864e5).toISOString(), targetUserType: 'driver', winnersCount: 1, open: true },
@@ -448,7 +448,7 @@ async function faseRewardsConfig() {
       drawDate: new Date(now + 25 * 864e5).toISOString(), targetUserType: 'both', winnersCount: 2, open: true },
     // Este NO se sortea en el seed: queda abierto para la demo (tickets, "Usar mi cupon de ticket").
     // Los tres de arriba se sortean antes de tiempo con "Sortear ahora" (quedan drawn con drawnAt de hoy).
-    { name: 'Sorteo mensual de noviembre', raffleType: 'monthly', prizeDescription: 'S/ 150 en viajes Bugie', prizeValue: 150,
+    { name: 'Sorteo mensual de noviembre', raffleType: 'monthly', prizeDescription: 'S/ 150.00 en viajes Bugie', prizeValue: 150,
       drawDate: new Date(now + 28 * 864e5).toISOString(), targetUserType: 'both', winnersCount: 1, open: true },
   ];
   const created = [];
@@ -651,7 +651,7 @@ async function runTrip(s) {
       estimatedFare: fare, paymentMethod: s.method ?? 'cash',
       waypoints: s.waypoint ? [{ address: PLACES[s.waypoint].address, lat: PLACES[s.waypoint].lat, lng: PLACES[s.waypoint].lng }] : [],
       serviceType: s.delivery ? 1 : 0,
-      ...(s.delivery ? { packageDescription: s.delivery, packageWeightKg: 2.5, packageIsFragile: !!s.fragile, packageDetails: 'Entregar en recepcion',
+      ...(s.delivery ? { packageDescription: s.delivery, packageWeightKg: 2.5, packageIsFragile: !!s.fragile, packageDetails: 'Entregar en recepción',
         recipientName: s.recipient ?? 'Recepcion del destino', recipientPhone: '952999888' } : {}),
       ...(s.scheduledHour ? { scheduledAt: tomorrowPeru(s.scheduledHour) } : {}),
     };
@@ -1088,7 +1088,7 @@ async function faseNegociacion() {
     const a2 = await post(`${trips}/${tripId}/driver-accept`, T(D2));
     await put(`${trips}/${tripId}/confirm-driver-acceptance/${a2.proposalId}`, T(P5));
     // La hora programada "ya paso" hace 20 minutos (ajuste en BD; el conductor nunca avisa llegada)
-    sql(`UPDATE trips.trips SET scheduledat = (now() AT TIME ZONE 'utc') - interval '20 minutes' WHERE id = '${tripId}'`);
+    sql(`UPDATE trips.trips SET scheduledat = now() - interval '20 minutes' WHERE id = '${tripId}'`);
     const tarde = await get(`${trips}/${tripId}/tracking`, T(P5)).catch(() => null);
     const r = await put(`${trips}/${tripId}/republish`, T(P5));
     const e2 = propEstado(a2.proposalId);
@@ -1245,7 +1245,7 @@ async function faseAdminFinal(raffles) {
     try {
       const pago = await post(`${API.payments}/payments/admin/payouts`, { ...A, body: {
         driverId: d.userId, driverName: d.name, amount: 5, method, operationNumber: String(++op),
-        sourceType: 'reward_redemption', sourceRef: code, note: 'Bono S/ 5 por puntos' } });
+        sourceType: 'reward_redemption', sourceRef: code, note: 'Bono S/ 5.00 por puntos' } });
       await put(`${API.rewards}/rewards/admin/redemptions/${code}/use`, { ...A, body: { note: `Pagado por ${method} · op ${pago.operationNumber} · S/ 5.00` } });
       correo(d, 'pago de bono');
       ok('Pago', `bono ${code} de ${d.key} pagado por ${method}`, `op ${pago.operationNumber} · correo a ${d.currentEmail}`);
@@ -1272,7 +1272,7 @@ async function faseAdminFinal(raffles) {
     catch (e) { fail('Admin', 'anular canje P5', e); }
   }
   // ajustes manuales
-  for (const [k, pts, reason] of [['P3', 200, 'Compensacion por demora en viaje con SOS'], ['D2', 150, 'Bono por buena atencion reportada'], ['P2', -50, 'Correccion de puntos duplicados']]) {
+  for (const [k, pts, reason] of [['P3', 200, 'Compensación por demora en viaje con SOS'], ['D2', 150, 'Bono por buena atención reportada'], ['P2', -50, 'Corrección de puntos duplicados']]) {
     try { await post(`${API.rewards}/rewards/admin/users/${byKey[k].userId}/adjust`, { ...A, body: { points: pts, reason } }); ok('Admin', `ajuste ${pts > 0 ? '+' : ''}${pts} pts a ${k}`); }
     catch (e) { fail('Admin', `ajuste a ${k}`, e); }
   }
@@ -1334,7 +1334,7 @@ async function faseAdminFinal(raffles) {
     const c = await post(`${API.landing}/landing/contact`, { body: { name: 'Usuario de prueba Bugie', email: REAL_EMAIL, subject: 'Consulta', message: 'Hola, quisiera saber si Bugie opera en Pocollay los fines de semana.' } });
     ok('Contacto', 'mensaje desde la web', 'correo de aviso al admin');
     await put(`${API.landing}/landing/contact/${c.id}/read`, A).catch(e => fail('Contacto', 'marcar leido', e));
-    await post(`${API.landing}/landing/contact/${c.id}/reply`, { ...A, body: { subject: 'Re: Consulta', body: 'Hola, si: Bugie opera en Pocollay todos los dias, incluidos fines de semana. Gracias por escribirnos.' } });
+    await post(`${API.landing}/landing/contact/${c.id}/reply`, { ...A, body: { subject: 'Re: Consulta', body: 'Hola, sí: Bugie opera en Pocollay todos los días, incluidos fines de semana. Gracias por escribirnos.' } });
     correoDirecto('respuesta de contacto');
     ok('Contacto', 'admin responde', `correo de respuesta a ${REAL_EMAIL}`);
     await post(`${API.landing}/landing/contact`, { body: { name: 'Empresa Logistica Sur', email: 'contacto@logisticasur.test', subject: 'Alianza', message: 'Nos interesa una alianza para envios corporativos en Tacna.' } });

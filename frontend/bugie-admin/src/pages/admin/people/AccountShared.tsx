@@ -222,6 +222,33 @@ export function DeactivatedBadge({ deactivatedAt, deactivatedReason }: {
   return <StatusBadge tone="bad" icon="fa-user-slash" size="sm" title={title}>Cuenta desactivada</StatusBadge>;
 }
 
+/// «Cerrar todas sus sesiones» (con confirmación y motivo opcional): sus tokens
+/// dejan de valer en todas las APIs. Lo usan la tarjeta de acceso y la
+/// Verificación facial. true = se cerraron.
+export async function revokeAllSessions(
+  userId: string,
+  confirm: ReturnType<typeof useConfirm>,
+  toast: ReturnType<typeof useToast>,
+  placeholder = 'Ej.: Reportó que perdió su celular.',
+): Promise<boolean> {
+  const res = await confirm({
+    title: '¿Cerrar todas sus sesiones?',
+    message: 'Se cerrará su sesión en la app, la web y el panel. Podrá volver a iniciar sesión con su correo y contraseña. Queda registrado en el historial de la cuenta.',
+    tone: 'warning', confirmText: 'Cerrar sesiones',
+    reason: 'optional', reasonMaxLength: 500,
+    reasonPlaceholder: placeholder,
+  });
+  if (!res) return false;
+  try {
+    await apiFetch(`${accountUrl(userId)}/revoke-sessions`, { method: 'POST', body: JSON.stringify({ reason: res.reason || null }) });
+    toast.success('Se cerraron todas sus sesiones.');
+    return true;
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : 'No se pudieron cerrar las sesiones.');
+    return false;
+  }
+}
+
 /// Tarjeta «Acceso a la cuenta»:
 ///  - Si está desactivada: estado, fecha, motivo y «Reactivar cuenta».
 ///  - «Cerrar todas sus sesiones»: sus tokens dejan de valer en todas las APIs
@@ -238,22 +265,9 @@ export function AccountAccessCard({ userId, info, onChanged }: {
   if (info.deletedAt) return null;
 
   async function revoke() {
-    const res = await confirm({
-      title: '¿Cerrar todas sus sesiones?',
-      message: 'Se cerrará su sesión en la app, la web y el panel. Podrá volver a iniciar sesión con su correo y contraseña. Queda registrado en el historial de la cuenta.',
-      tone: 'warning', confirmText: 'Cerrar sesiones',
-      reason: 'optional', reasonMaxLength: 500,
-      reasonPlaceholder: 'Ej.: Reportó que perdió su celular.',
-    });
-    if (!res) return;
     setBusy('revoke');
-    try {
-      await apiFetch(`${accountUrl(userId)}/revoke-sessions`, { method: 'POST', body: JSON.stringify({ reason: res.reason || null }) });
-      toast.success('Se cerraron todas sus sesiones.');
-      onChanged();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'No se pudieron cerrar las sesiones.');
-    } finally { setBusy(null); }
+    try { if (await revokeAllSessions(userId, confirm, toast)) onChanged(); }
+    finally { setBusy(null); }
   }
 
   async function reactivate() {

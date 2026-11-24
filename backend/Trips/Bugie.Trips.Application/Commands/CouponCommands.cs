@@ -1,3 +1,4 @@
+using System.Globalization;
 using MediatR;
 using Bugie.Trips.Domain.Entities;
 using Bugie.Trips.Domain.Enums;
@@ -17,14 +18,20 @@ namespace Bugie.Trips.Application.Commands;
    Rewards responde "no se puede" y Trips no toca nada.
 
    Importante: el cupón NO se consume al aplicarlo, sino al completar el viaje.
-   Si el viaje se cancela, el cupón queda libre para otra vez. Consumirlo antes
-   sería quitarle un premio a alguien por un viaje que nunca ocurrió.
+   Al aplicarlo queda RESERVADO en Rewards para este viaje: nadie lo puede usar
+   en otro viaje, no vence ni se anula mientras el viaje siga. Si se quita o el
+   viaje se cancela, la reserva se libera y el cupón queda libre para otra vez.
+   Consumirlo antes sería quitarle un premio a alguien por un viaje que nunca
+   ocurrió.
    ────────────────────────────────────────────────────────────────────────── */
 
 public record ApplyCouponCommand(Guid TripId, Guid PassengerId, string Code)
     : IRequest<CouponAppliedDto>;
 
 /// <param name="Warning">Aviso cuando se aplicó menos de lo que valía el cupón.</param>
+/// <param name="LeftoverSoles">Cupón de monto que vale más que la tarifa: lo que sobra (0 si nada).</param>
+/// <param name="LeftoverPoints">Ese sobrante en puntos, que se devuelven al completar el viaje.</param>
+/// <param name="Notice">Texto listo para mostrar al pasajero cuando hay sobrante.</param>
 public record CouponAppliedDto(
     Guid     TripId,
     string   Code,
@@ -32,17 +39,22 @@ public record CouponAppliedDto(
     decimal  FareBeforeDiscount,
     decimal  DiscountAmount,
     decimal  AmountToPay,
-    string?  Warning);
+    string?  Warning,
+    decimal  LeftoverSoles  = 0,
+    int      LeftoverPoints = 0,
+    string?  Notice         = null);
 
 public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppliedDto>
 {
-    private readonly ITripRepository _trips;
-    private readonly IRewardsClient  _rewards;
+    private readonly ITripRepository   _trips;
+    private readonly IRewardsClient    _rewards;
+    private readonly IOutboxRepository _outbox;
 
-    public ApplyCouponHandler(ITripRepository trips, IRewardsClient rewards)
+    public ApplyCouponHandler(ITripRepository trips, IRewardsClient rewards, IOutboxRepository outbox)
     {
         _trips   = trips;
         _rewards = rewards;
+        _outbox  = outbox;
     }
 
     public async Task<CouponAppliedDto> Handle(ApplyCouponCommand cmd, CancellationToken ct)
@@ -70,9 +82,10 @@ public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppl
             throw new InvalidOperationException("Este viaje todavía no tiene precio.");
 
         // Rewards decide: si el interruptor está apagado, si el cupón es suyo,
-        // si venció, y cuánto descuenta de verdad.
-        var v = await _rewards.ValidateCouponAsync(
-            cmd.Code.Trim().ToUpperInvariant(), cmd.PassengerId, tarifa, ct);
+        // si venció, si ya está aplicado a otro viaje, y cuánto descuenta de
+        // verdad. Si sirve, lo deja reservado para este viaje (atómico).
+        var v = await _rewards.ReserveCouponAsync(
+            cmd.Code.Trim().ToUpperInvariant(), cmd.PassengerId, trip.Id, tarifa, ct);
 
         if (v is null)
             throw new InvalidOperationException(
@@ -81,22 +94,45 @@ public class ApplyCouponHandler : IRequestHandler<ApplyCouponCommand, CouponAppl
         if (!v.Valid)
             throw new InvalidOperationException(v.Reason ?? "Ese cupón no se puede usar.");
 
-        trip.ApplyCoupon(v.Code!, v.DiscountAmount, tarifa);
-        await _trips.UpdateAsync(trip, ct);
+        // Cupón de monto que vale más que el viaje: queda gratis y el sobrante
+        // vuelve en puntos al completar. Se guarda en el viaje para mostrarlo
+        // en el resumen; Rewards acredita de verdad al completar.
+        try
+        {
+            trip.ApplyCoupon(v.Code!, v.DiscountAmount, tarifa, v.LeftoverSoles, v.LeftoverPoints);
+            await _trips.UpdateAsync(trip, ct);
+        }
+        catch
+        {
+            // El viaje no quedó con el cupón: se suelta la reserva para no
+            // dejarlo bloqueado.
+            await CouponReservation.ReleaseAsync(_rewards, _outbox, trip.Id, v.Code, CancellationToken.None);
+            throw;
+        }
+
+        string? aviso = v.LeftoverPoints > 0
+            ? $"Este viaje te sale gratis. Te devolvemos S/ {v.LeftoverSoles.ToString("0.00", CultureInfo.InvariantCulture)} " +
+              $"en puntos ({v.LeftoverPoints} pts) al terminar."
+            : null;
 
         return new CouponAppliedDto(
             trip.Id, v.Code!, v.ItemName ?? "Cupón",
-            tarifa, v.DiscountAmount, tarifa - v.DiscountAmount, v.Warning);
+            tarifa, v.DiscountAmount, tarifa - v.DiscountAmount, v.Warning,
+            v.LeftoverPoints > 0 ? v.LeftoverSoles : 0, v.LeftoverPoints, aviso);
     }
 }
 
-/// <summary>Quita el cupón. Como no se consumió, vuelve a estar disponible.</summary>
+/// <summary>Quita el cupón. Como no se consumió, se libera su reserva y vuelve a estar disponible.</summary>
 public record RemoveCouponCommand(Guid TripId, Guid PassengerId) : IRequest<Unit>;
 
 public class RemoveCouponHandler : IRequestHandler<RemoveCouponCommand, Unit>
 {
-    private readonly ITripRepository _trips;
-    public RemoveCouponHandler(ITripRepository trips) => _trips = trips;
+    private readonly ITripRepository   _trips;
+    private readonly IRewardsClient    _rewards;
+    private readonly IOutboxRepository _outbox;
+
+    public RemoveCouponHandler(ITripRepository trips, IRewardsClient rewards, IOutboxRepository outbox)
+        => (_trips, _rewards, _outbox) = (trips, rewards, outbox);
 
     public async Task<Unit> Handle(RemoveCouponCommand cmd, CancellationToken ct)
     {
@@ -110,8 +146,11 @@ public class RemoveCouponHandler : IRequestHandler<RemoveCouponCommand, Unit>
             throw new InvalidOperationException(
                 "El viaje ya terminó: el cupón no se puede quitar.");
 
+        var code = trip.CouponCode;
         trip.RemoveCoupon();
         await _trips.UpdateAsync(trip, ct);
+
+        await CouponReservation.ReleaseAsync(_rewards, _outbox, trip.Id, code, ct);
         return Unit.Value;
     }
 }

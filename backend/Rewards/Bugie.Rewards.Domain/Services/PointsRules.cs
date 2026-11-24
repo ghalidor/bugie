@@ -10,7 +10,7 @@ public static class PointsRules
 {
     /// <summary>
     /// Puntos que genera un monto de dinero segun la tasa configurada.
-    /// Se trunca hacia abajo: S/. 8.75 x 10 = 87 puntos, no 87.5.
+    /// Se trunca hacia abajo: S/ 8.75 x 10 = 87 puntos, no 87.5.
     /// </summary>
     public static int FromAmount(decimal amount, decimal rate)
     {

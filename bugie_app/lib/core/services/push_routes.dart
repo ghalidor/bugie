@@ -23,13 +23,26 @@ String? resolvePushRoute({
   String? pushType,
   String? tripId,
   String? reasonCode,
+  String? alertType,
 }) {
+  // Foto de perfil rechazada: siempre al perfil (ahí se sube otra).
+  if (alertType == profilePhotoRejectedAlert) route = '/driver/profile';
+
   // Avisos de negociación que el backend manda sin ruta pero que deben
   // abrir algo al tocarlos.
   if (route == null || route.trim().isEmpty) {
     route = _defaultRouteFor(pushType, tripId, reasonCode);
   }
   if (route == null || route.trim().isEmpty) return null;
+
+  // Solicitud nueva al conductor (llega con route '/driver/requests' y el
+  // trip_id): se abre el detalle de ESA solicitud, no la lista.
+  final esSolicitudNueva = (pushType == null || pushType.isEmpty || pushType == 'new_request') &&
+      route.trim() == '/driver/requests';
+  if (esSolicitudNueva && tripId != null && tripId.isNotEmpty) {
+    route = '/driver/incoming/$tripId';
+  }
+
   final home = _homeFor(role);
   if (home == null) return null;
 
@@ -61,6 +74,10 @@ String? resolvePushRoute({
       .toString();
   return routeExists(router, target) ? target : home;
 }
+
+/// data.alert_type (con type 'account') del aviso al conductor cuando el
+/// equipo de Bugie rechaza su foto de perfil nueva.
+const profilePhotoRejectedAlert = 'profile_photo_rejected';
 
 /// Avisos al pasajero que abren el seguimiento de ESE viaje (?trip=<id>):
 /// así también funciona con un programado que todavía no es el viaje activo.

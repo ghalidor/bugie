@@ -74,26 +74,37 @@ public static class RaffleDraw
         var winners   = new List<DrawnWinner>();
         var yaGanaron = new HashSet<Guid>();
 
-        // Se recorre una secuencia determinista derivada de la semilla hasta
-        // completar los premios o agotar a los participantes.
-        var round = 0;
-        while (winners.Count < winnersCount && yaGanaron.Count < ordered.Select(t => t.UserId).Distinct().Count())
-        {
-            var index  = DeterministicIndex(seed, round, ordered.Count);
-            var ticket = ordered[index];
-            round++;
+        // Premios que se pueden entregar: nunca más que participantes distintos.
+        // Se calcula una sola vez (antes se recalculaba en cada vuelta).
+        var objetivo = Math.Min(winnersCount, ordered.Select(t => t.UserId).Distinct().Count());
 
+        // Se recorre una secuencia determinista derivada de la semilla hasta
+        // completar los premios. El tope corta el caso extremo (casi todos los
+        // tickets de un mismo usuario); el resultado no cambia respecto del
+        // cálculo anterior mientras no se llegue al tope.
+        for (var round = 0; winners.Count < objetivo && round < MaxRounds; round++)
+        {
+            var ticket = ordered[DeterministicIndex(seed, round, ordered.Count)];
             if (!yaGanaron.Add(ticket.UserId)) continue;   // ese usuario ya ganó
 
             winners.Add(new DrawnWinner(ticket.UserId, ticket.TicketNumber, winners.Count + 1));
+        }
 
-            // Tope de seguridad: con muchos tickets de pocos usuarios, podría
-            // tardar en encontrar uno nuevo. 10 000 vueltas son de sobra.
-            if (round > 10_000) break;
+        // Si se llegó al tope, los premios que faltan van, en orden de ticket,
+        // a los primeros participantes que no ganaron: también es determinista
+        // y verificable.
+        foreach (var ticket in ordered)
+        {
+            if (winners.Count >= objetivo) break;
+            if (yaGanaron.Add(ticket.UserId))
+                winners.Add(new DrawnWinner(ticket.UserId, ticket.TicketNumber, winners.Count + 1));
         }
 
         return winners;
     }
+
+    /// <summary>Tope de vueltas al azar por sorteo.</summary>
+    private const int MaxRounds = 100_000;
 
     /// <summary>
     /// Índice reproducible a partir de la semilla y el número de vuelta.

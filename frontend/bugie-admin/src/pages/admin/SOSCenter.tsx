@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import BugieMap from '../../components/BugieMapAdmin';
 import EmergencyContactCard from '../../components/EmergencyContactCard';
 import DateRangeFilter, { appendRange, DateRange, EMPTY_RANGE, rangeCount } from '../../components/DateRangeFilter';
@@ -6,16 +7,23 @@ import { DriverLink, PassengerLink } from '../../components/EntityLinks';
 import { TripLinkButton, useTripDetail } from '../../components/useTripDetail';
 import { apiFetch, API, ApiError } from '../../state/api';
 import { useMonitorHub } from '../../hooks/useMonitorHub';
+import { useSosGoal } from '../../hooks/useSosGoal';
 import {
   Column, DataTable, Drawer, EmptyState, FilterBar, Page, Pagination, SectionCard, Skeleton, StatusBadge, Tabs,
-  useDebouncedValue, useMediaQuery, useTabParam,
+  useDebouncedValue, useMediaQuery, useTabParam, useToast,
 } from '../../components/ui';
+import { CsvExporter, csvDateTag, csvResultMessage, downloadCsv, fetchAllPages, useCsvExporter, useCsvSlot } from '../../state/csv';
 import { useResolveSos } from './livemap/sosActions';
+import {
+  applySosAttention, fmtElapsed, SosAttendControl, SosAttention, SosTimeline, useAttendSos, useMarkSosSeen,
+} from './livemap/sosAttention';
+import SosAudit from './SosAudit';
 import { fmtDateTime, minutesAgo, roleLabel } from './livemap/types';
 import './ops.scss';
 
-/// Alerta SOS con las personas del viaje (GET /api/sos/admin/active y /history).
-interface SosAlert {
+/// Alerta SOS con las personas del viaje (GET /api/sos/admin/active y /history),
+/// con sus marcas de atención (visto / atendiendo) y el tiempo de respuesta.
+interface SosAlert extends SosAttention {
   id: string; tripId: string; userId: string;
   userRole: string; lat: number; lng: number;
   resolved: boolean; createdAt: string;
@@ -69,11 +77,16 @@ function Phone({ phone }: { phone?: string | null }) {
   );
 }
 
-/// Detalle de una alerta: personas, mapa, contacto de emergencia y botón para desactivarla.
-function SosDetail({ alert, onResolve, trip }: {
-  alert: SosAlert; onResolve: (a: SosAlert) => void; trip: ReturnType<typeof useTripDetail>;
+/// Detalle de una alerta: personas, mapa, contacto de emergencia, atención y botón para desactivarla.
+/// Al abrirlo (activa y sin visto) se registra "visto" para este admin.
+function SosDetail({ alert, onResolve, onAttend, onSeen, trip }: {
+  alert: SosAlert; onResolve: (a: SosAlert) => void;
+  onAttend: (a: SosAttention) => Promise<unknown>;
+  onSeen: (marks: Parameters<typeof applySosAttention>[1]) => void;
+  trip: ReturnType<typeof useTripDetail>;
 }) {
   const { who, other } = people(alert);
+  useMarkSosSeen(alert.resolved || alert.firstSeenAt ? [] : [alert.id], onSeen);
   return (
     <div className="d-grid gap-3">
       <div className="d-flex align-items-center gap-2 flex-wrap">
@@ -81,6 +94,11 @@ function SosDetail({ alert, onResolve, trip }: {
           {alert.resolved ? 'Resuelta' : 'SOS activo'}
         </StatusBadge>
         <span className="fw-bold">{roleLabel(alert.userRole)} en emergencia</span>
+        {!alert.resolved && <span className="ms-auto"><SosAttendControl alert={alert} onAttend={onAttend} size="sm" /></span>}
+      </div>
+
+      <div className="ops-note">
+        <SosTimeline alert={alert} />
       </div>
 
       <dl className="bx-row-card-fields mb-0">
@@ -122,22 +140,30 @@ function SosDetail({ alert, onResolve, trip }: {
 
 /// Centro SOS: bandeja de alertas activas e historial de las resueltas.
 export default function SOSCenter() {
-  const [tab] = useTabParam(['activas', 'historial']);
+  const [tab] = useTabParam(['activas', 'historial', 'auditoria']);
   const trip = useTripDetail();
+  // "Exportar CSV" en Historial y Auditoría (con sus filtros).
+  const csv = useCsvSlot();
 
   return (
     <Page
       title="Centro SOS"
       subtitle="Atiende las emergencias: ubica a la persona, llama a su contacto y desactiva la alerta."
       helpKey="sos"
+      actions={[
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: csv.run, loading: csv.busy, disabled: !csv.total, hidden: !csv.available },
+      ]}
     >
       <div data-tour="sos-tabs">
         <Tabs items={[
           { value: 'activas',   label: 'Activas',   icon: 'fa-bell' },
           { value: 'historial', label: 'Historial', icon: 'fa-clock-rotate-left' },
+          { value: 'auditoria', label: 'Auditoría', icon: 'fa-stopwatch' },
         ]} />
       </div>
-      {tab === 'activas' ? <ActiveAlerts trip={trip} /> : <AlertHistory trip={trip} />}
+      {tab === 'activas' ? <ActiveAlerts trip={trip} />
+        : tab === 'historial' ? <AlertHistory trip={trip} onCsv={csv.register} />
+        : <SosAudit trip={trip} onCsv={csv.register} />}
       {trip.modal}
     </Page>
   );
@@ -147,6 +173,12 @@ export default function SOSCenter() {
 function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
   const isDesktop = useMediaQuery('(min-width: 992px)');
   const resolveSos = useResolveSos();
+  const attendSos = useAttendSos();
+  const toast = useToast();
+  // ?alert=<id>: viene del aviso o de la campana; abre esa alerta (queda "vista").
+  const [params] = useSearchParams();
+  const wantedId = params.get('alert');
+  const wantedDone = useRef<string | null>(null);
 
   const [alerts,     setAlerts]     = useState<SosAlert[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -156,16 +188,7 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Meta de respuesta (Configuración → sos_response_min). Null si no se pudo leer.
-  const [targetMin,  setTargetMin]  = useState<number | null>(null);
-
-  useEffect(() => {
-    apiFetch<{ settingKey: string; value: string }[]>(`${API.landing}/landing/settings`)
-      .then(list => {
-        const v = Number(list.find(s => s.settingKey === 'sos_response_min')?.value);
-        setTargetMin(Number.isFinite(v) && v > 0 ? v : null);
-      })
-      .catch(() => setTargetMin(null));
-  }, []);
+  const targetMin = useSosGoal();
 
   const load = useCallback(() => {
     setRefreshing(true);
@@ -181,8 +204,31 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
     return () => clearInterval(t);
   }, [load]);
 
-  // SOS nuevo por SignalR: refrescar al instante.
-  useMonitorHub({ onSos: load });
+  // SOS nuevo por SignalR: refrescar al instante. Visto / atendiendo de otro admin: aplicar en la lista.
+  useMonitorHub({
+    onSos: load,
+    onSosUpdated: e => setAlerts(prev => applySosAttention(prev, e)),
+  });
+
+  const applyMarks = useCallback((m: Parameters<typeof applySosAttention>[1]) =>
+    setAlerts(prev => applySosAttention(prev, m)), []);
+
+  async function handleAttend(a: SosAttention) {
+    const row = await attendSos(a.id);
+    if (row) applyMarks(row); else load();
+  }
+
+  // Abrir la alerta pedida en la URL (una vez, cuando ya cargó la bandeja).
+  useEffect(() => {
+    if (!wantedId || loading || wantedDone.current === wantedId) return;
+    wantedDone.current = wantedId;
+    if (alerts.some(a => a.id === wantedId)) {
+      setSelectedId(wantedId);
+      if (!isDesktop) setDrawerOpen(true);
+    } else {
+      toast.info('Esa alerta ya no está activa. Revísala en el Historial.');
+    }
+  }, [wantedId, loading, alerts, isDesktop, toast]);
 
   // La más reciente arriba.
   const sorted = useMemo(() => [...alerts].sort((a, b) =>
@@ -257,6 +303,13 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
                           {who.phone && <><i className="fa-solid fa-phone me-1" aria-hidden="true" />{who.phone} · </>}
                           <i className="fa-regular fa-clock me-1" aria-hidden="true" />{minutesAgo(a.createdAt)}
                         </span>
+                        <span className="sub d-block text-truncate">
+                          {a.attendingAt
+                            ? <><i className="fa-solid fa-headset me-1" aria-hidden="true" />Atendiendo: {a.attendingByName || 'administrador'}</>
+                            : a.firstSeenAt
+                              ? <><i className="fa-solid fa-eye me-1" aria-hidden="true" />Visto por {a.firstSeenByName || 'administrador'} · nadie atendiendo</>
+                              : <><i className="fa-regular fa-eye-slash me-1" aria-hidden="true" />Sin abrir</>}
+                        </span>
                       </span>
                       <StatusBadge tone="bad" size="sm">
                         {targetMin && ageMin(a.createdAt) > targetMin ? 'Fuera de meta' : 'Urgente'}
@@ -273,7 +326,7 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
         {isDesktop && (
           <SectionCard title={selected ? 'Detalle de la alerta' : 'Selecciona una alerta'} icon="fa-location-dot" tourId="sos-detail">
             {selected
-              ? <SosDetail alert={selected} onResolve={handleResolve} trip={trip} />
+              ? <SosDetail alert={selected} onResolve={handleResolve} onAttend={handleAttend} onSeen={applyMarks} trip={trip} />
               : <EmptyState compact icon="fa-hand-pointer" title="Nada seleccionado" text="Elige una alerta de la bandeja para ver dónde está y a quién llamar." />}
           </SectionCard>
         )}
@@ -281,7 +334,7 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
 
       {!isDesktop && (
         <Drawer open={drawerOpen && !!selected} onClose={() => setDrawerOpen(false)} title="Detalle de la alerta" size="md">
-          {selected && <SosDetail alert={selected} onResolve={handleResolve} trip={trip} />}
+          {selected && <SosDetail alert={selected} onResolve={handleResolve} onAttend={handleAttend} onSeen={applyMarks} trip={trip} />}
         </Drawer>
       )}
     </>
@@ -289,7 +342,8 @@ function ActiveAlerts({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
 }
 
 // ── Historial (resueltas) ─────────────────────────────────────
-function AlertHistory({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
+function AlertHistory({ trip, onCsv }: { trip: ReturnType<typeof useTripDetail>; onCsv?: (e: CsvExporter | null) => void }) {
+  const toast = useToast();
   const [page,    setPage]    = useState(1);
   const [range,   setRange]   = useState<DateRange>(EMPTY_RANGE);
   const [search,  setSearch]  = useState('');
@@ -322,6 +376,44 @@ function AlertHistory({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, page]);
+
+  /** CSV del historial con la búsqueda y las fechas actuales (todas las páginas). */
+  async function exportCsv() {
+    try {
+      const all = await fetchAllPages((p, size) => {
+        const params = new URLSearchParams({ page: String(p), pageSize: String(size) });
+        if (q) params.append('search', q);
+        appendRange(params, range);
+        return apiFetch<HistoryPage>(`${API.trips}/sos/admin/history?${params}`);
+      });
+      // Minutos entre que se activó y que se resolvió (1 decimal).
+      const minutesToResolve = (a: SosAlert) => a.resolvedAt
+        ? Math.max(0, (new Date(a.resolvedAt).getTime() - new Date(a.createdAt).getTime()) / 60000).toFixed(1)
+        : '';
+      downloadCsv(
+        ['Activada', 'Quién activó', 'Rol', 'Celular', 'Otro participante', 'Rol del otro', 'Celular del otro',
+         'Visto', 'Visto por', 'Atendiendo', 'Atendiendo por', 'Minutos de respuesta', 'Atención no registrada',
+         'Resuelta', 'Minutos hasta resolver', 'Resuelta por', 'Motivo', 'Origen', 'Destino', 'Latitud', 'Longitud', 'Id del viaje'],
+        all.items.map(a => {
+          const { who, other } = people(a);
+          return [
+            fmtDateTime(a.createdAt), who.name ?? '', roleLabel(a.userRole), who.phone ?? '',
+            other.id ? other.name ?? '' : '', other.id ? roleLabel(other.role) : '', other.id ? other.phone ?? '' : '',
+            a.firstSeenAt ? fmtDateTime(a.firstSeenAt) : '', a.firstSeenByName ?? '',
+            a.attendingAt ? fmtDateTime(a.attendingAt) : '', a.attendingByName ?? '',
+            a.responseMinutes != null ? a.responseMinutes.toFixed(1) : '', a.attentionUnregistered ? 'Sí' : 'No',
+            a.resolvedAt ? fmtDateTime(a.resolvedAt) : '', minutesToResolve(a), a.resolvedByName ?? '', a.resolutionReason ?? '',
+            a.originAddress ?? '', a.destAddress ?? '', a.lat, a.lng, a.tripId,
+          ];
+        }),
+        `sos-historial-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'alerta', 'alertas'));
+      else toast.success(csvResultMessage(all, 'alerta', 'alertas'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar el historial.');
+    }
+  }
+  useCsvExporter(onCsv, data?.total ?? 0, exportCsv);
 
   const columns: Column<SosAlert>[] = [
     {
@@ -361,6 +453,14 @@ function AlertHistory({ trip }: { trip: ReturnType<typeof useTripDetail> }) {
     {
       key: 'reason', header: 'Motivo', priority: 2, width: '24%',
       render: a => <span className="small" title={a.resolutionReason ?? undefined}>{a.resolutionReason || '—'}</span>,
+    },
+    {
+      key: 'response', header: 'Respuesta', priority: 2, align: 'right',
+      render: a => a.attentionUnregistered
+        ? <span title="Se resolvió sin marcar visto ni atendiendo: se toma la hora de resolución."><StatusBadge tone="neutral" size="sm">No registrada</StatusBadge></span>
+        : <span className="ops-nowrap" title={[a.firstSeenByName && `Visto por ${a.firstSeenByName}`, a.attendingByName && `Atendió ${a.attendingByName}`].filter(Boolean).join(' · ') || undefined}>
+            {fmtElapsed(a.responseMinutes)}
+          </span>,
     },
     {
       key: 'duration', header: 'Duración', priority: 1, align: 'right',

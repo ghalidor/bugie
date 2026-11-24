@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS auth.emergencycontacts (
     phone        character varying(20)  NOT NULL,
     relationship character varying(50)  NOT NULL,
     email        character varying(200),
-    createdat    timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    updatedat    timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    createdat    timestamp with time zone DEFAULT now() NOT NULL,
+    updatedat    timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT emergencycontacts_pkey PRIMARY KEY (id),
     -- Un solo contacto por usuario.
     CONSTRAINT uq_emergencycontacts_user UNIQUE (userid),

@@ -8,6 +8,7 @@ import {
 } from '../../components/ui';
 import { DriverLink } from '../../components/EntityLinks';
 import { TripLinkButton, useTripDetail } from '../../components/useTripDetail';
+import { CsvExporter, csvDateTag, csvDateTime, csvResultMessage, downloadCsv, fetchAllPages, useCsvExporter, useCsvSlot } from '../../state/csv';
 import './ops.scss';
 import './cobros.scss';
 
@@ -76,12 +77,17 @@ export default function DriverCommissions() {
   const [tab] = useTabParam(['deudas', 'pagos']);
   const [selected,  setSelected]  = useState<WalletSummary | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // "Exportar CSV" de la pestaña visible (con sus filtros).
+  const csv = useCsvSlot();
 
   return (
     <Page
       title="Comisiones"
       subtitle="Lo que cada conductor le debe a Bugie por sus viajes y los pagos de comisión recibidos."
       helpKey="commissions"
+      actions={[
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: csv.run, loading: csv.busy, disabled: !csv.total, hidden: !csv.available },
+      ]}
     >
       <div data-tour="commissions-tabs">
         <Tabs items={[
@@ -92,8 +98,8 @@ export default function DriverCommissions() {
 
       {/* reloadKey vuelve a pedir los datos sin desmontar: se conservan búsqueda, filtro y página. */}
       {tab === 'deudas'
-        ? <WalletsList reloadKey={reloadKey} onSelect={setSelected} />
-        : <CommissionPaymentsList reloadKey={reloadKey} />}
+        ? <WalletsList reloadKey={reloadKey} onSelect={setSelected} onCsv={csv.register} />
+        : <CommissionPaymentsList reloadKey={reloadKey} onCsv={csv.register} />}
 
       <WalletDrawer
         driver={selected}
@@ -105,7 +111,10 @@ export default function DriverCommissions() {
 }
 
 // ── Listado de billeteras ─────────────────────────────────────
-function WalletsList({ onSelect, reloadKey }: { onSelect: (w: WalletSummary) => void; reloadKey: number }) {
+function WalletsList({ onSelect, reloadKey, onCsv }: {
+  onSelect: (w: WalletSummary) => void; reloadKey: number; onCsv?: (e: CsvExporter | null) => void;
+}) {
+  const toast = useToast();
   const [search,   setSearch]   = useState('');
   const q = useDebouncedValue(search.trim(), 350);
   const [onlyDebt, setOnlyDebt] = useState(true);
@@ -134,6 +143,29 @@ function WalletsList({ onSelect, reloadKey }: { onSelect: (w: WalletSummary) => 
       .finally(() => { if (id === reqId.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, page, reloadKey]);
+
+  /** CSV de las billeteras con la búsqueda y el filtro actuales (todas las páginas). */
+  async function exportCsv() {
+    try {
+      const all = await fetchAllPages((p, size) => {
+        const qs = new URLSearchParams({ onlyDebt: String(onlyDebt), page: String(p), pageSize: String(size) });
+        if (q) qs.set('search', q);
+        return apiFetch<WalletsReport>(`${base()}?${qs}`);
+      });
+      downloadCsv(
+        ['Conductor', 'Comisión generada (S/)', 'Comisión pagada (S/)', 'Deuda (S/)', 'Ganancia neta (S/)', 'Saldo (S/)', 'Actualizado', 'Id del conductor'],
+        all.items.map(w => [
+          w.driverName ?? '', w.totalCommission.toFixed(2), w.totalCommissionPaid.toFixed(2), w.pendingDebt.toFixed(2),
+          w.totalEarned.toFixed(2), w.balance.toFixed(2), csvDateTime(w.updatedAt), w.driverId,
+        ]),
+        `comisiones-conductores-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'conductor', 'conductores'));
+      else toast.success(csvResultMessage(all, 'conductor', 'conductores'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar las comisiones.');
+    }
+  }
+  useCsvExporter(onCsv, data?.total ?? 0, exportCsv);
 
   const columns: Column<WalletSummary>[] = [
     { key: 'driver', header: 'Conductor', priority: 1, width: '28%', render: w => <span className="fw-semibold"><DriverLink userId={w.driverId}>{w.driverName ?? 'Conductor'}</DriverLink></span> },
@@ -414,7 +446,8 @@ function WalletDrawer({ driver, onClose, onChanged }: { driver: WalletSummary | 
 }
 
 // ── Pagos de comisión recibidos (todos los conductores) ───────
-function CommissionPaymentsList({ reloadKey }: { reloadKey: number }) {
+function CommissionPaymentsList({ reloadKey, onCsv }: { reloadKey: number; onCsv?: (e: CsvExporter | null) => void }) {
+  const toast = useToast();
   const [page,    setPage]    = useState(1);
   const [data,    setData]    = useState<CommissionPaymentsReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -427,6 +460,26 @@ function CommissionPaymentsList({ reloadKey }: { reloadKey: number }) {
       .catch(err => setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los pagos.'))
       .finally(() => setLoading(false));
   }, [page, reloadKey]);
+
+  /** CSV de todos los pagos de comisión recibidos (todas las páginas). */
+  async function exportCsv() {
+    try {
+      const all = await fetchAllPages((p, size) =>
+        apiFetch<CommissionPaymentsReport>(`${base()}/commission-payments?page=${p}&pageSize=${size}`));
+      downloadCsv(
+        ['Fecha de pago', 'Conductor', 'Monto (S/)', 'Método', 'N. operación', 'Saldo tras el pago (S/)', 'Nota', 'Registrado por', 'Registrado el', 'Id del conductor'],
+        all.items.map(p => [
+          csvDateTime(p.paidAt ?? p.createdAt), p.driverName ?? '', p.amount.toFixed(2), methodLabel(p.method),
+          p.operationNumber ?? '', p.balanceAfter.toFixed(2), p.note ?? '', p.adminName ?? '', csvDateTime(p.createdAt), p.driverId,
+        ]),
+        `pagos-comision-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'pago', 'pagos'));
+      else toast.success(csvResultMessage(all, 'pago', 'pagos'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar los pagos de comisión.');
+    }
+  }
+  useCsvExporter(onCsv, data?.total ?? 0, exportCsv);
 
   const columns: Column<CommissionPayment>[] = [
     { key: 'driver', header: 'Conductor', priority: 1, width: '26%', render: p => <span className="fw-semibold"><DriverLink userId={p.driverId}>{p.driverName ?? 'Conductor'}</DriverLink></span> },

@@ -44,7 +44,9 @@ public record RedemptionDto(
     // Quien canjeo (lo llena el listado del admin)
     Guid?     UserId   = null,
     string?   UserName = null,
-    string?   UserRole = null);
+    string?   UserRole = null,
+    // Viaje en el que esta aplicado (solo con Status = 'reserved')
+    Guid?     ReservedTripId = null);
 
 /// <summary>Resultado del canje: el cupon y el saldo que quedo.</summary>
 public record RedeemResultDto(
@@ -57,6 +59,8 @@ public record RedeemResultDto(
 /// <param name="FullDiscount">Lo mismo que DiscountAmount. Se conserva por compatibilidad.</param>
 /// <param name="Reason">Por qué no se puede usar. Null si sí se puede.</param>
 /// <param name="Warning">Aviso cuando se aplicó menos de lo que valía.</param>
+/// <param name="LeftoverSoles">Lo que sobra de un cupón de monto que vale más que la tarifa.</param>
+/// <param name="LeftoverPoints">Ese sobrante en puntos (tasa del pasajero, redondeo hacia abajo).</param>
 public record CouponValidationDto(
     bool     Valid,
     string?  Code,
@@ -65,4 +69,15 @@ public record CouponValidationDto(
     decimal  DiscountAmount,
     decimal  FullDiscount,
     string?  Reason,
-    string?  Warning);
+    string?  Warning,
+    decimal  LeftoverSoles  = 0,
+    int      LeftoverPoints = 0);
+
+/// <summary>Resultado de consumir un cupón al completar el viaje.</summary>
+/// <param name="AlreadyUsed">true si el cupón ya estaba usado en este mismo viaje (reintento).</param>
+/// <param name="LeftoverPoints">Puntos devueltos por el sobrante. 0 si no sobró o ya se habían devuelto.</param>
+public record TripCouponUsedDto(
+    string  Code,
+    bool    AlreadyUsed,
+    decimal LeftoverSoles,
+    int     LeftoverPoints);

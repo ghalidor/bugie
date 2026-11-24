@@ -11,11 +11,13 @@ import {
   useConfirm, useToast,
 } from '../../../components/ui';
 import { errMsg, LoadError } from './common';
+import { CsvExporter, csvDateTag, csvDateTime, csvResultMessage, downloadCsv, fetchAllPages, useCsvExporter } from '../../../state/csv';
 
 const PAGE_SIZE = 20;
 
 const STATUS_CHIPS = [
   { value: 'active',    label: 'Pendientes' },
+  { value: 'reserved',  label: 'En uso en un viaje' },
   { value: 'used',      label: 'Entregados' },
   { value: 'expired',   label: 'Vencidos' },
   { value: 'cancelled', label: 'Anulados' },
@@ -37,7 +39,7 @@ const isMoney = (r: Redemption) => r.rewardType === 'wallet_bonus' && !!r.userId
 /** Cupones y viajes gratis del nivel del pasajero: no cuestan puntos. */
 const isLevelBenefit = (r: Redemption) => r.pointsSpent === 0;
 
-export default function RedemptionsTab() {
+export default function RedemptionsTab({ onCsv }: { onCsv?: (e: CsvExporter | null) => void } = {}) {
   const confirm = useConfirm();
   const toast = useToast();
   const [status,   setStatus]   = useState('active');
@@ -58,6 +60,27 @@ export default function RedemptionsTab() {
   }, [status, userType, page]);
 
   useEffect(load, [load]);
+
+  /** CSV de los canjes con el estado y el tipo de usuario elegidos (todas las páginas). */
+  async function exportCsv() {
+    try {
+      const all = await fetchAllPages((p, size) =>
+        rewardsAdminApi.redemptions(status === 'all' ? null : status, userType === 'all' ? null : userType, p, size));
+      downloadCsv(
+        ['Código', 'Recompensa', 'Detalle', 'Usuario', 'Tipo de usuario', 'Puntos', 'Estado', 'Canjeado', 'Vence', 'Entregado', 'Nota'],
+        all.items.map(r => [
+          r.code, r.itemName, describeReward(r), r.userName ?? '', r.userRole ? USER_TYPE_LABEL[r.userRole] ?? r.userRole : '',
+          isLevelBenefit(r) ? 'Beneficio de nivel' : r.pointsSpent, STATUS_LABEL[r.status] ?? r.status,
+          csvDateTime(r.createdAt), csvDateTime(r.expiresAt), csvDateTime(r.usedAt), r.usedNote ?? '',
+        ]),
+        `canjes-${csvDateTag()}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'canje', 'canjes'));
+      else toast.success(csvResultMessage(all, 'canje', 'canjes'));
+    } catch (err) {
+      toast.error(errMsg(err, 'No se pudo exportar los canjes.'));
+    }
+  }
+  useCsvExporter(onCsv, total, exportCsv);
 
   async function deliver(r: Redemption) {
     const res = await confirm({
@@ -127,7 +150,10 @@ export default function RedemptionsTab() {
     { key: 'created', header: 'Canjeado', priority: 2, render: r => fmtDate(r.createdAt, true) },
     { key: 'expires', header: 'Vence / nota', priority: 3, render: r => r.status === 'active'
       ? fmtDate(r.expiresAt)
-      : <span className="rw-cell-sub">{r.usedNote ?? '—'}</span> },
+      : r.status === 'reserved'
+        // Aplicado a un viaje que no termina: no vence ni se puede anular hasta entonces.
+        ? <span className="rw-cell-sub">Aplicado a un viaje en curso</span>
+        : <span className="rw-cell-sub">{r.usedNote ?? '—'}</span> },
   ];
 
   const actions = (r: Redemption): ActionItem[] => r.status !== 'active' ? [] : [

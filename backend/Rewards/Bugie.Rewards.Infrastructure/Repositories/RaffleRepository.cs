@@ -31,7 +31,7 @@ public class RaffleRepository : IRaffleRepository
     {
         var rows = await _db.QueryAsync<Raffle>(@"
             SELECT * FROM rewards.Raffles
-            WHERE Status IN ('open','closed') AND DrawDate <= (now() AT TIME ZONE 'utc')
+            WHERE Status IN ('open','closed') AND DrawDate <= now()
             ORDER BY DrawDate");
         return rows.ToList();
     }
@@ -43,11 +43,13 @@ public class RaffleRepository : IRaffleRepository
     public Task AddAsync(Raffle r, CancellationToken ct = default) =>
         _db.ExecuteAsync(@"
             INSERT INTO rewards.Raffles
-                (Id, Name, RaffleType, PrizeDescription, PrizeValue, DrawDate,
+                (Id, Name, RaffleType, PrizeDescription, PrizeValue,
+                 SecondaryPrizeDescription, SecondaryPrizeValue, DrawDate,
                  MinLevelRequired, MinMonthsActive, TargetUserType, WinnersCount,
                  Status, DrawSeed, DrawnAt, TicketsAtDraw, CreatedAt, UpdatedAt)
             VALUES
-                (@Id, @Name, @RaffleType, @PrizeDescription, @PrizeValue, @DrawDate,
+                (@Id, @Name, @RaffleType, @PrizeDescription, @PrizeValue,
+                 @SecondaryPrizeDescription, @SecondaryPrizeValue, @DrawDate,
                  @MinLevelRequired, @MinMonthsActive, @TargetUserType, @WinnersCount,
                  @Status, @DrawSeed, @DrawnAt, @TicketsAtDraw, @CreatedAt, @UpdatedAt)",
             r);
@@ -59,6 +61,8 @@ public class RaffleRepository : IRaffleRepository
                 RaffleType       = @RaffleType,
                 PrizeDescription = @PrizeDescription,
                 PrizeValue       = @PrizeValue,
+                SecondaryPrizeDescription = @SecondaryPrizeDescription,
+                SecondaryPrizeValue       = @SecondaryPrizeValue,
                 DrawDate         = @DrawDate,
                 MinLevelRequired = @MinLevelRequired,
                 MinMonthsActive  = @MinMonthsActive,
@@ -160,18 +164,39 @@ public class RaffleRepository : IRaffleRepository
             new { RaffleId = raffleId, UserId = userId, Source = source });
     }
 
-    /// <summary>
-    /// Entrega tickets numerados de forma correlativa dentro del sorteo.
-    ///
-    /// Se bloquea la fila del sorteo mientras se numera. Sin ese bloqueo, dos
-    /// procesos simultáneos leerían el mismo número máximo y chocarían contra
-    /// el índice único de (RaffleId, TicketNumber).
-    /// </summary>
-    public async Task<int> GrantTicketsAsync(
-        Guid raffleId, Guid userId, Guid profileId, int quantity,
-        string source, Guid? referenceId, CancellationToken ct = default)
+    private sealed class UserSourceCount
     {
-        if (quantity <= 0) return 0;
+        public Guid   UserId { get; set; }
+        public string Source { get; set; } = string.Empty;
+        public int    Total  { get; set; }
+    }
+
+    public async Task<Dictionary<(Guid UserId, string Source), int>> CountTicketsByUserAsync(
+        Guid raffleId, CancellationToken ct = default)
+    {
+        var rows = await _db.QueryAsync<UserSourceCount>(@"
+            SELECT UserId, Source, COUNT(*)::int AS Total
+            FROM rewards.RaffleTickets
+            WHERE RaffleId = @RaffleId
+            GROUP BY UserId, Source",
+            new { RaffleId = raffleId });
+        return rows.ToDictionary(r => (r.UserId, r.Source), r => r.Total);
+    }
+
+    /// <summary>
+    /// Completa los tickets del usuario hasta el objetivo, numerados de forma
+    /// correlativa dentro del sorteo.
+    ///
+    /// Se bloquea la fila del sorteo mientras se cuenta y se numera. Sin ese
+    /// bloqueo, dos procesos simultáneos leerían lo mismo y entregarían dos
+    /// veces (el índice único incluye el número de ticket, así que no lo
+    /// impediría), o chocarían con el mismo número.
+    /// </summary>
+    public async Task<int> GrantMissingTicketsAsync(
+        Guid raffleId, Guid userId, Guid profileId, int target,
+        string source, CancellationToken ct = default)
+    {
+        if (target <= 0) return 0;
 
         var wasClosed = _db.State != ConnectionState.Open;
         if (wasClosed) _db.Open();
@@ -179,13 +204,22 @@ public class RaffleRepository : IRaffleRepository
         using var trx = _db.BeginTransaction();
         try
         {
-            // Bloquea el sorteo para numerar sin carreras.
+            // Bloquea el sorteo; solo se reparte mientras siga abierto.
             // (FOR UPDATE no admite COUNT; si no hay fila, Dapper devuelve 0)
-            var existe = await _db.ExecuteScalarAsync<int>(
-                "SELECT 1 FROM rewards.Raffles WHERE Id = @Id FOR UPDATE",
+            var abierto = await _db.ExecuteScalarAsync<int>(
+                "SELECT 1 FROM rewards.Raffles WHERE Id = @Id AND Status = 'open' FOR UPDATE",
                 new { Id = raffleId }, trx);
 
-            if (existe == 0) { trx.Rollback(); return 0; }
+            if (abierto == 0) { trx.Rollback(); return 0; }
+
+            // Lo que ya tiene, contado con el bloqueo tomado.
+            var yaTiene = await _db.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) FROM rewards.RaffleTickets
+                WHERE RaffleId = @RaffleId AND UserId = @UserId AND Source = @Source",
+                new { RaffleId = raffleId, UserId = userId, Source = source }, trx);
+
+            var quantity = target - yaTiene;
+            if (quantity <= 0) { trx.Rollback(); return 0; }
 
             var desde = await _db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM rewards.RaffleTickets WHERE RaffleId = @RaffleId",
@@ -199,14 +233,14 @@ public class RaffleRepository : IRaffleRepository
                 ProfileId    = profileId,
                 TicketNumber = RaffleDraw.TicketNumber(desde + i),
                 Source       = source,
-                ReferenceId  = referenceId,
+                ReferenceId  = (Guid?)null,
             }).ToList();
 
             var creados = await _db.ExecuteAsync(@"
                 INSERT INTO rewards.RaffleTickets
                     (Id, RaffleId, UserId, ProfileId, TicketNumber, Source, ReferenceId, CreatedAt)
                 VALUES
-                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, (now() AT TIME ZONE 'utc'))
+                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, now())
                 ON CONFLICT DO NOTHING",
                 filas, trx);
 
@@ -284,7 +318,7 @@ public class RaffleRepository : IRaffleRepository
                 INSERT INTO rewards.RaffleTickets
                     (Id, RaffleId, UserId, ProfileId, TicketNumber, Source, ReferenceId, CreatedAt)
                 VALUES
-                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, (now() AT TIME ZONE 'utc'))",
+                    (@Id, @RaffleId, @UserId, @ProfileId, @TicketNumber, @Source, @ReferenceId, now())",
                 filas, trx);
 
             trx.Commit();
@@ -357,45 +391,99 @@ public class RaffleRepository : IRaffleRepository
     }
 
     /// <summary>
-    /// Guarda el resultado del sorteo: los ganadores y el estado del sorteo,
-    /// en una sola transacción. Si algo falla, no queda un sorteo marcado como
-    /// sorteado pero sin ganadores.
+    /// Ejecuta y guarda el sorteo en una sola transacción, con el sorteo
+    /// bloqueado. Si algo falla, no queda un sorteo marcado como sorteado pero
+    /// sin ganadores; y si otro proceso ya lo sorteó (o se canceló), no se
+    /// vuelve a sortear.
     /// </summary>
-    public async Task SaveDrawAsync(
-        Raffle raffle, IEnumerable<RaffleWinner> winners, CancellationToken ct = default)
+    public async Task<RaffleDrawResult> DrawAsync(
+        Guid raffleId,
+        Func<Raffle, IReadOnlyList<RaffleTicket>, List<RaffleWinner>> pickWinners,
+        bool cancelIfNoTickets,
+        CancellationToken ct = default)
     {
-        var lista = winners.ToList();
-
         var wasClosed = _db.State != ConnectionState.Open;
         if (wasClosed) _db.Open();
 
         using var trx = _db.BeginTransaction();
         try
         {
+            // 1. Bloquea el sorteo. Un segundo "sortear" espera aquí y, cuando
+            //    el primero confirma, ya lo ve 'drawn'.
+            var raffle = await _db.QuerySingleOrDefaultAsync<Raffle>(
+                "SELECT * FROM rewards.Raffles WHERE Id = @Id FOR UPDATE",
+                new { Id = raffleId }, trx);
+
+            if (raffle is null)
+            {
+                trx.Rollback();
+                return new RaffleDrawResult(RaffleDrawOutcome.NotFound, null, 0, new List<RaffleWinner>());
+            }
+            if (!raffle.IsPendingDraw)
+            {
+                trx.Rollback();
+                return new RaffleDrawResult(RaffleDrawOutcome.NotPending, raffle, raffle.TicketsAtDraw ?? 0, new List<RaffleWinner>());
+            }
+
+            // 2. Tickets leídos con el bloqueo tomado: nadie agrega tickets
+            //    mientras se sortea (el reparto también bloquea el sorteo).
+            var tickets = (await _db.QueryAsync<RaffleTicket>(@"
+                SELECT * FROM rewards.RaffleTickets
+                WHERE RaffleId = @RaffleId
+                ORDER BY TicketNumber",
+                new { RaffleId = raffleId }, trx)).ToList();
+
+            if (tickets.Count == 0)
+            {
+                if (cancelIfNoTickets)
+                {
+                    raffle.Status    = RaffleStatus.Cancelled;
+                    raffle.UpdatedAt = DateTime.UtcNow;
+                    await _db.ExecuteAsync(@"
+                        UPDATE rewards.Raffles SET Status = @Status, UpdatedAt = @UpdatedAt
+                        WHERE Id = @Id AND Status IN ('open','closed')",
+                        raffle, trx);
+                    trx.Commit();
+                }
+                else trx.Rollback();
+                return new RaffleDrawResult(RaffleDrawOutcome.NoTickets, raffle, 0, new List<RaffleWinner>());
+            }
+
+            // 3. Ganadores (lógica pura) y marcas del sorteo.
+            var lista = pickWinners(raffle, tickets);
+
             if (lista.Count > 0)
             {
                 await _db.ExecuteAsync(@"
                     INSERT INTO rewards.RaffleWinners
-                        (Id, RaffleId, UserId, TicketNumber, PrizeRank, PrizeDetail,
+                        (Id, RaffleId, UserId, TicketNumber, PrizeRank, PrizeDetail, PrizeValue,
                          Status, DeliveredAt, DeliveredBy, Note, CreatedAt)
                     VALUES
-                        (@Id, @RaffleId, @UserId, @TicketNumber, @PrizeRank, @PrizeDetail,
-                         @Status, @DeliveredAt, @DeliveredBy, @Note, @CreatedAt)
-                    ON CONFLICT DO NOTHING",
+                        (@Id, @RaffleId, @UserId, @TicketNumber, @PrizeRank, @PrizeDetail, @PrizeValue,
+                         @Status, @DeliveredAt, @DeliveredBy, @Note, @CreatedAt)",
                     lista, trx);
             }
 
-            await _db.ExecuteAsync(@"
+            // 4. El WHERE de estado es una segunda barrera: si no afecta la
+            //    fila, se deshace todo (incluidos los ganadores).
+            var marcado = await _db.ExecuteAsync(@"
                 UPDATE rewards.Raffles SET
                     Status        = @Status,
                     DrawSeed      = @DrawSeed,
                     DrawnAt       = @DrawnAt,
                     TicketsAtDraw = @TicketsAtDraw,
                     UpdatedAt     = @UpdatedAt
-                WHERE Id = @Id",
+                WHERE Id = @Id AND Status IN ('open','closed')",
                 raffle, trx);
 
+            if (marcado == 0)
+            {
+                trx.Rollback();
+                return new RaffleDrawResult(RaffleDrawOutcome.NotPending, raffle, tickets.Count, new List<RaffleWinner>());
+            }
+
             trx.Commit();
+            return new RaffleDrawResult(RaffleDrawOutcome.Drawn, raffle, tickets.Count, lista);
         }
         catch
         {

@@ -9,6 +9,12 @@
 --   - "~30,000 taxis operando sin verificación en Trujillo" (dato de mercado)
 -- Idempotente: al correrlo otra vez ya no hay nada que cambiar.
 
+BEGIN;
+
+-- Sesion en UTC: "now()" queda bien tanto en columnas timestamptz (base
+-- migrada) como en timestamp en UTC (base anterior a 2026-10-08).
+SET LOCAL timezone = 'UTC';
+
 UPDATE landing.sectioncontents
 SET contentjson =
       replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(contentjson,
@@ -25,9 +31,11 @@ SET contentjson =
         '@@ENG@@',   'engineers from Trujillo'),
         '@@TAXIS@@', 'sin verificación en Trujillo'),
         '{city}, Peru', '{cityCountry}'),
-    updatedat = now() AT TIME ZONE 'utc'
+    updatedat = now()
 WHERE contentjson LIKE '%Trujillo%'
   AND replace(replace(replace(contentjson,
         'InteliaDevs S.A.C. · Trujillo, Perú', ''),
         'engineers from Trujillo', ''),
         'sin verificación en Trujillo', '') LIKE '%Trujillo%';
+
+COMMIT;

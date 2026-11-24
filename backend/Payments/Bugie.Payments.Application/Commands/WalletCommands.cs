@@ -108,8 +108,8 @@ public class RegisterCommissionPaymentHandler : IRequestHandler<RegisterCommissi
             throw new InvalidOperationException("Este conductor no tiene comisión pendiente.");
         if (amount > debt)
             throw new InvalidOperationException(
-                $"El monto (S/ {amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}) supera la deuda actual del conductor " +
-                $"(S/ {debt.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}). Puedes registrar un pago parcial, pero no mayor a la deuda.");
+                $"El monto ({Money.Soles(amount)}) supera la deuda actual del conductor " +
+                $"({Money.Soles(debt)}). Puedes registrar un pago parcial, pero no mayor a la deuda.");
 
         // Sin fecha = ahora. La fecha llega en hora de Peru (ver BugieTime).
         var paidAt = r.PaidAt is null ? DateTime.UtcNow : BugieTime.ToUtcFromInput(r.PaidAt.Value);

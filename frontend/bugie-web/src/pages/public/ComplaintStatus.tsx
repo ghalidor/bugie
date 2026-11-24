@@ -10,6 +10,7 @@ import ComplaintSheetHeader from '../../components/landing/ComplaintSheetHeader'
 import { useDocumentMeta } from '../../components/landing/useDocumentMeta';
 import { SEO } from '../../content/landing/seo';
 import { API } from '../../state/api';
+import { money } from '../../components/tripFormat';
 
 /**
  * Consulta pública de una hoja de reclamación:
@@ -103,7 +104,7 @@ function Sheet({ c }: { c: PublicComplaint }) {
       <h5 className="fw-bold mt-4 mb-3">{GOOD_TITLE}</h5>
       <div className="row g-3">
         <Item col="col-md-4" label="Bien contratado">{c.goodType === 'producto' ? 'Producto' : 'Servicio'}</Item>
-        <Item col="col-md-4" label="Monto reclamado">{c.claimedAmount != null ? `S/ ${c.claimedAmount.toFixed(2)}` : '—'}</Item>
+        <Item col="col-md-4" label="Monto reclamado">{c.claimedAmount != null ? money(c.claimedAmount) : '—'}</Item>
         <Item col="col-12" label="Descripción">{c.goodDescription || '—'}</Item>
       </div>
 

@@ -20,7 +20,7 @@ public class LocationHistoryRepository : ILocationHistoryRepository
 
     /// <summary>
     /// Insercion masiva en una sola sentencia (unnest de arreglos). Las fechas van
-    /// en UTC; el ::timestamp las deja como hora UTC sin zona, igual que AddAsync.
+    /// en UTC (Kind = Utc) como timestamptz[], igual que la columna.
     /// </summary>
     public Task AddRangeAsync(IReadOnlyList<LocationHistory> points, CancellationToken ct = default)
     {
@@ -28,8 +28,8 @@ public class LocationHistoryRepository : ILocationHistoryRepository
         return _db.ExecuteAsync(@"
             INSERT INTO drivers.LocationHistory
                 (DriverId, TripId, Lat, Lng, SpeedKmh, Heading, RecordedAt)
-            SELECT u.DriverId, u.TripId, u.Lat, u.Lng, u.SpeedKmh, u.Heading, u.RecordedAt::timestamp
-            FROM unnest(@DriverIds, @TripIds, @Lats, @Lngs, @Speeds, @Headings, @RecordedAts)
+            SELECT u.DriverId, u.TripId, u.Lat, u.Lng, u.SpeedKmh, u.Heading, u.RecordedAt
+            FROM unnest(@DriverIds, @TripIds, @Lats, @Lngs, @Speeds, @Headings, CAST(@RecordedAts AS timestamptz[]))
                  AS u(DriverId, TripId, Lat, Lng, SpeedKmh, Heading, RecordedAt)",
             new
             {

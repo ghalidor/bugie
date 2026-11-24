@@ -45,9 +45,8 @@ public static class NegotiationRules
     private static int? ParseInt(string? v) =>
         int.TryParse(v?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) ? i : null;
 
-    /// <summary>"S/ 12.50" (siempre con punto, igual que el resto de avisos).</summary>
-    public static string Soles(decimal amount) =>
-        "S/ " + amount.ToString("0.00", CultureInfo.InvariantCulture);
+    /// <summary>"S/ 12.50" (formato unico de montos, ver Money).</summary>
+    public static string Soles(decimal amount) => Money.Soles(amount);
 }
 
 /// <summary>Valores vigentes de la negociacion (ver NegotiationRules).</summary>

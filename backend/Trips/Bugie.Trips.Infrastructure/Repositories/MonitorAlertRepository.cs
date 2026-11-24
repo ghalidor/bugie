@@ -6,12 +6,12 @@ using Bugie.Trips.Domain.Interfaces;
 namespace Bugie.Trips.Infrastructure.Repositories;
 
 /// <summary>
-/// Alertas de monitoreo (trips.MonitorAlerts). Las horas se ponen en SQL, en UTC.
+/// Alertas de monitoreo (trips.MonitorAlerts). Las horas se ponen en SQL con now() (timestamptz).
 /// Nombres de conductor, pasajero y admin salen de auth.Users (misma base).
 /// </summary>
 public class MonitorAlertRepository : IMonitorAlertRepository
 {
-    private const string NowUtc = "(NOW() AT TIME ZONE 'utc')";
+    private const string NowUtc = "now()";
 
     private readonly IDbConnection _db;
     public MonitorAlertRepository(IDbConnection db) => _db = db;

@@ -19,7 +19,7 @@ BEGIN;
 --    statusreason:   motivo del ultimo rechazo/suspension (lo ve el conductor).
 -- ---------------------------------------------------------------------
 ALTER TABLE drivers.drivers
-    ADD COLUMN IF NOT EXISTS suspendeduntil timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS suspendeduntil timestamp with time zone,
     ADD COLUMN IF NOT EXISTS statusreason   text;
 
 CREATE INDEX IF NOT EXISTS ix_drivers_suspendeduntil
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS drivers.driverreviewrequests (
     message          text NOT NULL,
     status           character varying(20) DEFAULT 'open' NOT NULL,
     driverstatus     smallint NOT NULL,
-    createdat        timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    resolvedat       timestamp without time zone,
+    createdat        timestamp with time zone DEFAULT now() NOT NULL,
+    resolvedat       timestamp with time zone,
     resolvedbyuserid uuid,
     resolvedbyname   character varying(150),
     resolution       text,

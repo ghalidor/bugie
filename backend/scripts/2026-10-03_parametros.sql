@@ -16,19 +16,19 @@ BEGIN;
 -- ── 1) Descripciones de landing.systemsettings ──────────────────────────
 UPDATE landing.systemsettings AS s SET description = d.txt
 FROM (VALUES
-  ('base_fare',                   'Tarifa minima en soles. Base de la tarifa sugerida al pedir un viaje (web y app).'),
+  ('base_fare',                   'Tarifa mínima en soles. Base de la tarifa sugerida al pedir un viaje (web y app).'),
   ('fare_per_km',                 'Soles por km. Tarifa sugerida = max(tarifa base, km x este valor). Web y app.'),
-  ('platform_fee_rate',           'Comision de Bugie por viaje, EN PORCENTAJE (10 = 10%). Se calcula sobre lo que el pasajero pago de verdad.'),
+  ('platform_fee_rate',           'Comisión de Bugie por viaje, EN PORCENTAJE (10 = 10%). Se calcula sobre lo que el pasajero pagó de verdad.'),
   ('max_radius_km',               'Radio en km para avisar a conductores de un viaje nuevo y para listarles solicitudes cercanas.'),
   ('sos_response_min',            'Minutos objetivo de respuesta SOS. Se muestra en la pantalla SOS (web) y marca en el Centro SOS las alertas que lo superan.'),
   ('support_email',               'Correo de soporte. Se muestra en el panel de ayuda de la web y en Cuenta > Ayuda de la app.'),
-  ('support_phone',               'Telefono de soporte. Se muestra en el panel de ayuda de la web y en Cuenta > Ayuda de la app.'),
-  ('default_city',                'Ciudad principal de operacion. Aparece en los correos que envia la plataforma.'),
+  ('support_phone',               'Teléfono de soporte. Se muestra en el panel de ayuda de la web y en Cuenta > Ayuda de la app.'),
+  ('default_city',                'Ciudad principal de operación. Aparece en los correos que envía la plataforma.'),
   ('default_lat',                 'Latitud del centro inicial de los mapas (panel, web y app).'),
   ('default_lng',                 'Longitud del centro inicial de los mapas (panel, web y app).'),
   ('default_zoom',                'Zoom inicial de los mapas (panel, web y app). 1 = mundo, 18 = calle.'),
-  ('deviation_detection_enabled', 'Si esta activo, el sistema detecta cuando el conductor se sale de la ruta planificada, alerta en Monitoreo y avisa al pasajero.'),
-  ('deviation_threshold_m',       'Distancia en metros a la ruta planificada a partir de la cual se considera desvio (por defecto 300).')
+  ('deviation_detection_enabled', 'Si está activo, el sistema detecta cuando el conductor se sale de la ruta planificada, alerta en Monitoreo y avisa al pasajero.'),
+  ('deviation_threshold_m',       'Distancia en metros a la ruta planificada a partir de la cual se considera desvío (por defecto 300).')
 ) AS d(k, txt)
 WHERE s.settingkey = d.k AND s.description IS DISTINCT FROM d.txt;
 

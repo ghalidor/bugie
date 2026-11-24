@@ -1,3 +1,4 @@
+using Bugie.Trips.Application.Commands;
 using Bugie.Trips.Domain.Enums;
 using Bugie.Trips.Domain.External;
 using Bugie.Trips.Domain.Interfaces;
@@ -128,6 +129,11 @@ public class ScheduledTripReminderService : BackgroundService
             {
                 var cancelled = await trips.CancelExpiredScheduledAsync(trip.Id, ExpiredReason, ct);
                 if(!cancelled) continue; // un conductor lo tomo justo ahora
+
+                // Programado reabierto que traia cupon: se libera la reserva.
+                if(trip.HasCoupon)
+                    await CouponReservation.ReleaseAsync(sp.GetRequiredService<IRewardsClient>(),
+                        sp.GetRequiredService<IOutboxRepository>(), trip.Id, trip.CouponCode, ct);
 
                 var proposalDrivers = await proposals.CancelOpenByTripAsync(trip.Id, "trip_cancelled", ct);
                 foreach(var driverUserId in proposalDrivers)

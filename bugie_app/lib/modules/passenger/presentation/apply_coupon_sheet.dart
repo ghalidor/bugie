@@ -6,6 +6,7 @@ import '../../../core/theme/bugie_theme.dart';
 import '../../rewards/data/rewards_repository.dart';
 import '../../rewards/domain/rewards_model.dart';
 import '../../trips/data/trips_repository.dart';
+import '../../../core/utils/format.dart';
 
 /// Abre la hoja para elegir un cupón. Devuelve el resultado si se aplicó.
 Future<CouponApplied?> showApplyCouponSheet(
@@ -19,6 +20,16 @@ Future<CouponApplied?> showApplyCouponSheet(
     backgroundColor: Colors.transparent,
     builder: (_) => _ApplyCouponSheet(tripId: tripId, fare: fare),
   );
+}
+
+/// Aviso para el pasajero cuando un cupón de monto vale más que la tarifa:
+/// el viaje sale gratis y lo que sobra vuelve en puntos al terminar.
+/// [points] null = no se conoce la tasa (se muestra solo el monto).
+String couponLeftoverNotice(double soles, int? points) {
+  if (points == 0) return 'Este viaje te sale gratis.';
+  final pts = points == null ? '' : ' ($points pts)';
+  return 'Este viaje te sale gratis. Te devolvemos ${formatSoles(soles)} '
+      'en puntos$pts al terminar.';
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -46,6 +57,9 @@ class _ApplyCouponSheetState extends State<_ApplyCouponSheet> {
   static const _aplicables = {'discount_amount', 'free_trip', 'discount_period'};
 
   List<RewardRedemption> _cupones = [];
+  /// Puntos por S/ 1.00 del pasajero, para anticipar el sobrante de un cupón.
+  /// null si no se pudo leer (entonces se muestra solo el monto).
+  double? _pointsPerSol;
   bool    _loading = true;
   String? _error;
   String? _aplicando;
@@ -59,12 +73,17 @@ class _ApplyCouponSheetState extends State<_ApplyCouponSheet> {
   Future<void> _cargar() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final page = await context
-          .read<RewardsRepository>()
-          .getMyRedemptions(status: 'active', pageSize: 50);
+      final repo = context.read<RewardsRepository>();
+      // La tasa es complementaria: si falla, el aviso sale sin los puntos.
+      final tasa = repo.getProfile()
+          .then<double?>((p) => p.pointsPerSol)
+          .catchError((_) => null);
+      final page = await repo.getMyRedemptions(status: 'active', pageSize: 50);
+      final pointsPerSol = await tasa;
 
       if (!mounted) return;
       setState(() {
+        _pointsPerSol = pointsPerSol;
         _cupones = page.items
             .where((c) => _aplicables.contains(c.rewardType))
             .toList();
@@ -141,7 +160,7 @@ class _ApplyCouponSheetState extends State<_ApplyCouponSheet> {
               const Text('Usar un cupón',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               const Spacer(),
-              Text('Tarifa S/ ${widget.fare.toStringAsFixed(2)}',
+              Text('Tarifa ${formatSoles(widget.fare)}',
                   style: TextStyle(fontSize: 12.5, color: c.textMuted)),
             ]),
             const SizedBox(height: 12),
@@ -190,6 +209,7 @@ class _ApplyCouponSheetState extends State<_ApplyCouponSheet> {
                   itemBuilder: (_, i) => _CouponOption(
                     cupon: _cupones[i],
                     fare: widget.fare,
+                    pointsPerSol: _pointsPerSol,
                     busy: _aplicando == _cupones[i].code,
                     disabled: _aplicando != null,
                     onTap: () => _aplicar(_cupones[i]),
@@ -213,6 +233,7 @@ class _ApplyCouponSheetState extends State<_ApplyCouponSheet> {
 class _CouponOption extends StatelessWidget {
   final RewardRedemption cupon;
   final double fare;
+  final double? pointsPerSol;
   final bool busy;
   final bool disabled;
   final VoidCallback onTap;
@@ -220,6 +241,7 @@ class _CouponOption extends StatelessWidget {
   const _CouponOption({
     required this.cupon,
     required this.fare,
+    required this.pointsPerSol,
     required this.busy,
     required this.disabled,
     required this.onTap,
@@ -230,23 +252,41 @@ class _CouponOption extends StatelessWidget {
   String _estimado() {
     switch (cupon.rewardType) {
       case 'discount_amount':
-        final d = (cupon.amountSoles ?? 0).clamp(0, fare);
-        return 'hasta S/ ${d.toStringAsFixed(2)} menos';
+        final d = (cupon.amountSoles ?? 0).clamp(0, fare).toDouble();
+        return 'hasta ${formatSoles(d)} menos';
       case 'free_trip':
-        final d = (cupon.amountSoles ?? 0).clamp(0, fare);
-        return 'hasta S/ ${d.toStringAsFixed(2)} menos';
+        final d = (cupon.amountSoles ?? 0).clamp(0, fare).toDouble();
+        return 'hasta ${formatSoles(d)} menos';
       case 'discount_period':
         final d = fare * (cupon.percentage ?? 0) / 100;
-        return 'hasta S/ ${d.toStringAsFixed(2)} menos';
+        return 'hasta ${formatSoles(d)} menos';
       default:
         return '';
     }
+  }
+
+  /// Cupón de monto que vale más que la tarifa: lo que sobra (0 si nada).
+  /// Mismo cálculo que el servidor: céntimos y puntos redondeados hacia abajo.
+  double get _sobrante {
+    if (cupon.rewardType != 'discount_amount' && cupon.rewardType != 'free_trip') {
+      return 0;
+    }
+    final s = ((cupon.amountSoles ?? 0) - fare) * 100;
+    return s > 0 ? s.round() / 100 : 0;
+  }
+
+  int? get _puntosSobrante {
+    final rate = pointsPerSol;
+    if (rate == null) return null;
+    if (rate <= 0) return 0;
+    return (_sobrante * rate + 1e-9).floor();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.bugie;
     final dias = cupon.expiresAt.difference(DateTime.now()).inDays;
+    final sobra = _sobrante;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -286,6 +326,12 @@ class _CouponOption extends StatelessWidget {
                             fontSize: 12.5,
                             color: BugieColors.success,
                             fontWeight: FontWeight.w600)),
+                    if (sobra > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(couponLeftoverNotice(sobra, _puntosSobrante),
+                          style: const TextStyle(
+                              fontSize: 12, color: BugieColors.success)),
+                    ],
                     const SizedBox(height: 2),
                     Text(
                       '${cupon.code} · '

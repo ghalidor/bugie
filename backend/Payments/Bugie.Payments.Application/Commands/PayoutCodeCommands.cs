@@ -89,7 +89,7 @@ public class PayByCodeHandler : IRequestHandler<PayByCodeCommand, PayoutDto>
     }
 
     private static string SettleNote(string method, string? operation, decimal amount) =>
-        $"Pagado por {method}{(operation is null ? "" : $" · op {operation}")} · S/ {amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+        $"Pagado por {method}{(operation is null ? "" : $" · op {operation}")} · {Money.Soles(amount)}";
 }
 
 internal static class PayoutCodeRules

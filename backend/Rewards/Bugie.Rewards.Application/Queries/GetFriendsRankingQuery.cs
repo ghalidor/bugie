@@ -1,8 +1,8 @@
 using System.Globalization;
 using MediatR;
-using Bugie.Rewards.Application.Config;
 using Bugie.Rewards.Application.DTOs;
 using Bugie.Rewards.Domain.Interfaces;
+using Bugie.Rewards.Domain.Common;
 
 namespace Bugie.Rewards.Application.Queries;
 
@@ -18,25 +18,16 @@ public record GetFriendsRankingQuery(Guid UserId) : IRequest<FriendsRankingDto>;
 public class GetFriendsRankingHandler
     : IRequestHandler<GetFriendsRankingQuery, FriendsRankingDto>
 {
-    private readonly IReferralRepository       _referrals;
-    private readonly IRewardSettingsRepository _settings;
+    private readonly IReferralRepository _referrals;
 
-    public GetFriendsRankingHandler(
-        IReferralRepository referrals, IRewardSettingsRepository settings)
-    {
-        _referrals = referrals;
-        _settings  = settings;
-    }
+    public GetFriendsRankingHandler(IReferralRepository referrals) => _referrals = referrals;
 
     public async Task<FriendsRankingDto> Handle(
         GetFriendsRankingQuery q, CancellationToken ct)
     {
-        var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
-        var tz      = options.TimezoneOffsetHours;
-
         // El mes se calcula en hora local: si no, el 1 de mes a las 7pm
         // todavía contaría como el mes anterior.
-        var ahoraLocal  = DateTime.UtcNow.AddHours(tz);
+        var ahoraLocal  = BugieTime.Now;
         var inicioLocal = new DateTime(ahoraLocal.Year, ahoraLocal.Month, 1);
         var finLocal    = inicioLocal.AddMonths(1);
 
@@ -46,7 +37,7 @@ public class GetFriendsRankingHandler
         var todos = amigos.Append(q.UserId).Distinct().ToList();
 
         var puntos = await _referrals.GetMonthlyPointsAsync(
-            todos, inicioLocal.AddHours(-tz), finLocal.AddHours(-tz), ct);
+            todos, BugieTime.PeruToUtc(inicioLocal), BugieTime.PeruToUtc(finLocal), ct);
 
         // Quienes invitaron a este usuario, para etiquetar la relación.
         var quienesMeInvitaron = (await _referrals.GetByReferredUserAsync(q.UserId, ct)) is { } r

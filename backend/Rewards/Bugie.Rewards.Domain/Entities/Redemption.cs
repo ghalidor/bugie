@@ -28,6 +28,9 @@ public class Redemption
     public Guid?     UsedReferenceId { get; private set; }
     public string?   UsedNote        { get; private set; }
     public DateTime  CreatedAt       { get; private set; }
+    /// <summary>Viaje al que esta aplicado mientras Status = 'reserved'.</summary>
+    public Guid?     ReservedTripId  { get; private set; }
+    public DateTime? ReservedAt      { get; private set; }
 
     private Redemption() { }
 
@@ -88,6 +91,10 @@ public class Redemption
     /// <summary>Se puede usar ahora mismo.</summary>
     public bool IsUsable => Status == RedemptionStatus.Active && !IsExpired;
 
+    /// <summary>Esta reservado (aplicado) en ese viaje.</summary>
+    public bool IsReservedFor(Guid tripId) =>
+        Status == RedemptionStatus.Reserved && ReservedTripId == tripId;
+
     public void Use(Guid? referenceId = null, string? note = null)
     {
         if (Status != RedemptionStatus.Active)
@@ -105,6 +112,10 @@ public class Redemption
     {
         if (Status == RedemptionStatus.Used)
             throw new InvalidOperationException("No se puede anular un cupon ya usado.");
+        // Anularlo a mitad de viaje daria el descuento Y los puntos de vuelta.
+        if (Status == RedemptionStatus.Reserved)
+            throw new InvalidOperationException(
+                "Está reservado en un viaje en curso; anúlalo cuando termine o se cancele.");
         Status   = RedemptionStatus.Cancelled;
         UsedNote = note;
     }

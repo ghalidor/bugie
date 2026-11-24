@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/theme/bugie_theme.dart';
 import '../../../payments/domain/payment_model.dart';
 import '../../../rewards/domain/rewards_model.dart';
+import '../../../../core/utils/format.dart';
 
 /// Estado de un código para cobrar.
 enum PayoutCodeStatus { pending, paid, expired, cancelled }
@@ -61,7 +62,7 @@ class PayoutCodeItem {
         code: r.code,
         isRaffle: false,
         title: 'Canje de puntos: ${r.itemName}',
-        detail: '${NumberFormat.decimalPattern('es_PE').format(r.pointsSpent)} puntos',
+        detail: '${NumberFormat('#,##0', 'en_US').format(r.pointsSpent)} puntos',
         amount: r.amountSoles,
         status: status,
         expiresAt: r.expiresAt,
@@ -75,8 +76,9 @@ class PayoutCodeItem {
         code: r.myPrizeCode!,
         isRaffle: true,
         title: 'Premio de sorteo: ${r.name}',
-        detail: '$puesto · ${r.prizeDescription}',
-        amount: r.prizeValue,
+        // Premio y monto de SU puesto (los puestos 2+ no heredan el principal).
+        detail: '$puesto · ${r.myPrizeDetail ?? r.prizeDescription}',
+        amount: r.myPrizeValue ?? (r.myPrizeRank == 1 ? r.prizeValue : null),
         // Cobrado si hay un pago con ese código o si el admin lo marcó entregado.
         status: r.myPrizeDelivered || paidCodes.contains(r.myPrizeCode!.toUpperCase())
             ? PayoutCodeStatus.paid
@@ -208,7 +210,7 @@ class PayoutCodeCard extends StatelessWidget {
               ),
               Text(
                 item.amount != null && item.amount! > 0
-                    ? 'S/ ${item.amount!.toStringAsFixed(2)}'
+                    ? formatSoles(item.amount!)
                     : 'Producto / beneficio',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),

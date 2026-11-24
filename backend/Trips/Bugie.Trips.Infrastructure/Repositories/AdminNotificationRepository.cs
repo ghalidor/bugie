@@ -10,7 +10,7 @@ namespace Bugie.Trips.Infrastructure.Repositories;
 /// <summary>
 /// Historial de avisos del admin (trips.adminnotifications) y lecturas
 /// (trips.adminnotificationreads). Singleton: abre una conexion por llamada
-/// (Npgsql la toma del pool). Fechas en UTC: now() AT TIME ZONE 'UTC'.
+/// (Npgsql la toma del pool). Fechas timestamptz: now().
 /// </summary>
 public class AdminNotificationRepository : IAdminNotificationRepository
 {
@@ -23,7 +23,7 @@ public class AdminNotificationRepository : IAdminNotificationRepository
     private readonly string _cs;
 
     public AdminNotificationRepository(IConfiguration cfg) =>
-        _cs = BugieTimeSetup.UtcConnectionString(cfg.GetConnectionString("Default"));
+        _cs = BugieTimeSetup.PeruConnectionString(cfg.GetConnectionString("Default"));
 
     private NpgsqlConnection Open() => new(_cs);
 
@@ -35,7 +35,7 @@ public class AdminNotificationRepository : IAdminNotificationRepository
             INSERT INTO trips.adminnotifications
                 (id, type, title, message, link, permission, data, createdat)
             VALUES (gen_random_uuid(), @Type, @Title, @Message, @Link, @Permission,
-                    CAST(@Data AS jsonb), now() AT TIME ZONE 'UTC')
+                    CAST(@Data AS jsonb), now())
             RETURNING id",
             new
             {
@@ -73,8 +73,8 @@ public class AdminNotificationRepository : IAdminNotificationRepository
         var where = $@"
             WHERE {Visible}
               AND (CAST(@Type AS text) IS NULL OR n.type = @Type)
-              AND (CAST(@From AS timestamp) IS NULL OR n.createdat >= @From)
-              AND (CAST(@To   AS timestamp) IS NULL OR n.createdat <  @To)
+              AND (CAST(@From AS timestamptz) IS NULL OR n.createdat >= @From)
+              AND (CAST(@To   AS timestamptz) IS NULL OR n.createdat <  @To)
               AND (NOT @Unread OR r.readat IS NULL)";
 
         var items = await db.QueryAsync<AdminNotification>(new CommandDefinition($@"
@@ -122,7 +122,7 @@ public class AdminNotificationRepository : IAdminNotificationRepository
         // ON CONFLICT: si ya estaba leido conserva la primera fecha de lectura.
         await db.ExecuteAsync(new CommandDefinition(@"
             INSERT INTO trips.adminnotificationreads (notificationid, adminuserid, readat)
-            VALUES (@Id, @AdminId, now() AT TIME ZONE 'UTC')
+            VALUES (@Id, @AdminId, now())
             ON CONFLICT (notificationid, adminuserid) DO NOTHING",
             p, cancellationToken: ct));
         return true;
@@ -134,7 +134,7 @@ public class AdminNotificationRepository : IAdminNotificationRepository
         await using var db = Open();
         return await db.ExecuteAsync(new CommandDefinition($@"
             INSERT INTO trips.adminnotificationreads (notificationid, adminuserid, readat)
-            SELECT n.id, @AdminId, now() AT TIME ZONE 'UTC'
+            SELECT n.id, @AdminId, now()
             FROM trips.adminnotifications n
             WHERE {Visible}
             ON CONFLICT (notificationid, adminuserid) DO NOTHING",

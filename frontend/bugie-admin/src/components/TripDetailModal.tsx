@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import BugieMapAdmin, { MapMarker } from './BugieMapAdmin';
 import { API, ApiError, apiFetch } from '../state/api';
+import { fmtSoles } from '../state/payouts';
 import { PlannedRoute, RouteLegend, TripPath, buildRouteLines, fetchPlannedRoute, fetchTripPath } from './tripRoutes';
 import { IconButton, Modal, Skeleton, StatusBadge } from './ui';
 import { DriverLink, PassengerLink } from './EntityLinks';
@@ -18,6 +19,8 @@ export interface TripDetail {
   driverId: string | null;
   serviceType?: number;
   couponCode?: string | null; discountAmount?: number | null; fareBeforeDiscount?: number | null;
+  /** Cupón que valía más que la tarifa: soles y puntos que vuelven al pasajero. */
+  couponLeftover?: number | null; couponLeftoverPoints?: number | null;
   acceptedAt?: string | null; driverArrivedAt?: string | null;
   startedAt?: string | null; completedAt?: string | null;
   cancelledBy?: string | null; cancelReason?: string | null; cancelledAt?: string | null;
@@ -148,7 +151,7 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
         <div className="bx-trip-summary">
           <div className="bx-trip-kpi">
             <span className="k">Tarifa</span>
-            <span className="v">S/ {fare.toFixed(2)}</span>
+            <span className="v">{fmtSoles(fare)}</span>
           </div>
           <div className="bx-trip-kpi">
             <span className="k">Pago</span>
@@ -218,12 +221,17 @@ export default function TripDetailModal({ trip, onClose }: { trip: TripDetail; o
         <div className="bx-trip-cards">
           <section className="bx-trip-card">
             <h3 className="bx-trip-card-title"><i className="fa-solid fa-receipt" aria-hidden="true" />Tarifa</h3>
-            <div className="fw-bold fs-5">S/ {fare.toFixed(2)}</div>
+            <div className="fw-bold fs-5">{fmtSoles(fare)}</div>
             {trip.finalFare == null && <div className="small bugie-muted">Tarifa estimada</div>}
             {trip.couponCode && (
               <div className="small">
-                Cupón <strong>{trip.couponCode}</strong>: −S/ {(trip.discountAmount ?? 0).toFixed(2)}
-                {trip.fareBeforeDiscount != null && <> (antes S/ {trip.fareBeforeDiscount.toFixed(2)})</>}
+                Cupón <strong>{trip.couponCode}</strong>: −{fmtSoles(trip.discountAmount ?? 0)}
+                {trip.fareBeforeDiscount != null && <> (antes {fmtSoles(trip.fareBeforeDiscount)})</>}
+              </div>
+            )}
+            {trip.couponCode && (trip.couponLeftoverPoints ?? 0) > 0 && (
+              <div className="small">
+                Sobrante del cupón: {fmtSoles(trip.couponLeftover ?? 0)} = {trip.couponLeftoverPoints} pts para el pasajero al completar el viaje
               </div>
             )}
             <div className="small bugie-muted">Pago: {PAY[trip.paymentMethod] ?? trip.paymentMethod}</div>

@@ -6,7 +6,8 @@ import { API, apiFetch, ApiError } from '../../state/api';
 import { getToken } from '../../state/session';
 import { useDefaultLocation } from '../../hooks/useDefaultLocation';
 import { usePlatformConfig, calcularTarifa, createFareError } from '../../hooks/usePlatformConfig';
-import { Checkbox, Field, IconButton, Notice, Page, SectionCard, Select } from '../../components/ui';
+import { money } from '../../components/tripFormat';
+import { Checkbox, DateField, Field, IconButton, Notice, Page, SectionCard, Select, TimeField } from '../../components/ui';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 
@@ -690,12 +691,12 @@ export default function PassengerRequestRide() {
                 <>
                   <div className="bx-form-grid">
                     <Field label="Fecha" required>
-                      <input className="form-control" type="date" min={schedMinDate} max={schedMaxDate}
-                             value={schedDate} onChange={e => setSchedDate(e.target.value)} />
+                      <DateField min={schedMinDate} max={schedMaxDate}
+                               value={schedDate} onChange={setSchedDate} />
                     </Field>
                     <Field label="Hora" required>
-                      <input className="form-control" type="time" step={300}
-                             value={schedTime} onChange={e => setSchedTime(e.target.value)} />
+                      <TimeField step={300}
+                               value={schedTime} onChange={setSchedTime} />
                     </Field>
                   </div>
                   {schedError
@@ -729,7 +730,7 @@ export default function PassengerRequestRide() {
               {fare ? (
                 <>
                   <div className="bx-box">
-                    <div className="bx-kv"><span>Tarifa sugerida</span><span>S/ {fare.toFixed(2)}</span></div>
+                    <div className="bx-kv"><span>Tarifa sugerida</span><span>{money(fare)}</span></div>
                     <div className="bx-kv"><span>Distancia</span><span>{routeInfo!.km.toFixed(1)} km</span></div>
                     <div className="bx-kv"><span>Tiempo estimado</span><span>{routeInfo!.mins} min</span></div>
                     {stopsMarked > 0 && (
@@ -746,7 +747,7 @@ export default function PassengerRequestRide() {
                     required
                     error={proposedFareError ?? undefined}
                     help={minFare !== null
-                      ? `Mínimo S/ ${minFare.toFixed(2)}. Los conductores pueden aceptarla o contraofertar.`
+                      ? `Mínimo ${money(minFare)}. Los conductores pueden aceptarla o contraofertar.`
                       : 'Los conductores pueden aceptarla o contraofertar.'}
                   >
                     <input
@@ -770,7 +771,7 @@ export default function PassengerRequestRide() {
 
           <div className="bx-submit-bar">
             <div className="sum">
-              <div className="v">{proposedFare && !proposedFareInvalid ? `S/ ${parseFloat(proposedFare).toFixed(2)}` : '—'}</div>
+              <div className="v">{proposedFare && !proposedFareInvalid ? money(parseFloat(proposedFare)) : '—'}</div>
               <div className="l">{pendingHint ?? (isScheduled
                 ? `Programado: ${scheduleLabel(schedDate, schedTime)}`
                 : isDelivery ? 'Tu propuesta para el envío' : 'Tu propuesta para el viaje')}</div>

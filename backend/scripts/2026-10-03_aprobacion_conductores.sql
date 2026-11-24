@@ -15,7 +15,7 @@ BEGIN;
 --                       ya no se puede aprobar por excepcion.
 -- ---------------------------------------------------------------------
 ALTER TABLE drivers.drivers
-    ADD COLUMN IF NOT EXISTS documentsdeadline timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS documentsdeadline timestamp with time zone,
     ADD COLUMN IF NOT EXISTS strikes           integer DEFAULT 0 NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_drivers_documentsdeadline
@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS drivers.approvalaudit (
     adminname   character varying(150),
     reason      text,
     missingdocs text,
-    deadline    timestamp without time zone,
-    createdat   timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    deadline    timestamp with time zone,
+    createdat   timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT approvalaudit_pkey PRIMARY KEY (id),
     CONSTRAINT fk_approvalaudit_driver FOREIGN KEY (driverid)
         REFERENCES drivers.drivers (id) ON DELETE CASCADE,

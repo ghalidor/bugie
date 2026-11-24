@@ -1,4 +1,5 @@
 import { API, apiFetch } from './api';
+import { money } from '../components/tripFormat';
 
 // ─────────────────────────────────────────────────────────────
 // Tipos: son un espejo exacto de los DTOs de Bugie.Rewards.Api
@@ -19,6 +20,8 @@ export interface PointsProfile {
   progressPercentage: number;
   pointsExpiryDate:   string | null;
   lastActivityDate:   string | null;
+  /** Puntos por cada S/ 1.00 (tasa configurada para su tipo de usuario). */
+  pointsPerSol?:      number;
 }
 
 export interface PointsTransaction {
@@ -78,11 +81,14 @@ export interface Redemption {
   amountSoles: number | null;
   quantity:    number | null;
   percentage:  number | null;
-  status:      'active' | 'used' | 'expired' | 'cancelled';
+  /** reserved = aplicado a un viaje que todavía no termina. */
+  status:      'active' | 'reserved' | 'used' | 'expired' | 'cancelled';
   expiresAt:   string;
   usedAt:      string | null;
   usedNote:    string | null;
   createdAt:   string;
+  /** Viaje en el que está aplicado (solo con status = reserved). */
+  reservedTripId?: string | null;
 }
 
 export interface RedeemResult {
@@ -122,6 +128,10 @@ export interface UserRaffle {
   ticketCouponsAvailable: number;
   canUseTicketCoupon:     boolean;
   nextTicketCouponId:     string | null;
+  /** Si ganó: el premio de SU puesto (el secundario si no salió 1.º). */
+  myPrizeDetail?:         string | null;
+  /** Si ganó: valor en soles de su premio (null = a criterio del admin). */
+  myPrizeValue?:          number | null;
 }
 
 export interface UseTicketCouponResult {
@@ -265,6 +275,7 @@ export const rewardsApi = {
       tripId: string; code: string; itemName: string;
       fareBeforeDiscount: number; discountAmount: number;
       amountToPay: number; warning: string | null;
+      leftoverSoles?: number; leftoverPoints?: number; notice?: string | null;
     }>(`${API.trips}/trips/${tripId}/coupon`, {
       method: 'POST', body: JSON.stringify({ code }),
     }),
@@ -327,11 +338,13 @@ export const SOURCE_LABEL: Record<string, string> = {
   trip_completed:     'Viaje completado',
   catalog_redemption: 'Canje de recompensa',
   redemption_refund:  'Canje anulado',
+  coupon_leftover:    'Sobrante de cupón',
   points_expired:     'Puntos vencidos',
 };
 
 export const STATUS_LABEL: Record<string, string> = {
   active:    'Vigente',
+  reserved:  'En uso en un viaje',
   used:      'Usado',
   expired:   'Vencido',
   cancelled: 'Anulado',
@@ -339,6 +352,7 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export const STATUS_COLOR: Record<string, string> = {
   active:    '#34d399',
+  reserved:  '#60a5fa',
   used:      '#94a3b8',
   expired:   '#f59e0b',
   cancelled: '#ef4444',
@@ -372,9 +386,13 @@ export const fmtDate = (iso: string | null, withTime = false) => {
 };
 
 /** Dias que faltan hasta una fecha. Negativo si ya paso. */
+/** Días de calendario desde hoy hasta la fecha (sin mirar la hora): del
+ *  10 oct al 3 nov son 24. 0 = hoy, 1 = mañana. Igual que en la app. */
 export const daysUntil = (iso: string | null) => {
   if (!iso) return null;
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  const d = new Date(iso), n = new Date();
+  return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+                   - Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())) / 86_400_000);
 };
 
 /** Descripcion corta y concreta de lo que entrega una recompensa. */
@@ -382,11 +400,11 @@ export function describeReward(r: {
   rewardType: string; amountSoles: number | null; quantity: number | null; percentage: number | null;
 }) {
   switch (r.rewardType) {
-    case 'discount_amount': return `S/ ${r.amountSoles?.toFixed(2)} de descuento`;
-    case 'free_trip':       return `Viaje gratis hasta S/ ${r.amountSoles?.toFixed(2)}`;
+    case 'discount_amount': return `${money(r.amountSoles)} de descuento`;
+    case 'free_trip':       return `Viaje gratis hasta ${money(r.amountSoles)}`;
     case 'discount_period': return `${r.percentage}% de descuento por ${r.quantity} días`;
     case 'raffle_ticket':   return `${r.quantity} ticket${r.quantity === 1 ? '' : 's'} de sorteo`;
-    case 'wallet_bonus':    return `S/ ${r.amountSoles?.toFixed(2)} a tu cuenta`;
+    case 'wallet_bonus':    return `${money(r.amountSoles)} a tu cuenta`;
     case 'physical':        return 'Producto físico';
     case 'partner_benefit': return 'Beneficio de socio';
     default:                return r.rewardType;

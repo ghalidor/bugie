@@ -1,6 +1,8 @@
 /// Modelos del módulo de puntos (Rewards, puerto 5006).
 /// Espejo exacto de los DTOs de Bugie.Rewards.Api.
 
+import '../../../core/utils/format.dart';
+
 class RewardsPointsProfile {
   final int       totalPoints;
   final int       availablePoints;
@@ -14,6 +16,8 @@ class RewardsPointsProfile {
   final int       progressPercentage;
   final DateTime? pointsExpiryDate;
   final DateTime? lastActivityDate;
+  /// Puntos por cada S/ 1.00 (tasa configurada). 0 si el servidor no la envía.
+  final double    pointsPerSol;
 
   RewardsPointsProfile({
     required this.totalPoints,
@@ -28,6 +32,7 @@ class RewardsPointsProfile {
     this.nextLevelName,
     this.pointsExpiryDate,
     this.lastActivityDate,
+    this.pointsPerSol = 0,
   });
 
   factory RewardsPointsProfile.fromJson(Map<String, dynamic> j) =>
@@ -44,13 +49,14 @@ class RewardsPointsProfile {
         progressPercentage: (j['progressPercentage'] as num?)?.toInt() ?? 0,
         pointsExpiryDate:   _date(j['pointsExpiryDate']),
         lastActivityDate:   _date(j['lastActivityDate']),
+        pointsPerSol:       (j['pointsPerSol'] as num?)?.toDouble() ?? 0,
       );
 
   /// Días que faltan para que venza el saldo. null si no hay fecha.
   int? get daysUntilExpiry {
     final d = pointsExpiryDate;
     if (d == null) return null;
-    return d.difference(DateTime.now()).inDays;
+    return calendarDaysUntil(d);
   }
 }
 
@@ -179,7 +185,7 @@ class RewardRedemption {
   final double?   amountSoles;
   final int?      quantity;
   final double?   percentage;
-  final String    status;      // active | used | expired | cancelled
+  final String    status;      // active | reserved (aplicado a un viaje en curso) | used | expired | cancelled
   final DateTime  expiresAt;
   final DateTime? usedAt;
   final String?   usedNote;
@@ -303,6 +309,10 @@ class UserRaffle {
   final String?   myPrizeCode;
   /// Si ganó: el premio ya se le entregó o pagó.
   final bool      myPrizeDelivered;
+  /// Si ganó: el premio de SU puesto (el secundario si no salió 1.º).
+  final String?   myPrizeDetail;
+  /// Si ganó: valor en soles de su premio (null = monto a criterio del admin).
+  final double?   myPrizeValue;
   /// Cupones de ticket (canjeados en el catálogo) que puedo usar aquí.
   final int       ticketCouponsAvailable;
   /// true si el sorteo está abierto, cumplo requisitos y tengo cupón de ticket.
@@ -329,6 +339,8 @@ class UserRaffle {
     this.ticketCouponsAvailable = 0,
     this.canUseTicketCoupon = false,
     this.nextTicketCouponId,
+    this.myPrizeDetail,
+    this.myPrizeValue,
   });
 
   factory UserRaffle.fromJson(Map<String, dynamic> j) => UserRaffle(
@@ -350,13 +362,15 @@ class UserRaffle {
         ticketCouponsAvailable: (j['ticketCouponsAvailable'] as num?)?.toInt() ?? 0,
         canUseTicketCoupon:     j['canUseTicketCoupon'] == true,
         nextTicketCouponId:     j['nextTicketCouponId']?.toString(),
+        myPrizeDetail:          j['myPrizeDetail']?.toString(),
+        myPrizeValue:           (j['myPrizeValue'] as num?)?.toDouble(),
       );
 
   bool get isDrawn => status == 'drawn';
 
   /// Cuánto falta para el sorteo, en texto.
   String get countdown {
-    final d = drawDate.difference(DateTime.now()).inDays;
+    final d = calendarDaysUntil(drawDate);
     if (isDrawn) return 'Ya se sorteó';
     if (d < 0)   return 'Pendiente de sortear';
     if (d == 0)  return 'Se sortea hoy';

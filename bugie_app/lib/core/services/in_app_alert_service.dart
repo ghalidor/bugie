@@ -68,6 +68,10 @@ enum AlertType {
   /// Ambar. Respuesta a la solicitud de revisión: se mantiene la
   /// suspensión o el rechazo (alert_type 'review_kept').
   reviewKept,
+
+  /// Rojo. El equipo de Bugie no aprobó la foto de perfil nueva del
+  /// conductor (alert_type 'profile_photo_rejected'). Abre su perfil.
+  profilePhotoRejected,
 }
 
 /// Tipo visual de un aviso a partir de los datos del push (o de una
@@ -102,6 +106,7 @@ String? alertActionLabel(AlertType type) {
     case AlertType.accountSuspended:   return 'Ver';
     case AlertType.accountReactivated: return 'Ver';
     case AlertType.reviewKept:         return 'Ver';
+    case AlertType.profilePhotoRejected: return 'Subir foto';
   }
 }
 
@@ -128,6 +133,7 @@ AlertType? _accountType(String? alertType) {
     case 'driver_suspended':  return AlertType.accountSuspended;
     case 'driver_reactivated': return AlertType.accountReactivated;
     case 'review_kept':       return AlertType.reviewKept;
+    case profilePhotoRejectedAlert: return AlertType.profilePhotoRejected;
     default:                  return null;
   }
 }
@@ -306,6 +312,9 @@ class InAppAlertService {
         case AlertType.documentExpiring:
           if (isDriver) target = '/driver/documents';
           break;
+        case AlertType.profilePhotoRejected:
+          if (isDriver) target = '/driver/profile';
+          break;
         default:
           target = null;
       }
@@ -333,6 +342,7 @@ class InAppAlertService {
       case AlertType.deviation:
       case AlertType.accountRejected:
       case AlertType.accountSuspended:
+      case AlertType.profilePhotoRejected:
         fb.alert(level: FeedbackLevel.strong);
         break;
       case AlertType.proposal:

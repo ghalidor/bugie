@@ -39,7 +39,7 @@ public class GetPromotionsHandler : IRequestHandler<GetPromotionsQuery, List<Pro
     private static string? Warning(Promotion p)
     {
         if (p.PromotionType is "discount" or "free_trip")
-            return "Este tipo descuenta sobre la tarifa del viaje y todavía no se aplica.";
+            return "Este tipo ya no se usa y no se aplica: las promociones solo dan puntos. Los descuentos se dan con cupones.";
 
         if (p.EndDate is not null && p.EndDate <= DateTime.UtcNow)
             return "Ya venció.";

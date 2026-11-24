@@ -25,6 +25,15 @@ public interface IAdminNotifier
                         CancellationToken ct = default);
 
     /// <summary>
+    /// Cambió la atención de una alerta SOS (kind: "seen" = un admin la abrió,
+    /// "attending" = un admin la tomó). Empuja "sos:updated" con las marcas de
+    /// la alerta para que los demás admins vean "Visto por X" / "Atendiendo: X".
+    /// Nunca lanza excepción.
+    /// </summary>
+    Task NotifySosAttentionAsync(Interfaces.SosAdminRow alert, string kind,
+                                 CancellationToken ct = default);
+
+    /// <summary>
     /// Empuja la nueva posición GPS de un conductor a TODOS los admins
     /// conectados al monitoreo. Reemplaza la necesidad de poll para esta
     /// actualización puntual. El admin recibe {userId, lat, lng, hasActiveTrip,

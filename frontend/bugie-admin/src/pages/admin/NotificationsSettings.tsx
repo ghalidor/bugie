@@ -7,7 +7,7 @@ import {
 } from '../../state/adminNotify';
 import {
   Field, FormGrid, IconButton, Page, SaveBar, SectionCard, Select, Skeleton, Switch,
-  useToast, useUnsavedChanges,
+  TimeField, useToast, useUnsavedChanges,
 } from '../../components/ui';
 import './notificationsSettings.scss';
 
@@ -35,6 +35,8 @@ const PREVIEW_TEXT: Record<NoticeType, { title: string; message: string }> = {
   complaint:             { title: 'Nueva reclamación', message: 'Se registró una reclamación en el libro.' },
   driver_review:         { title: 'Conductor por revisar', message: 'Un conductor envió sus documentos a revisión.' },
   passenger_review:      { title: 'Pasajero por aprobar', message: 'Un pasajero subió su DNI y espera aprobación.' },
+  face_mismatch:         { title: 'Selfie de conexión no coincide', message: 'Juan Pérez se conectó con una selfie que no coincide con su foto de referencia (21% de parecido).' },
+  profile_photo_review:  { title: 'Foto de perfil por revisar', message: 'Juan Pérez subió una foto de perfil nueva que no se pudo aprobar sola.' },
   document_expiring:     { title: 'Hay 3 conductores con documentos por vencer', message: 'Vencen en los próximos 6 días o ya vencieron.' },
   pending_messages:      { title: 'Hay 2 mensajes sin atender', message: 'Mensajes de contacto que todavía no tienen respuesta.' },
   pending_complaints:    { title: 'Hay 1 reclamación pendiente', message: 'Respóndela dentro del plazo legal.' },
@@ -113,8 +115,13 @@ export default function NotificationsSettings() {
     setSettings(settingsFromRows(rows));
   }
 
+  // "Registros sin revisar" no tiene color propio: usa el de "Conductor por revisar".
+  const colorOf = (t: NoticeTypeMeta) => t.type === 'pending_registrations'
+    ? settings.config.driver_review.color : settings.config[t.type].color;
+
   function preview(t: NoticeTypeMeta) {
-    const detail: NotifyPreview = { type: t.type, config: settings.config[t.type], ...PREVIEW_TEXT[t.type] };
+    const config = { ...settings.config[t.type], color: colorOf(t) };
+    const detail: NotifyPreview = { type: t.type, config, ...PREVIEW_TEXT[t.type] };
     window.dispatchEvent(new CustomEvent(NOTIFY_PREVIEW_EVENT, { detail }));
   }
 
@@ -151,7 +158,10 @@ export default function NotificationsSettings() {
                        description="Solo muestran cuántos casos hay (sin nombres) y no aparecen si no hay ninguno. Horas en hora de Perú.">
             <ul className="bx-nset-list">
               {reminders.map(t => (
-                <TypeRow key={t.type} meta={t} config={settings.config[t.type]}
+                <TypeRow key={t.type} meta={t} config={{ ...settings.config[t.type], color: colorOf(t) }}
+                         colorNote={t.type === 'pending_registrations'
+                           ? 'Usa el color de «Conductor por revisar» (conductores y solicitudes de revisión) y de «Pasajero por aprobar» (pasajeros).'
+                           : undefined}
                          onChange={p => setConfig(t.type, p)} onPreview={() => preview(t)} />
               ))}
             </ul>
@@ -171,9 +181,11 @@ export default function NotificationsSettings() {
 
 /* ── Fila de un tipo de aviso ───────────────────────────────────────── */
 
-function TypeRow({ meta, config, onChange, onPreview }: {
+function TypeRow({ meta, config, colorNote, onChange, onPreview }: {
   meta: NoticeTypeMeta;
   config: NoticeConfig;
+  /** Si viene, el tipo no tiene color propio: se muestra este texto en lugar del selector. */
+  colorNote?: string;
   onChange: (patch: Partial<NoticeConfig>) => void;
   onPreview: () => void;
 }) {
@@ -195,7 +207,9 @@ function TypeRow({ meta, config, onChange, onPreview }: {
         <FormGrid className="bx-nset-body">
           <div className="bx-field">
             <span className="bx-field-label" id={`${id}-color-label`}>Color</span>
-            <ColorPicker value={config.color} onChange={color => onChange({ color })} name={`${id}-color`} labelledBy={`${id}-color-label`} />
+            {colorNote
+              ? <p className="small bugie-muted mb-0">{colorNote}</p>
+              : <ColorPicker value={config.color} onChange={color => onChange({ color })} name={`${id}-color`} labelledBy={`${id}-color-label`} />}
           </div>
 
           <Field label="Duración en pantalla" help="Se cierra solo; con el mouse encima se pausa.">
@@ -307,8 +321,7 @@ function TimesEditor({ times, onChange }: { times: string[]; onChange: (t: strin
         {times.length === 0 && <span className="small bugie-muted">Sin horas: agrega una.</span>}
       </div>
       <div className="bx-input-row bx-nset-add">
-        <input type="time" className="form-control" value={draft}
-               onChange={e => setDraft(e.target.value)} aria-label="Nueva hora" />
+        <TimeField value={draft} onChange={setDraft} aria-label="Nueva hora" />
         <button type="button" className="btn btn-outline-secondary" onClick={add} disabled={times.length >= 6}>
           <i className="fa-solid fa-plus me-1" aria-hidden="true" />Agregar
         </button>

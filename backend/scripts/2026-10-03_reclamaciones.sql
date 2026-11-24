@@ -9,16 +9,16 @@
 --    Plazo de respuesta: 15 dias habiles (lunes a viernes).
 -- 3) landing.complaintcounters: contador del correlativo por anio.
 --
--- Fechas en UTC (timestamp sin zona), igual que el resto de landing.
+-- Fechas timestamptz (ver 2026-10-08_fechas_timestamptz.sql).
 -- Idempotente: se puede ejecutar varias veces. No borra filas.
 -- =====================================================================
 BEGIN;
 
 -- ── 1) Datos de la empresa ──────────────────────────────────────────────
 INSERT INTO landing.systemsettings (settingkey, value, description) VALUES
-  ('company_legal_name', 'InteliaDevs S.A.C.', 'Razon social. Sale en el Libro de Reclamaciones, sus correos y el pie de la web.'),
+  ('company_legal_name', 'InteliaDevs S.A.C.', 'Razón social. Sale en el Libro de Reclamaciones, sus correos y el pie de la web.'),
   ('company_ruc',        '',                   'RUC de la empresa. Sale en el Libro de Reclamaciones y sus correos.'),
-  ('company_address',    '',                   'Direccion fiscal. Sale en el Libro de Reclamaciones y sus correos.'),
+  ('company_address',    '',                   'Dirección fiscal. Sale en el Libro de Reclamaciones y sus correos.'),
   ('company_logo_url',   '',                   'Logo de la empresa (se sube desde Datos de la empresa). Sale en el Libro de Reclamaciones y sus correos.')
 ON CONFLICT (settingkey) DO NOTHING;
 
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS landing.complaints (
     Code             VARCHAR(20)   NOT NULL UNIQUE,          -- LR-2026-000001
     Year             INT           NOT NULL,
     Seq              INT           NOT NULL,
-    CreatedAt        TIMESTAMP     NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+    CreatedAt        TIMESTAMPTZ   NOT NULL DEFAULT now(),
     -- 1. Consumidor
     ConsumerName     VARCHAR(150)  NOT NULL,
     ConsumerAddress  VARCHAR(250)  NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS landing.complaints (
     Status           VARCHAR(12)   NOT NULL DEFAULT 'pendiente' CHECK (Status IN ('pendiente', 'respondida')),
     DueDate          DATE          NOT NULL,                 -- 15 dias habiles (hora de Peru)
     Response         TEXT,
-    RespondedAt      TIMESTAMP,
+    RespondedAt      TIMESTAMPTZ,
     RespondedBy      UUID,
     RespondedByName  VARCHAR(150),
     ResponseEmailSent BOOLEAN      NOT NULL DEFAULT FALSE,

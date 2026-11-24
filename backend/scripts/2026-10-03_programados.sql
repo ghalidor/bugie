@@ -11,9 +11,9 @@
 
 BEGIN;
 
-ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS scheduledat      timestamp without time zone;
-ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS reminder30sentat timestamp without time zone;
-ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS reminder10sentat timestamp without time zone;
+ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS scheduledat      timestamp with time zone;
+ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS reminder30sentat timestamp with time zone;
+ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS reminder10sentat timestamp with time zone;
 
 CREATE INDEX IF NOT EXISTS ix_trips_scheduledat
     ON trips.trips (scheduledat)

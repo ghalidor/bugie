@@ -30,21 +30,25 @@
 
 BEGIN;
 
+-- Sesion en UTC: "now()" queda bien tanto en columnas timestamptz (base
+-- migrada) como en timestamp en UTC (base anterior a 2026-10-08).
+SET LOCAL timezone = 'UTC';
+
 -- -- 1. Viajes ---------------------------------------------------------
 ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS suggestedfare numeric(10,2) NULL;
-ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS publishedat timestamp without time zone NULL;
+ALTER TABLE trips.trips ADD COLUMN IF NOT EXISTS publishedat timestamp with time zone NULL;
 
 UPDATE trips.trips
    SET suggestedfare = estimatedfare
  WHERE suggestedfare IS NULL AND driverid IS NULL AND status IN (1, 7);
 
 UPDATE trips.trips
-   SET publishedat = (now() at time zone 'utc')
+   SET publishedat = now()
  WHERE publishedat IS NULL AND driverid IS NULL AND status IN (1, 7);
 
 -- -- 2. Propuestas -----------------------------------------------------
 ALTER TABLE trips.tripproposals
-    ADD COLUMN IF NOT EXISTS acceptedbypassengerat timestamp without time zone NULL;
+    ADD COLUMN IF NOT EXISTS acceptedbypassengerat timestamp with time zone NULL;
 
 UPDATE trips.tripproposals p
    SET status = 'rejected', rejectedby = 'driver_no_confirm'
@@ -61,11 +65,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_tripproposals_one_accepted_by_passenger
 -- -- 3. Parametros (Admin > Configuracion) ------------------------------
 INSERT INTO landing.systemsettings (settingkey, value, description) VALUES
   ('fare_max_multiplier', '3',
-   'Tope de precio al negociar: propuesta o contraoferta hasta este numero x la tarifa que pidio el pasajero. El minimo es la tarifa base.'),
+   'Tope de precio al negociar: propuesta o contraoferta hasta este número x la tarifa que pidió el pasajero. El mínimo es la tarifa base.'),
   ('trip_no_driver_cancel_min', '10',
-   'Minutos que un viaje o envio inmediato espera conductor. Si nadie lo toma, Bugie lo cancela y avisa al pasajero.'),
+   'Minutos que un viaje o envío inmediato espera conductor. Si nadie lo toma, Bugie lo cancela y avisa al pasajero.'),
   ('driver_confirm_immediate_min', '2',
-   'Minutos que tiene el conductor para confirmar un viaje inmediato despues de que el pasajero acepta su oferta.'),
+   'Minutos que tiene el conductor para confirmar un viaje inmediato después de que el pasajero acepta su oferta.'),
   ('driver_confirm_scheduled_before_min', '60',
    'Programados: el conductor debe confirmar la oferta aceptada hasta estos minutos antes de la hora del viaje.')
 ON CONFLICT (settingkey) DO NOTHING;

@@ -24,9 +24,9 @@ BEGIN;
 ALTER TABLE auth.users
     ADD COLUMN IF NOT EXISTS securitystamp uuid NOT NULL DEFAULT gen_random_uuid();
 ALTER TABLE auth.users
-    ADD COLUMN IF NOT EXISTS securitystampchangedat timestamp without time zone;
+    ADD COLUMN IF NOT EXISTS securitystampchangedat timestamp with time zone;
 ALTER TABLE auth.users
-    ADD COLUMN IF NOT EXISTS deactivatedat timestamp without time zone;
+    ADD COLUMN IF NOT EXISTS deactivatedat timestamp with time zone;
 ALTER TABLE auth.users
     ADD COLUMN IF NOT EXISTS deactivatedreason character varying(500);
 

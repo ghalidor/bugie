@@ -6,6 +6,12 @@
 --   - "Alianza tactica" no es del sistema: se reemplaza por Libro de Reclamaciones.
 -- Secciones: safety (es/en), auth (es/en), stats (es). Idempotente.
 
+BEGIN;
+
+-- Sesion en UTC: "now()" queda bien tanto en columnas timestamptz (base
+-- migrada) como en timestamp en UTC (base anterior a 2026-10-08).
+SET LOCAL timezone = 'UTC';
+
 -- safety
 UPDATE landing.sectioncontents c
 SET contentjson = (
@@ -29,7 +35,7 @@ SET contentjson = (
              THEN 'Physical verification, continuous monitoring and a team that responds to every alert.'
              ELSE 'Verificación física, monitoreo continuo y un equipo que atiende cada alerta.' END)
     )::text,
-    updatedat = now() AT TIME ZONE 'utc'
+    updatedat = now()
 FROM landing.sections s
 WHERE s.id = c.sectionid AND s.sectionkey = 'safety'
   AND jsonb_typeof(c.contentjson::jsonb->'features') = 'array';
@@ -46,7 +52,7 @@ SET contentjson = jsonb_set(c.contentjson::jsonb, '{features}', (
                ELSE 'Alerta directa al centro de monitoreo y a los administradores.' END)
           ELSE f END ORDER BY ord), '[]'::jsonb)
         FROM jsonb_array_elements(c.contentjson::jsonb->'features') WITH ORDINALITY e(f, ord)))::text,
-    updatedat = now() AT TIME ZONE 'utc'
+    updatedat = now()
 FROM landing.sections s
 WHERE s.id = c.sectionid AND s.sectionkey = 'auth'
   AND jsonb_typeof(c.contentjson::jsonb->'features') = 'array';
@@ -61,7 +67,9 @@ SET contentjson = jsonb_set(c.contentjson::jsonb, '{features}', (
                              ELSE 'El conductor se toma una selfie cada vez que se conecta y queda registrada.' END)
           ELSE f END ORDER BY ord), '[]'::jsonb)
         FROM jsonb_array_elements(c.contentjson::jsonb->'features') WITH ORDINALITY e(f, ord)))::text,
-    updatedat = now() AT TIME ZONE 'utc'
+    updatedat = now()
 FROM landing.sections s
 WHERE s.id = c.sectionid AND s.sectionkey = 'stats'
   AND jsonb_typeof(c.contentjson::jsonb->'features') = 'array';
+
+COMMIT;

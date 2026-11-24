@@ -178,6 +178,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       pushType: n.type,
       tripId: n.tripId,
       reasonCode: n.data['reason_code'],
+      alertType: n.alertType,
     );
     if (target == null) return;
     // El inicio del rol reemplaza la pila; el resto se abre encima de la

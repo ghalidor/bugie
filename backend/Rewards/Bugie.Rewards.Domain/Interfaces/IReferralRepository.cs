@@ -43,6 +43,19 @@ public interface IReferralRepository
     Task<List<Referral>> GetByReferrerAsync(Guid referrerUserId, CancellationToken ct = default);
     Task UpdateReferralAsync(Referral referral, CancellationToken ct = default);
 
+    /// <summary>
+    /// Recalcula TripsCompleted con los viajes del referido registrados en
+    /// rewards.TripActivity desde que fue referido (cada viaje una sola vez)
+    /// y devuelve el valor guardado. Es un único UPDATE: no se pisa.
+    /// </summary>
+    Task<int> SyncTripsCompletedAsync(Guid referralId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Marca el referido como calificado. Solo cambia si seguía pendiente
+    /// (devuelve false si otro proceso ya lo marcó).
+    /// </summary>
+    Task<bool> MarkQualifiedAsync(Guid referralId, int qualifyPoints, CancellationToken ct = default);
+
     // ── Invitaciones ─────────────────────────────────────────────────────
     Task AddInvitationAsync(ReferralInvitation invitation, CancellationToken ct = default);
     Task<int> CountInvitationsTodayAsync(Guid referrerUserId, CancellationToken ct = default);

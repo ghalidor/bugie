@@ -5,6 +5,7 @@ import {
   rewardsApi, ActivePromotion, UserRaffle,
   RAFFLE_TYPE_LABEL, fmtDate, daysToDraw,
 } from '../../state/rewards';
+import { money } from '../../components/tripFormat';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Promociones y sorteos, para el usuario.
@@ -201,6 +202,13 @@ function RaffleCard({ r, using, disabled, onUseCoupon }: {
           <i className="fa-solid fa-trophy me-1" />
           ¡Ganaste! {r.myPrizeRank === 1 ? 'Premio principal' : `Puesto ${r.myPrizeRank}`}
           {r.myTicketNumber && <> con el ticket {r.myTicketNumber}</>}
+          {/* Premio de SU puesto: el de arriba es el principal del sorteo. */}
+          {r.myPrizeRank !== 1 && r.myPrizeDetail && (
+            <div className="mt-1" style={{ color: 'var(--bugie-text)' }}>
+              Tu premio: {r.myPrizeDetail}
+              {r.myPrizeValue != null && !r.myPrizeDetail.includes('S/') && <> ({money(r.myPrizeValue)})</>}
+            </div>
+          )}
         </div>
       ) : sorteado ? (
         <div className="small bugie-muted">

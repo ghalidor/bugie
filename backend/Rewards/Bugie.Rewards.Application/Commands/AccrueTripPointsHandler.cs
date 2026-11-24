@@ -5,6 +5,7 @@ using Bugie.Rewards.Domain.Constants;
 using Bugie.Rewards.Domain.Entities;
 using Bugie.Rewards.Domain.Interfaces;
 using Bugie.Rewards.Domain.Services;
+using Bugie.Rewards.Domain.Common;
 
 namespace Bugie.Rewards.Application.Commands;
 
@@ -12,7 +13,7 @@ public class AccrueTripPointsHandler
     : IRequestHandler<AccrueTripPointsCommand, AccrueTripPointsResultDto>
 {
     private readonly IPointsProfileRepository     _profiles;
-    private readonly IPointsTransactionRepository _transactions;
+    private readonly IMilestoneRepository         _milestones;
     private readonly IRewardLevelRepository       _levels;
     private readonly IRewardSettingsRepository    _settings;
     private readonly IPromotionRepository         _promotions;
@@ -20,14 +21,14 @@ public class AccrueTripPointsHandler
 
     public AccrueTripPointsHandler(
         IPointsProfileRepository profiles,
-        IPointsTransactionRepository transactions,
+        IMilestoneRepository milestones,
         IRewardLevelRepository levels,
         IRewardSettingsRepository settings,
         IPromotionRepository promotions,
         IMediator mediator)
     {
         _profiles     = profiles;
-        _transactions = transactions;
+        _milestones   = milestones;
         _levels       = levels;
         _settings     = settings;
         _promotions   = promotions;
@@ -40,106 +41,112 @@ public class AccrueTripPointsHandler
         if (cmd.TripId == Guid.Empty)
             throw new ArgumentException("TripId requerido.");
 
+        // Hora real del viaje. Los días y las franjas se evalúan en hora de
+        // Perú, no en UTC: "12 del mediodía" tiene que ser el mediodía real.
+        var completedUtc = cmd.CompletedAt ?? DateTime.UtcNow;
+        var localTime    = BugieTime.ToPeru(completedUtc);
+        var hasDriver    = cmd.DriverId.HasValue && cmd.DriverId.Value != Guid.Empty;
+
+        // 0. El viaje cuenta para racha, meta semanal, primer viaje del día y
+        //    referidos aunque no dé puntos (p. ej. pagado 100% con cupón).
+        //    Cada (usuario, viaje) se guarda una sola vez: un reintento del
+        //    outbox no lo cuenta de nuevo.
+        await _milestones.RecordTripAsync(cmd.PassengerId, cmd.TripId, UserTypes.Passenger, completedUtc, ct);
+        if (hasDriver)
+            await _milestones.RecordTripAsync(cmd.DriverId!.Value, cmd.TripId, UserTypes.Driver, completedUtc, ct);
+
         var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
 
         if (!options.Enabled)
             return new AccrueTripPointsResultDto(cmd.TripId, 0, 0, true, "Motor de puntos desactivado.");
 
-        if (cmd.Amount <= 0)
-            return new AccrueTripPointsResultDto(cmd.TripId, 0, 0, true, "El viaje no tiene monto.");
-
-        // Hora local del viaje. Los días y las franjas se evalúan en hora de
-        // Perú, no en UTC: "12 del mediodía" tiene que ser el mediodía real.
-        var completedUtc = cmd.CompletedAt ?? DateTime.UtcNow;
-        var localTime    = completedUtc.AddHours(options.TimezoneOffsetHours);
+        // El pasajero gana sobre lo que pagó. El conductor, sobre la tarifa
+        // acordada antes del cupón: el descuento lo asume Bugie, no él.
+        var montoPasajero  = Math.Max(0m, cmd.Amount);
+        var montoConductor = Math.Max(montoPasajero, cmd.BaseAmount ?? montoPasajero);
 
         var promosUsadas = new List<string>();
 
         var passengerPoints = await AccrueAsync(
-            cmd.PassengerId, UserTypes.Passenger, cmd, options,
-            localTime, promosUsadas, ct);
+            cmd.PassengerId, UserTypes.Passenger, montoPasajero, cmd, options,
+            completedUtc, localTime, promosUsadas, ct);
 
         var driverPoints = 0;
-        if (cmd.DriverId.HasValue && cmd.DriverId.Value != Guid.Empty)
+        if (hasDriver)
             driverPoints = await AccrueAsync(
-                cmd.DriverId.Value, UserTypes.Driver, cmd, options,
-                localTime, promosUsadas, ct);
+                cmd.DriverId!.Value, UserTypes.Driver, montoConductor, cmd, options,
+                completedUtc, localTime, promosUsadas, ct);
 
-        // Logros personales: racha y meta semanal. Igual que el conteo de
-        // referidos, va aparte: si falla, los puntos del viaje ya se
-        // acreditaron y no se revierten.
-        await EvaluateMilestonesAsync(cmd.PassengerId, localTime, ct);
-        if (cmd.DriverId.HasValue)
-            await EvaluateMilestonesAsync(cmd.DriverId.Value, localTime, ct);
+        // Logros (racha, meta semanal) y referidos. Van después de los puntos
+        // del viaje: si fallan, esos puntos ya quedaron acreditados y no se
+        // revierten. Todos son idempotentes (índices únicos y recuento desde
+        // TripActivity), así que un error no se traga: se lanza al final para
+        // que quede en el log y el outbox de Trips reintente el evento.
+        var errores = new List<Exception>();
 
-        // Si el pasajero o el conductor fueron referidos por alguien, este
-        // viaje cuenta para su meta. Va aparte de los puntos del viaje: que
-        // falle el conteo no puede impedir que se acrediten los puntos.
-        await CountForReferralAsync(cmd.PassengerId, ct);
-        if (cmd.DriverId.HasValue) await CountForReferralAsync(cmd.DriverId.Value, ct);
+        await TryAsync(errores, () => _mediator.Send(new EvaluateMilestonesCommand(cmd.PassengerId, localTime), ct));
+        if (hasDriver)
+            await TryAsync(errores, () => _mediator.Send(new EvaluateMilestonesCommand(cmd.DriverId!.Value, localTime), ct));
+
+        await TryAsync(errores, () => _mediator.Send(new CountReferralTripCommand(cmd.PassengerId), ct));
+        if (hasDriver)
+            await TryAsync(errores, () => _mediator.Send(new CountReferralTripCommand(cmd.DriverId!.Value), ct));
+
+        if (errores.Count > 0)
+            throw new AggregateException(
+                $"Viaje {cmd.TripId}: puntos acreditados (pasajero +{passengerPoints}, " +
+                $"conductor +{driverPoints}), pero fallaron logros o referidos. " +
+                "El outbox reintentará el evento (todo es idempotente).", errores);
 
         return new AccrueTripPointsResultDto(
             cmd.TripId, passengerPoints, driverPoints, false, null,
             promosUsadas.Distinct().ToList());
     }
 
-    private async Task EvaluateMilestonesAsync(
-        Guid userId, DateTime localTime, CancellationToken ct)
+    private static async Task TryAsync(List<Exception> errores, Func<Task> paso)
     {
-        try
-        {
-            await _mediator.Send(new EvaluateMilestonesCommand(userId, localTime), ct);
-        }
-        catch
-        {
-            // Los puntos del viaje ya están. Un fallo acá no los revierte.
-        }
-    }
-
-    private async Task CountForReferralAsync(Guid userId, CancellationToken ct)
-    {
-        try
-        {
-            await _mediator.Send(new CountReferralTripCommand(userId), ct);
-        }
-        catch
-        {
-            // El viaje ya acreditó sus puntos. Un fallo acá no debe revertirlo.
-        }
+        try { await paso(); }
+        catch (Exception ex) { errores.Add(ex); }
     }
 
     private async Task<int> AccrueAsync(
-        Guid userId, string userType, AccrueTripPointsCommand cmd,
-        RewardsOptions options, DateTime localTime,
+        Guid userId, string userType, decimal amount, AccrueTripPointsCommand cmd,
+        RewardsOptions options, DateTime completedUtc, DateTime localTime,
         List<string> promosUsadas, CancellationToken ct)
     {
-        var rate = options.RateFor(userType);
-        if (rate <= 0) return 0;
+        // 1. Perfil: se crea la primera vez que el usuario viaja, aunque este
+        //    viaje no le dé puntos (lo necesitan sus logros).
+        var profile = await PointsProfileLookup.GetOrCreateAsync(_profiles, userId, userType, ct);
 
-        // 1. Perfil: se crea la primera vez que el usuario gana puntos.
-        var profile = await _profiles.GetByUserIdAsync(userId, ct);
-        if (profile is null)
+        // Un perfil creado antes de viajar (referido, ajuste, cupón) pudo
+        // quedar con otro tipo. En su primer viaje se corrige con su rol real.
+        if (profile.UserType != userType
+            && !await _milestones.HasOtherTripInRangeAsync(
+                    userId, DateTime.UnixEpoch, completedUtc.AddYears(1), cmd.TripId, ct)
+            && profile.ChangeUserType(userType))
         {
-            profile = PointsProfile.Create(userId, userType);
-            await _profiles.AddAsync(profile, ct);
+            await _profiles.UpdateUserTypeAsync(profile, ct);
         }
 
-        // 2. Promociones.
+        var rate = options.RateFor(userType);
+        if (rate <= 0 || amount <= 0) return 0;
+
+        // 2. Promociones vigentes A LA HORA DEL VIAJE.
         var promo = PromotionResult.None;
         if (options.PromotionsEnabled)
         {
-            var live = await _promotions.GetLiveAsync(userType, ct);
+            var live = await _promotions.GetLiveAtAsync(userType, completedUtc, ct);
             if (live.Count > 0)
             {
                 // La consulta de "primer viaje del día" solo se hace si alguna
                 // promoción la necesita: es un viaje más a la base de datos.
                 var needsFirstTrip = live.Any(p => p.Conditions.FirstTripOfDay == true);
                 var isFirstTrip    = needsFirstTrip
-                    && !await HasEarlierTripTodayAsync(profile.Id, localTime, options, cmd.TripId, ct);
+                    && !await HasEarlierTripTodayAsync(userId, localTime, cmd.TripId, ct);
 
                 promo = PromotionEngine.Evaluate(
-                    live, userType, DateTime.UtcNow,
-                    new TripContext(cmd.Amount, cmd.PaymentMethod, localTime, isFirstTrip));
+                    live, userType, completedUtc,
+                    new TripContext(amount, cmd.PaymentMethod, localTime, isFirstTrip));
             }
         }
 
@@ -147,7 +154,7 @@ public class AccrueTripPointsHandler
         // por el motor de promociones. Se suma al multiplicador como lo hacen
         // las promociones aditivas: un 3x aporta +2.
         if (options.AnniversaryMultiplier > 1
-            && MilestoneRules.IsAnniversaryMonth(profile.CreatedAt.AddHours(options.TimezoneOffsetHours), localTime))
+            && MilestoneRules.IsAnniversaryMonth(BugieTime.ToPeru(profile.CreatedAt), localTime))
         {
             promo = promo with
             {
@@ -156,7 +163,7 @@ public class AccrueTripPointsHandler
             promosUsadas.Add("Mes de aniversario");
         }
 
-        var points = PromotionEngine.ApplyTo(cmd.Amount, rate, promo);
+        var points = PromotionEngine.ApplyTo(amount, rate, promo);
         if (points <= 0) return 0;
 
         // 3. Acreditar y renovar la vigencia de todo el saldo.
@@ -192,7 +199,7 @@ public class AccrueTripPointsHandler
         // 4. Dejar constancia de cada promoción, para poder medir su costo.
         if (promo.Applied.Count > 0)
         {
-            var basePoints = (int)Math.Floor(cmd.Amount * rate);
+            var basePoints = (int)Math.Floor(amount * rate);
             var extra      = Math.Max(0, points - basePoints);
 
             // El extra se reparte según lo que aportó cada promoción, para que
@@ -215,18 +222,16 @@ public class AccrueTripPointsHandler
     }
 
     /// <summary>
-    /// ¿Ya ganó puntos por otro viaje en el mismo día local?
-    /// El día se calcula en hora de Perú y se convierte de vuelta a UTC para
-    /// consultar, porque las fechas de la base están en UTC.
+    /// ¿Ya tiene otro viaje completado el mismo día local (según la hora real
+    /// de los viajes)? El día se calcula en hora de Perú y se convierte de
+    /// vuelta a UTC para consultar.
     /// </summary>
     private Task<bool> HasEarlierTripTodayAsync(
-        Guid profileId, DateTime localTime, RewardsOptions options,
-        Guid currentTripId, CancellationToken ct)
+        Guid userId, DateTime localTime, Guid currentTripId, CancellationToken ct)
     {
-        var localDayStart = localTime.Date;
-        var startUtc = localDayStart.AddHours(-options.TimezoneOffsetHours);
+        var startUtc = BugieTime.PeruToUtc(localTime.Date);
         var endUtc   = startUtc.AddDays(1);
 
-        return _transactions.HasEarnedOnDayAsync(profileId, startUtc, endUtc, currentTripId, ct);
+        return _milestones.HasOtherTripInRangeAsync(userId, startUtc, endUtc, currentTripId, ct);
     }
 }

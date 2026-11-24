@@ -1,13 +1,18 @@
 import { CSSProperties } from 'react';
 import { NavLink } from 'react-router-dom';
 import { getUser } from '../state/session';
+import { useDriverActiveTrip } from '../hooks/useDriverActiveTrip';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Menu lateral de la web con sesion. Un menu por rol, agrupado por secciones.
    NAV tambien lo usa TopNav para mostrar el nombre de la pagina actual.
    ────────────────────────────────────────────────────────────────────────── */
 
-export interface NavItem { to: string; icon: string; label: string; }
+export interface NavItem {
+  to: string; icon: string; label: string;
+  /** Solo se muestra si el conductor tiene un viaje activo. */
+  onlyWithActiveTrip?: boolean;
+}
 export interface NavSection { title: string; color: string; items: NavItem[]; }
 
 const PASSENGER_NAV: NavSection[] = [
@@ -42,6 +47,7 @@ const DRIVER_NAV: NavSection[] = [
     title: 'Actividad', color: 'var(--bugie-primary)',
     items: [
       { to: '/app/conductor/inicio',         icon: 'fa-gauge',                 label: 'Inicio' },
+      { to: '/app/conductor/viaje-en-curso', icon: 'fa-car-side',              label: 'Viaje en curso', onlyWithActiveTrip: true },
       { to: '/app/conductor/viajes',         icon: 'fa-clock-rotate-left',     label: 'Historial' },
       { to: '/app/conductor/ganancias',      icon: 'fa-money-bill-trend-up',   label: 'Ganancias' },
       { to: '/app/conductor/calificaciones', icon: 'fa-star-half-stroke',      label: 'Calificaciones' },
@@ -89,6 +95,7 @@ export function initials(name: string | null | undefined): string {
 export default function Sidebar({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
   const { role, sections } = navFor(path);
   const user = getUser();
+  const hasActiveTrip = useDriverActiveTrip(role === 'driver', path);
 
   return (
     <>
@@ -104,7 +111,7 @@ export default function Sidebar({ path, onNavigate }: { path: string; onNavigate
         {sections.map(sec => (
           <div key={sec.title} className="bx-nav-section" style={{ ['--sec-color' as string]: sec.color } as CSSProperties}>
             <div className="bx-nav-title">{sec.title}</div>
-            {sec.items.map(it => (
+            {sec.items.filter(it => !it.onlyWithActiveTrip || hasActiveTrip || path === it.to).map(it => (
               <NavLink
                 key={it.to}
                 to={it.to}

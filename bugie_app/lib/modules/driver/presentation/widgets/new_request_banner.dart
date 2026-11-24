@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/bugie_theme.dart';
+import '../../../../core/utils/format.dart';
 
 /// Banner que se muestra encima del mapa (en el detalle) cuando llega
 /// una NUEVA solicitud mientras el conductor está revisando otra.
@@ -29,7 +30,7 @@ class NewRequestBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     // Texto secundario: si tenemos info de la última, la mostramos.
     final extras = <String>[];
-    if (lastFare != null) extras.add('S/ ${lastFare!.toStringAsFixed(2)}');
+    if (lastFare != null) extras.add(formatSoles(lastFare!));
     if (lastDistanceKm != null) {
       final d = lastDistanceKm! < 1
           ? '${(lastDistanceKm! * 1000).toStringAsFixed(0)} m'

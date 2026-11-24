@@ -42,7 +42,7 @@ public class WalletTransaction
         DriverId   = driverId,
         Type       = TypeCommission,
         Amount     = fee,
-        Reference  = "Comision del viaje",
+        Reference  = "Comisión del viaje",
         TripId     = tripId,
         TripAmount = tripAmount,
         CreatedAt  = DateTime.UtcNow,

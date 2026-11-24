@@ -57,7 +57,8 @@ public class GetMyPointsProfileHandler
             PointsToNextLevel:  toNext,
             ProgressPercentage: progress,
             PointsExpiryDate:   profile?.PointsExpiryDate,
-            LastActivityDate:   profile?.LastActivityDate);
+            LastActivityDate:   profile?.LastActivityDate,
+            PointsPerSol:       options.RateFor(profile?.UserType ?? q.UserType));
     }
 
     /// <summary>Porcentaje 0-100 de avance dentro del nivel actual.</summary>

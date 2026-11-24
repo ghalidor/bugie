@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/bugie_theme.dart';
 import 'price_tag.dart';
+import '../../utils/format.dart';
 
 /// Tarjeta de una oferta en la negociación (la usa el pasajero para cada
 /// conductor, y puede reutilizarse en cualquier lista de ofertas).
@@ -219,7 +220,7 @@ class ProposalCard extends StatelessWidget {
                     ),
                     if (previousFare != null)
                       Text(
-                        'antes S/ ${previousFare!.toStringAsFixed(2)}',
+                        'antes ${formatSoles(previousFare!)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

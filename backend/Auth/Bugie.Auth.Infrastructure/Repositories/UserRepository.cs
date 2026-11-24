@@ -249,7 +249,7 @@ public class UserRepository : IUserRepository
     public Task<Guid> RotateSecurityStampAsync(Guid userId, CancellationToken ct = default) =>
         _db.ExecuteScalarAsync<Guid>(@"
             UPDATE auth.Users
-               SET SecurityStamp = gen_random_uuid(), SecurityStampChangedAt = (now() AT TIME ZONE 'utc')
+               SET SecurityStamp = gen_random_uuid(), SecurityStampChangedAt = now()
              WHERE Id = @Id
             RETURNING SecurityStamp",
             new { Id = userId });

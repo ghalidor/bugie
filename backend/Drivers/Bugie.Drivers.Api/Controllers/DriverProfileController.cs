@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Bugie.Drivers.Application.Services;
+using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
 
@@ -18,17 +19,17 @@ namespace Bugie.Drivers.Api.Controllers;
 public class DriverProfileController : ControllerBase
 {
     private readonly IDriverRepository _drivers;
-    private readonly IDriveStorageService _storage;
-    private readonly DriverDocumentsDeadlineService _deadline;
+    private readonly IDriverFaceRepository _faces;
+    private readonly FaceVerificationService _face;
 
     public DriverProfileController(
         IDriverRepository drivers,
-        IDriveStorageService storage,
-        DriverDocumentsDeadlineService deadline)
+        IDriverFaceRepository faces,
+        FaceVerificationService face)
     {
         _drivers = drivers;
-        _storage = storage;
-        _deadline = deadline;
+        _faces = faces;
+        _face = face;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -36,6 +37,14 @@ public class DriverProfileController : ControllerBase
     /// <summary>
     /// POST /api/drivers/profile/me/photo
     /// El conductor sube su foto de perfil.
+    ///
+    /// Respuesta: { photoUrl, status, message, attemptsLeftToday } (+ profilePhotoUrl,
+    /// igual a photoUrl, por compatibilidad con versiones anteriores de la app).
+    ///  - Verificación facial apagada: la foto se aplica directo (status "approved").
+    ///  - Encendida: si coincide con su foto aprobada se aplica sola ("approved");
+    ///    si no coincide o es la primera queda "pending_review" y photoUrl sigue
+    ///    siendo la foto aprobada vigente (puede ser null). Máximo
+    ///    profile_photo_daily_limit por día de Perú: al pasarse, 429 { error }.
     /// </summary>
     [HttpPost("me/photo")]
     public async Task<IActionResult> UploadMyProfilePhoto(IFormFile file, CancellationToken ct)
@@ -56,34 +65,42 @@ public class DriverProfileController : ControllerBase
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
 
-        await using var stream = file.OpenReadStream();
-        var stored = await _storage.UploadAsync(
-            stream,
-            originalFileName: file.FileName,
-            mimeType: file.ContentType,
-            folderPath: $"drivers/{driver.Id}/profile",
-            ct);
+        byte[] bytes;
+        await using(var input = file.OpenReadStream())
+        using(var buffer = new MemoryStream())
+        {
+            await input.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
 
-        driver.SetProfilePhoto(stored.PreviewUrl);
-        await _drivers.UpdateAsync(driver, ct);
+        var r = await _face.UploadProfilePhotoAsync(driver, bytes, file.FileName, file.ContentType, ct);
+        if(r.LimitError is not null)
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = r.LimitError });
 
-        // La foto de perfil es un requisito: si era lo último que faltaba en
-        // una aprobación por excepción, se cierra el plazo.
-        try { await _deadline.CloseDeadlineIfCompleteAsync(driver, ct); }
-        catch { /* el plazo se revisa también al aprobar documentos y en el job */ }
-
-        return Ok(new { profilePhotoUrl = stored.PreviewUrl });
+        return Ok(new
+        {
+            photoUrl = r.PhotoUrl,
+            status = r.Status,
+            message = r.Message,
+            attemptsLeftToday = r.AttemptsLeftToday,
+            profilePhotoUrl = r.PhotoUrl,
+        });
     }
 
     /// <summary>
     /// GET /api/drivers/profile/me
     /// Devuelve los datos básicos del conductor logueado incluyendo foto de perfil.
+    /// pendingPhotoUrl / pendingPhotoStatus ("pending_review" | "rejected" | null) /
+    /// pendingPhotoReason: su última foto subida si está en revisión o fue rechazada.
     /// </summary>
     [HttpGet("me")]
     public async Task<IActionResult> GetMyProfile(CancellationToken ct)
     {
         var driver = await _drivers.GetByUserIdAsync(CurrentUserId, ct);
         if(driver is null) return NotFound();
+
+        var last = await _faces.GetLatestAttemptAsync(driver.Id, ct);
+        var pending = last is { Status: FaceCheck.PhotoPendingReview or FaceCheck.PhotoRejected } ? last : null;
 
         return Ok(new
         {
@@ -95,6 +112,9 @@ public class DriverProfileController : ControllerBase
             totalRatings = driver.TotalRatings,
             profilePhotoUrl = driver.ProfilePhotoUrl,
             faceIdPhotoUrl = driver.FaceIdPhotoUrl,
+            pendingPhotoUrl = pending?.PhotoUrl,
+            pendingPhotoStatus = pending?.Status,
+            pendingPhotoReason = pending?.Status == FaceCheck.PhotoRejected ? pending.Reason : null,
         });
     }
 }

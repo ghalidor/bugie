@@ -8,8 +8,23 @@ public interface IPointsProfileRepository
     Task AddAsync(PointsProfile profile, CancellationToken ct = default);
 
     /// <summary>
+    /// Inserta el perfil si el usuario todavia no tiene uno y devuelve el que
+    /// quedo guardado. Si dos peticiones lo crean a la vez, gana la primera y
+    /// ambas reciben el mismo perfil (no falla por el indice unico).
+    /// </summary>
+    Task<PointsProfile> GetOrAddAsync(PointsProfile candidate, CancellationToken ct = default);
+
+    /// <summary>Corrige el tipo de perfil (pasajero/conductor).</summary>
+    Task UpdateUserTypeAsync(PointsProfile profile, CancellationToken ct = default);
+
+    /// <summary>
     /// Guarda la acumulacion de forma atomica: inserta el movimiento en el libro
     /// y actualiza el saldo del perfil dentro de una sola transaccion.
+    ///
+    /// El saldo se suma en la base (saldo = saldo + puntos) con la fila del
+    /// perfil bloqueada, y BalanceBefore/BalanceAfter del libro salen de ese
+    /// saldo real, no del que se leyo antes: dos operaciones a la vez no se
+    /// pisan. Al terminar, el perfil en memoria queda con el saldo real.
     ///
     /// Devuelve false si ese movimiento ya existia (mismo perfil, mismo evento y
     /// misma referencia). En ese caso no se toca el saldo. Asi, si el outbox
@@ -17,6 +32,14 @@ public interface IPointsProfileRepository
     /// </summary>
     Task<bool> ApplyEarnAsync(PointsProfile profile, PointsTransaction transaction,
                               CancellationToken ct = default);
+
+    /// <summary>
+    /// Registra el logro y acredita sus puntos en la MISMA transaccion: si el
+    /// abono falla, el logro no queda marcado (y se puede volver a intentar).
+    /// Devuelve false si el logro ya estaba pagado para ese periodo.
+    /// </summary>
+    Task<bool> ApplyMilestoneAsync(PointsProfile profile, PointsTransaction transaction,
+                                   MilestoneAward award, CancellationToken ct = default);
 
     /// <summary>Perfiles con saldo cuya fecha de vencimiento ya paso.</summary>
     Task<List<PointsProfile>> GetExpiredAsync(int limit, CancellationToken ct = default);

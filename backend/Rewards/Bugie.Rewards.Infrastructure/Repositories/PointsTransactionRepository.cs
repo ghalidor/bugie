@@ -10,32 +10,6 @@ public class PointsTransactionRepository : IPointsTransactionRepository
     private readonly IDbConnection _db;
     public PointsTransactionRepository(IDbConnection db) => _db = db;
 
-    /// <summary>
-    /// ¿Ya ganó puntos por otro viaje dentro de ese rango?
-    /// Se excluye el viaje actual porque el evento puede llegar repetido.
-    /// </summary>
-    public async Task<bool> HasEarnedOnDayAsync(
-        Guid profileId, DateTime dayStartUtc, DateTime dayEndUtc,
-        Guid excludeTripId, CancellationToken ct = default)
-    {
-        var count = await _db.ExecuteScalarAsync<int>(@"
-            SELECT COUNT(*) FROM rewards.PointsTransactions
-            WHERE ProfileId   = @ProfileId
-              AND Type        = 'earn'
-              AND SourceEvent = 'trip_completed'
-              AND ReferenceId IS DISTINCT FROM @ExcludeTripId
-              AND CreatedAt  >= @Start
-              AND CreatedAt   < @End",
-            new
-            {
-                ProfileId     = profileId,
-                ExcludeTripId = excludeTripId,
-                Start         = dayStartUtc,
-                End           = dayEndUtc,
-            });
-        return count > 0;
-    }
-
     public async Task<(List<PointsTransaction> Items, int Total)> GetByProfileAsync(
         Guid profileId, int page, int pageSize, CancellationToken ct = default)
     {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import RichTextEditor from '../../components/RichTextEditor';
 import { API, ApiError, apiFetch } from '../../state/api';
 import {
-  Field, Page, SaveBar, SectionCard, Skeleton, Tabs, useConfirm, useToast, useUnsavedChanges,
+  DateField, Field, Page, SaveBar, SectionCard, Skeleton, Tabs, useConfirm, useToast, useUnsavedChanges,
 } from '../../components/ui';
 import './siteAdmin.scss';
 
@@ -192,8 +192,8 @@ export default function LegalDocuments() {
                              onChange={e => update('title', e.target.value)} />
                     </Field>
                     <Field label="Vigente desde" help="Si cambias el texto y no esta fecha, se publica con la de hoy.">
-                      <input className="form-control" type="date" value={content.updatedAt}
-                             onChange={e => update('updatedAt', e.target.value)} />
+                      <DateField value={content.updatedAt}
+                                 onChange={v => update('updatedAt', v)} />
                     </Field>
                   </div>
 

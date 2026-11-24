@@ -1,0 +1,72 @@
+// Estilos de Finanzas > Resumen de gestión. Solo tokens var(--bugie-*):
+// se ven bien en tema claro y oscuro. Gráficos de barras sin librerías.
+
+.rp-period { font-size: .85rem; color: var(--bugie-muted); }
+.rp-period strong { color: var(--bugie-text); font-weight: 600; }
+
+.rp-charts { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1200px) { .rp-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ══ Gráfico de barras (apiladas) ═════════════════════════════════ */
+.rp-chart { --rp-y-w: 3.6rem; display: grid; gap: .35rem; }
+.rp-chart-body { position: relative; display: flex; }
+.rp-chart-y { position: relative; width: var(--rp-y-w); flex-shrink: 0; }
+.rp-chart-y span {
+  position: absolute; right: .45rem; transform: translateY(-50%);
+  font-size: .72rem; color: var(--bugie-muted); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.rp-chart-plot { position: relative; flex: 1; min-width: 0; border-bottom: 1px solid var(--bugie-border); }
+.rp-chart-grid { position: absolute; inset: 0; pointer-events: none; }
+.rp-chart-grid span { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--bugie-border); }
+.rp-chart-bars { position: absolute; inset: 0; display: grid; align-items: end; gap: 2px; }
+.rp-col { height: 100%; display: flex; align-items: flex-end; justify-content: center; min-width: 0; border-radius: 4px 4px 0 0; }
+.rp-col:hover { background: var(--bugie-soft-neutral); }
+.rp-stack {
+  width: min(100%, 2.2rem); display: flex; flex-direction: column-reverse; overflow: hidden;
+  border-radius: 4px 4px 0 0; transition: height var(--bugie-dur) var(--bugie-ease);
+}
+.rp-stack.has-value { min-height: 2px; }
+.rp-stack > span { flex: 1 1 0; min-height: 0; }
+.rp-chart-x { display: grid; gap: 2px; margin-left: var(--rp-y-w); }
+.rp-chart-x span {
+  font-size: .7rem; color: var(--bugie-muted); text-align: center; white-space: nowrap;
+  overflow: visible; min-width: 0;
+}
+.rp-legend { display: flex; flex-wrap: wrap; gap: .35rem 1rem; font-size: .8rem; color: var(--bugie-muted); }
+.rp-legend .sw { display: inline-block; width: .8rem; height: .8rem; border-radius: 3px; vertical-align: -.1rem; margin-right: .35rem; }
+
+/* Colores de las series (cambian solos con el tema). */
+.rp-c-ok      { background: var(--bugie-ok); }
+.rp-c-bad     { background: var(--bugie-bad); }
+.rp-c-primary { background: var(--bugie-primary); }
+.rp-c-info    { background: var(--bugie-info-text); }
+
+/* ══ Lista de datos (etiqueta a la izquierda, valor a la derecha) ══ */
+.rp-facts { margin: 0; display: grid; }
+.rp-facts > div {
+  display: flex; align-items: baseline; justify-content: space-between; gap: .75rem;
+  padding: .5rem 0; border-bottom: 1px solid var(--bugie-border);
+}
+.rp-facts > div:last-child { border-bottom: 0; }
+.rp-facts dt { font-weight: 400; color: var(--bugie-muted); font-size: .875rem; min-width: 0; }
+.rp-facts dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.rp-facts-title {
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600;
+  color: var(--bugie-muted); margin: .75rem 0 .1rem;
+}
+.rp-facts-title:first-child { margin-top: 0; }
+
+/* Barra de proporción (participación de cada fila en el total). */
+.rp-share { display: block; height: 6px; border-radius: 3px; background: var(--bugie-soft-neutral); overflow: hidden; margin-top: .3rem; }
+.rp-share > span { display: block; height: 100%; border-radius: 3px; background: var(--bugie-primary); }
+
+/* Montos de las tarjetas: no partir "S/ 10,030.65" en dos líneas. */
+.rp-kpis .bx-stat-value { overflow-wrap: normal; white-space: nowrap; font-size: clamp(1.25rem, 2vw, 1.75rem); }
+
+/* Medios de pago: la tabla entra en una tarjeta angosta (scroll horizontal si no cabe). */
+.rp-methods { overflow-x: auto; }
+.rp-methods th, .rp-methods td { white-space: nowrap; padding-left: .6rem; padding-right: .6rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-stack { transition: none; }
+}

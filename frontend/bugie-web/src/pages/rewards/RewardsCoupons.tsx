@@ -9,6 +9,7 @@ import {
 const FILTERS: { key: string | null; label: string }[] = [
   { key: null,        label: 'Todos' },
   { key: 'active',    label: 'Vigentes' },
+  { key: 'reserved',  label: 'En uso' },
   { key: 'used',      label: 'Usados' },
   { key: 'expired',   label: 'Vencidos' },
   { key: 'cancelled', label: 'Anulados' },
@@ -150,6 +151,7 @@ function CouponCard({ coupon, highlighted, onGoToRaffles }: {
 
           <div className="ms-auto text-end small">
             {coupon.status === 'active' && <div>Vence el <strong>{fmtDate(coupon.expiresAt)}</strong></div>}
+            {coupon.status === 'reserved' && <div>Aplicado a un viaje en curso</div>}
             {coupon.status === 'used' && coupon.usedAt && <div>Usado el {fmtDate(coupon.usedAt)}</div>}
             {coupon.status === 'expired' && <div>Venció el {fmtDate(coupon.expiresAt)}</div>}
           </div>

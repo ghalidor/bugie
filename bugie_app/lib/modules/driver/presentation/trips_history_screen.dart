@@ -10,6 +10,7 @@ import '../../trips/domain/trip_model.dart';
 import '../../../core/widgets/bugie_internal_header.dart';
 import '../../../core/widgets/service_badge.dart';
 import '../../passenger/presentation/trip_detail_screen.dart';
+import '../../../core/utils/format.dart';
 
 /// Historial de viajes del conductor con opción de reportar/ver incidencias.
 /// Misma lógica que el web bugie-web/driver/Trips.tsx:
@@ -180,7 +181,7 @@ class _TripCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'S/ ${(trip.finalFare ?? trip.estimatedFare).toStringAsFixed(2)}',
+                  formatSoles(trip.finalFare ?? trip.estimatedFare),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16),
                 ),

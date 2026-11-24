@@ -138,6 +138,7 @@ class DriverDocsDeadline {
 class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
   Driver? _driver;
   DriverDocsDeadline? _deadline; // plazo por aprobación con excepción
+  PendingProfilePhoto? _pendingPhoto; // foto de perfil en revisión/rechazada
   List<DriverDocument> _docs = [];
   bool _loading = true;
   bool _submitting = false;
@@ -177,10 +178,15 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
       try {
         deadline = await DriverDocsDeadline.fetch(api);
       } catch (_) {}
+      PendingProfilePhoto? pendingPhoto;
+      try {
+        pendingPhoto = await repo.getMyPendingProfilePhoto();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _driver = d;
         _deadline = deadline;
+        _pendingPhoto = pendingPhoto;
         _docs = docs;
         _loading = false;
       });
@@ -260,10 +266,12 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
 
     setState(() => _uploading = 'profile_photo');
     try {
-      final newUrl = await context
+      final result = await context
           .read<DriverRepository>()
           .uploadMyProfilePhoto(picked.path);
       if (!mounted) return;
+      // En revisión: se sigue mostrando la foto anterior.
+      final newUrl = result.inReview ? '' : result.photoUrl;
       if (newUrl.isNotEmpty) {
         final resolved = ApiConfig.resolveMediaUrl(newUrl);
         context.read<Session>().setProfilePhotoUrl(resolved == null
@@ -271,7 +279,10 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
             : '$resolved?v=${DateTime.now().millisecondsSinceEpoch}');
       }
       setState(() {
-        _message = 'Foto de perfil subida correctamente.';
+        _message = (result.inReview
+                ? '${ProfilePhotoUploadResult.inReviewText} ${result.attemptsText}'
+                : 'Foto de perfil subida correctamente. ${result.attemptsText}')
+            .trim();
         _uploading = null;
       });
       // Refrescar perfil y faltantes (missingDocuments) desde el backend.
@@ -280,10 +291,15 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
         final api = context.read<ApiClient>();
         final d = await repo.getMyProfile();
         final deadline = await DriverDocsDeadline.fetch(api);
+        PendingProfilePhoto? pendingPhoto;
+        try {
+          pendingPhoto = await repo.getMyPendingProfilePhoto();
+        } catch (_) {}
         if (mounted) {
           setState(() {
             if (d != null) _driver = d;
             _deadline = deadline;
+            _pendingPhoto = pendingPhoto;
           });
         }
       } catch (_) {}
@@ -432,6 +448,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                   children: [
                     _ProfilePhotoRow(
                       missing: photoMissing,
+                      pending: _pendingPhoto,
                       uploading: _uploading == 'profile_photo',
                       onUpload: _uploadProfilePhoto,
                     ),
@@ -559,18 +576,33 @@ class _DeadlineBanner extends StatelessWidget {
 /// Fila "Foto de perfil" (obligatoria para enviar a revisión).
 class _ProfilePhotoRow extends StatelessWidget {
   final bool missing;
+  /// Foto nueva en revisión o rechazada (null si no hay).
+  final PendingProfilePhoto? pending;
   final bool uploading;
   final VoidCallback onUpload;
 
   const _ProfilePhotoRow({
     required this.missing,
+    this.pending,
     required this.uploading,
     required this.onUpload,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = missing ? BugieColors.danger : BugieColors.success;
+    final inReview = pending?.inReview == true;
+    final rejected = pending?.isRejected == true;
+    final reason = pending?.reason?.trim() ?? '';
+    final color = rejected
+        ? BugieColors.danger
+        : inReview
+            ? BugieColors.warning
+            : (missing ? BugieColors.danger : BugieColors.success);
+    final badge = rejected
+        ? 'No aprobada'
+        : inReview
+            ? 'En revisión'
+            : (missing ? 'Falta' : 'Subida');
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
@@ -598,7 +630,7 @@ class _ProfilePhotoRow extends StatelessWidget {
                         color: color.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(missing ? 'Falta' : 'Subida',
+                      child: Text(badge,
                           style: TextStyle(fontSize: 10, color: color)),
                     ),
                   ],
@@ -606,6 +638,13 @@ class _ProfilePhotoRow extends StatelessWidget {
                 const Text(
                     'Una foto tuya de frente, con buena luz. La verán tus pasajeros.',
                     style: TextStyle(fontSize: 12, color: BugieColors.textMuted)),
+                if (rejected)
+                  Text(
+                      reason.isEmpty
+                          ? 'Tu foto no fue aprobada. Sube una foto tuya.'
+                          : 'Tu foto no fue aprobada: $reason. Sube una foto tuya.',
+                      style: const TextStyle(
+                          fontSize: 12, color: BugieColors.danger)),
               ],
             ),
           ),

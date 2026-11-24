@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch, API, ApiError } from '../../state/api';
+import { fmtSoles } from '../../state/payouts';
 import {
   Column, DataTable, FilterBar, Page, Pagination, SectionCard, Select, StatCard, StatGrid, StatusBadge, Tone,
   useDebouncedValue, useToast,
@@ -42,7 +43,7 @@ const STATUS_CFG: Record<string, { label: string; tone: Tone; icon: string }> = 
 };
 
 const PAGE_SIZE = 25;
-const soles = (n: number | null | undefined) => `S/ ${(n ?? 0).toFixed(2)}`;
+const soles = (n: number | null | undefined) => fmtSoles(n ?? 0);
 
 export default function Payments() {
   const toast = useToast();

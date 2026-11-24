@@ -43,6 +43,7 @@ import PassengerVerification from './pages/passenger/Verification';
 import DriverDashboard from './pages/driver/Dashboard';
 import DriverEarnings from './pages/driver/Earnings';
 import DriverTrips from './pages/driver/Trips';
+import DriverTripInProgress from './pages/driver/TripInProgress';
 import DriverRatings from './pages/driver/MyRatings';
 import DriverConnections from './pages/driver/MyConnections';
 import DriverDocuments from './pages/driver/Documents';
@@ -113,6 +114,7 @@ export default function App() {
           <Route path="/app/conductor/inicio"     element={<DriverDashboard />} />
           <Route path="/app/conductor/ganancias"  element={<DriverEarnings />} />
           <Route path="/app/conductor/puntos"     element={<RewardsPage />} />
+          <Route path="/app/conductor/viaje-en-curso" element={<DriverTripInProgress />} />
           <Route path="/app/conductor/viajes"     element={<DriverTrips />} />
           <Route path="/app/conductor/calificaciones" element={<DriverRatings />} />
           <Route path="/app/conductor/conexiones" element={<DriverConnections />} />

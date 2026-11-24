@@ -23,6 +23,25 @@ public record RaffleTicketsPage(
     int Participants,
     Dictionary<string, int> BySource);
 
+public enum RaffleDrawOutcome
+{
+    /// <summary>Se sorteó en esta llamada.</summary>
+    Drawn,
+    /// <summary>Ya estaba sorteado o cancelado (otro proceso se adelantó).</summary>
+    NotPending,
+    /// <summary>No había tickets.</summary>
+    NoTickets,
+    /// <summary>El sorteo no existe.</summary>
+    NotFound,
+}
+
+/// <param name="Raffle">El sorteo como quedó (null si no existe).</param>
+public record RaffleDrawResult(
+    RaffleDrawOutcome  Outcome,
+    Raffle?            Raffle,
+    int                Tickets,
+    List<RaffleWinner> Winners);
+
 public interface IRaffleRepository
 {
     Task<List<Raffle>> GetAllAsync(CancellationToken ct = default);
@@ -46,12 +65,21 @@ public interface IRaffleRepository
         Guid raffleId, Guid userId, string? source, CancellationToken ct = default);
 
     /// <summary>
-    /// Entrega tickets. Devuelve cuántos se crearon realmente: si el usuario
-    /// ya los tenía, no se duplican.
+    /// Tickets de cada usuario en el sorteo, por origen, en UNA consulta
+    /// (para no preguntar usuario por usuario en el mantenimiento).
     /// </summary>
-    Task<int> GrantTicketsAsync(
-        Guid raffleId, Guid userId, Guid profileId, int quantity,
-        string source, Guid? referenceId, CancellationToken ct = default);
+    Task<Dictionary<(Guid UserId, string Source), int>> CountTicketsByUserAsync(
+        Guid raffleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Completa los tickets del usuario de ese origen hasta <paramref name="target"/>.
+    /// Cuenta lo que ya tiene DENTRO del bloqueo del sorteo, así dos
+    /// mantenimientos simultáneos no duplican. Solo con el sorteo 'open'.
+    /// Devuelve cuántos se crearon.
+    /// </summary>
+    Task<int> GrantMissingTicketsAsync(
+        Guid raffleId, Guid userId, Guid profileId, int target,
+        string source, CancellationToken ct = default);
 
     /// <summary>
     /// Usa un cupon de ticket de sorteo, todo en UNA transaccion: bloquea el
@@ -84,9 +112,21 @@ public interface IRaffleRepository
     Task<List<RaffleWinner>> GetWinnersAsync(Guid raffleId, CancellationToken ct = default);
     Task<List<RaffleWinner>> GetWinnersByUserAsync(Guid userId, CancellationToken ct = default);
 
-    /// <summary>Guarda ganadores y marca el sorteo, todo en una transacción.</summary>
-    Task SaveDrawAsync(Raffle raffle, IEnumerable<RaffleWinner> winners,
-                       CancellationToken ct = default);
+    /// <summary>
+    /// Ejecuta el sorteo en UNA transacción con el sorteo bloqueado (FOR
+    /// UPDATE): relee el sorteo, exige que siga 'open' o 'closed', lee los
+    /// tickets, pide los ganadores a <paramref name="pickWinners"/> (que además
+    /// marca el sorteo: semilla, fecha, estado) y los guarda. Así "Sortear
+    /// ahora" y el mantenimiento no pueden sortear dos veces el mismo sorteo,
+    /// ni uno cancelado, ni con tickets que lleguen a mitad del sorteo.
+    ///
+    /// Sin tickets: si cancelIfNoTickets, el sorteo queda 'cancelled'.
+    /// </summary>
+    Task<RaffleDrawResult> DrawAsync(
+        Guid raffleId,
+        Func<Raffle, IReadOnlyList<RaffleTicket>, List<RaffleWinner>> pickWinners,
+        bool cancelIfNoTickets,
+        CancellationToken ct = default);
 
     Task UpdateWinnerAsync(RaffleWinner winner, CancellationToken ct = default);
     Task<RaffleWinner?> GetWinnerByIdAsync(Guid id, CancellationToken ct = default);

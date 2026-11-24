@@ -6,6 +6,7 @@ using Bugie.Drivers.Domain.Common;
 using Bugie.Drivers.Domain.Entities;
 using Bugie.Drivers.Domain.External;
 using Bugie.Drivers.Domain.Interfaces;
+using Bugie.Drivers.Application.Services;
 
 namespace Bugie.Drivers.Api.Controllers;
 
@@ -28,15 +29,18 @@ public class PresenceController : ControllerBase
     private readonly IDriverPresenceCheckInRepository _checkIns;
     private readonly IDriverRepository _drivers;
     private readonly IDriveStorageService _storage;
+    private readonly FaceVerificationService _face;
 
     public PresenceController(
         IDriverPresenceCheckInRepository checkIns,
         IDriverRepository drivers,
-        IDriveStorageService storage)
+        IDriveStorageService storage,
+        FaceVerificationService face)
     {
         _checkIns = checkIns;
         _drivers = drivers;
         _storage = storage;
+        _face = face;
     }
 
     private Guid CurrentUserId =>
@@ -52,12 +56,18 @@ public class PresenceController : ControllerBase
     /// Body: multipart/form-data
     ///   - file: el JPG/PNG de la selfie (max 5 MB).
     ///   - faceQualityScore (opcional): float 0-1 que devolvió el ML Kit del cliente.
+    ///   - liveness (opcional): "passed" si la app hizo la prueba de vida.
+    ///
+    /// Verificación facial (interruptor face_verification_enabled): la selfie se
+    /// compara con la foto de referencia del conductor. Es INTERNA: la respuesta
+    /// no cambia y nunca bloquea la conexión; si no coincide se avisa al admin.
     /// </summary>
     [HttpPost("checkin")]
     [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB hard cap defensivo
     public async Task<IActionResult> CheckIn(
         IFormFile file,
         [FromForm] decimal? faceQualityScore,
+        [FromForm] string? liveness,
         CancellationToken ct)
     {
         // Validaciones básicas del archivo. Las mismas que UploadMyProfilePhoto.
@@ -89,15 +99,32 @@ public class PresenceController : ControllerBase
         // Así nunca quedan dos activos para el mismo conductor.
         await _checkIns.CloseAllActiveAsync(CurrentUserId, ct);
 
+        // La selfie se lee una vez (máx. 5 MB): se guarda y se usa para la verificación.
+        byte[] bytes;
+        await using(var input = file.OpenReadStream())
+        using(var buffer = new MemoryStream())
+        {
+            await input.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
+
         // Subimos la foto al storage. La guardamos junto a las otras fotos del
         // conductor (carpeta drivers/{id}/presence) para que sea fácil de auditar.
-        await using var stream = file.OpenReadStream();
-        var stored = await _storage.UploadAsync(
-            stream,
-            originalFileName: file.FileName,
-            mimeType: file.ContentType,
-            folderPath: $"drivers/{driver.Id}/presence",
-            ct);
+        StoredFile stored;
+        using(var stream = new MemoryStream(bytes, writable: false))
+        {
+            stored = await _storage.UploadAsync(
+                stream,
+                originalFileName: file.FileName,
+                mimeType: file.ContentType,
+                folderPath: $"drivers/{driver.Id}/presence",
+                ct);
+        }
+
+        // Verificación facial (apagada = "disabled"; nunca lanza excepción).
+        var face = await _face.VerifyCheckInAsync(driver, bytes, ct);
+        var livenessValue = string.IsNullOrWhiteSpace(liveness) ? null : liveness.Trim();
+        if(livenessValue is { Length: > 20 }) livenessValue = livenessValue[..20];
 
         // Creamos el registro.
         var checkIn = new DriverPresenceCheckIn
@@ -109,8 +136,19 @@ public class PresenceController : ControllerBase
             CheckedOutAt = null,
             FaceQualityScore = faceQualityScore,
             CreatedAt = DateTime.UtcNow,
+            Liveness = livenessValue,
+            FaceStatus = face.Status,
+            FaceScore = face.Score,
+            FaceModel = face.Model,
+            FaceReferencePhotoUrl = face.ReferencePhotoUrl,
+            FaceError = face.Error,
+            FaceReviewStatus = face.Status == FaceCheck.Mismatch ? FaceCheck.ReviewPending : null,
         };
         await _checkIns.CreateAsync(checkIn, ct);
+
+        // No coincide: el conductor sigue trabajando; se avisa al admin.
+        if(face.Status == FaceCheck.Mismatch)
+            await _face.NotifyMismatchAsync(driver, face.Score ?? 0, ct);
 
         return Ok(new
         {
@@ -169,6 +207,21 @@ public class PresenceController : ControllerBase
         List<PresenceHistoryItemDto> Items, int Total, int Page, int PageSize, PresenceSummaryDto Summary);
 
     /// <summary>
+    /// Conexión vista por el admin: además, el resultado de la verificación facial
+    /// (faceStatus: disabled | match | mismatch | no_reference | error | null = antes
+    /// de la verificación; faceMatchPercent = % de parecido) y la revisión del admin.
+    /// </summary>
+    public record AdminPresenceHistoryItemDto(
+        Guid Id, string PhotoUrl, DateTime CheckedInAt, DateTime? CheckedOutAt,
+        int DurationMinutes, bool Active, decimal? FaceQualityScore,
+        string? Liveness, string? FaceStatus, float? FaceScore, int? FaceMatchPercent,
+        string? FaceReferencePhotoUrl, string? FaceError,
+        string? FaceReviewStatus, string? FaceReviewNote, string? FaceReviewedByName, DateTime? FaceReviewedAt);
+
+    public record AdminPresenceHistoryDto(
+        List<AdminPresenceHistoryItemDto> Items, int Total, int Page, int PageSize, PresenceSummaryDto Summary);
+
+    /// <summary>
     /// GET /api/drivers/me/presence/history?page=1&amp;pageSize=20&amp;from=yyyy-MM-dd&amp;to=yyyy-MM-dd
     ///
     /// Conexiones ("Conectarme" con selfie) del conductor actual, más reciente primero.
@@ -180,7 +233,7 @@ public class PresenceController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         [FromQuery] DateOnly? from = null, [FromQuery] DateOnly? to = null,
         CancellationToken ct = default) =>
-        BuildHistory(CurrentUserId, page, pageSize, from, to, ct);
+        BuildHistory(CurrentUserId, page, pageSize, from, to, admin: false, ct);
 
     /// <summary>
     /// GET /api/drivers/admin/{driverId}/presence?page=1&amp;pageSize=20&amp;from=yyyy-MM-dd&amp;to=yyyy-MM-dd
@@ -200,11 +253,12 @@ public class PresenceController : ControllerBase
         var driver = await _drivers.GetByIdAsync(driverId, ct)
                   ?? await _drivers.GetByUserIdAsync(driverId, ct);
         if(driver is null) return NotFound(new { error = "Conductor no encontrado." });
-        return await BuildHistory(driver.UserId, page, pageSize, from, to, ct);
+        return await BuildHistory(driver.UserId, page, pageSize, from, to, admin: true, ct);
     }
 
+    /// <summary>admin = true agrega la verificación facial (el conductor no la ve).</summary>
     private async Task<IActionResult> BuildHistory(
-        Guid driverUserId, int page, int pageSize, DateOnly? from, DateOnly? to, CancellationToken ct)
+        Guid driverUserId, int page, int pageSize, DateOnly? from, DateOnly? to, bool admin, CancellationToken ct)
     {
         if(from.HasValue && to.HasValue && from > to)
             return BadRequest(new { error = "La fecha «desde» no puede ser mayor que «hasta»." });
@@ -227,6 +281,23 @@ public class PresenceController : ControllerBase
             ct);
 
         var now = DateTime.UtcNow;
+        var summary = new PresenceSummaryDto(cToday, c7, c30);
+        int Minutes(DriverPresenceCheckIn c) =>
+            (int)Math.Max(0, Math.Floor(((c.CheckedOutAt ?? now) - c.CheckedInAt).TotalMinutes));
+
+        if(admin)
+        {
+            return Ok(new AdminPresenceHistoryDto(
+                items.Select(c => new AdminPresenceHistoryItemDto(
+                    c.Id, c.PhotoUrl, c.CheckedInAt, c.CheckedOutAt,
+                    Minutes(c), c.CheckedOutAt is null, c.FaceQualityScore,
+                    c.Liveness, c.FaceStatus, c.FaceScore,
+                    c.FaceScore is { } sc ? FaceVerificationService.ToPercent(sc) : null,
+                    c.FaceReferencePhotoUrl, c.FaceError,
+                    c.FaceReviewStatus, c.FaceReviewNote, c.FaceReviewedByName, c.FaceReviewedAt)).ToList(),
+                total, page, pageSize, summary));
+        }
+
         var dto = new PresenceHistoryDto(
             items.Select(c =>
             {

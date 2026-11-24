@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DriverLink } from '../../components/EntityLinks';
 import { API, apiFetch, ApiError } from '../../state/api';
+import { fmtSoles } from '../../state/payouts';
 import {
-  Column, DataTable, FilterBar, Page, Pagination, SectionCard, Select, StatCard, StatGrid, StatusBadge, Tabs, useTabParam,
+  Column, DataTable, FilterBar, Page, Pagination, SectionCard, Select, StatCard, StatGrid, StatusBadge, Tabs, useTabParam, useToast,
 } from '../../components/ui';
 import DriverRankingAnalysis from './DriverRankingAnalysis';
 import { fileUrl } from './people/PeopleShared';
+import { csvResultMessage, downloadCsv, fetchAllPages } from '../../state/csv';
 import './ops.scss';
 
 /// Fila del ranking devuelto por GET /api/trips/admin/reports/driver-ranking
@@ -52,6 +54,8 @@ export default function DriverRanking() {
   const [data,    setData]    = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => { if (tab === 'mensual') load(); /* eslint-disable-next-line */ }, [year, month, page, tab]);
 
@@ -65,6 +69,28 @@ export default function DriverRanking() {
     } finally {
       setLoading(false);
     }
+  }
+
+  /** CSV del ranking completo del mes elegido (todas las páginas). */
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const all = await fetchAllPages(async (p, size) => {
+        const params = new URLSearchParams({ year: String(year), month: String(month), page: String(p), pageSize: String(size) });
+        return apiFetch<RankingResponse>(`${API.trips}/trips/admin/reports/driver-ranking?${params.toString()}`);
+      });
+      downloadCsv(
+        ['Puesto', 'Conductor', 'Promedio de estrellas', 'Calificaciones', 'Viajes del mes', 'Ganancias del mes (S/)', 'Correo', 'Celular', 'Id del conductor'],
+        all.items.map((r, i) => [
+          i + 1, r.fullName, r.avgStars.toFixed(2), r.ratingCount, r.tripsCompletedInMonth, r.earningsInMonth.toFixed(2),
+          r.email ?? '', r.phone ?? '', r.driverUserId,
+        ]),
+        `ranking-conductores-${year}-${String(month).padStart(2, '0')}.csv`);
+      if (all.truncated) toast.warning(csvResultMessage(all, 'conductor', 'conductores'));
+      else toast.success(csvResultMessage(all, 'conductor', 'conductores'));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo exportar el ranking.');
+    } finally { setExporting(false); }
   }
 
   // Al cambiar mes o año se vuelve a la página 1 (en el mismo cambio: una sola carga).
@@ -116,7 +142,7 @@ export default function DriverRanking() {
     { key: 'stars', header: 'Promedio', priority: 1, render: r => <StatusBadge tone="warn" icon="fa-star" size="sm">{r.avgStars.toFixed(2)}</StatusBadge> },
     { key: 'ratings', header: 'Calificaciones', priority: 2, align: 'right', render: r => r.ratingCount.toLocaleString('es-PE') },
     { key: 'trips', header: 'Viajes del mes', priority: 1, align: 'right', render: r => r.tripsCompletedInMonth.toLocaleString('es-PE') },
-    { key: 'earnings', header: 'Ganancias', priority: 2, align: 'right', render: r => <span className="ops-amount ok">S/ {r.earningsInMonth.toFixed(2)}</span> },
+    { key: 'earnings', header: 'Ganancias', priority: 2, align: 'right', render: r => <span className="ops-amount ok">{fmtSoles(r.earningsInMonth)}</span> },
     {
       key: 'contact', header: 'Contacto', priority: 3,
       render: r => <div className="small text-truncate"><div className="text-truncate">{r.email ?? '—'}</div>{r.phone && <div className="ops-muted">{r.phone}</div>}</div>,
@@ -131,7 +157,10 @@ export default function DriverRanking() {
       title="Ranking de conductores"
       subtitle="Los conductores mejor calificados de cada mes, según su promedio de estrellas."
       helpKey="ranking"
-      actions={[{ label: 'Actualizar', icon: 'fa-rotate-right', onClick: load, loading: loading && !!data, hidden: tab !== 'mensual' }]}
+      actions={[
+        { label: 'Exportar CSV', icon: 'fa-file-csv', onClick: exportCsv, loading: exporting, disabled: !data?.total, hidden: tab !== 'mensual' },
+        { label: 'Actualizar', icon: 'fa-rotate-right', onClick: load, loading: loading && !!data, hidden: tab !== 'mensual' },
+      ]}
     >
       <div data-tour="ranking-tabs">
         <Tabs items={[
@@ -145,7 +174,7 @@ export default function DriverRanking() {
         <StatCard label="Con calificación"   value={stats.total.toLocaleString('es-PE')} icon="fa-users"      tone="primary" loading={loading && !data} hint={period} />
         <StatCard label="Promedio del n.º 1" value={stats.top ? stats.top.toFixed(2) : '—'} icon="fa-star"   tone="warn"    loading={loading && !data} hint={page === 1 ? undefined : 'Vuelve a la página 1 para verlo'} />
         <StatCard label="Promedio en esta página"  value={stats.avgPage ? stats.avgPage.toFixed(2) : '—'} icon="fa-chart-line" tone="ok"   loading={loading && !data} />
-        <StatCard label="Ganancias de esta página" value={`S/ ${stats.earnings.toFixed(2)}`}             icon="fa-coins"      tone="info" loading={loading && !data}
+        <StatCard label="Ganancias de esta página" value={fmtSoles(stats.earnings)}             icon="fa-coins"      tone="info" loading={loading && !data}
                   hint={(data?.total ?? 0) > (data?.items.length ?? 0)
                     ? `Suma de los ${data?.items.length ?? 0} conductores que ves, no de todo el mes`
                     : 'Suma de todos los conductores del mes'} />
@@ -189,7 +218,7 @@ export default function DriverRanking() {
           rowKey={r => r.driverUserId}
           loading={loading}
           caption={`Ranking de conductores de ${period}`}
-          mobileSubtitle={r => <>{r.ratingCount} calificaciones · S/ {r.earningsInMonth.toFixed(2)}</>}
+          mobileSubtitle={r => <>{r.ratingCount} calificaciones · {fmtSoles(r.earningsInMonth)}</>}
           empty={{ icon: 'fa-trophy', title: 'Sin calificaciones', text: `Ningún conductor recibió calificaciones en ${period}.` }}
         />
         <div className="px-3">

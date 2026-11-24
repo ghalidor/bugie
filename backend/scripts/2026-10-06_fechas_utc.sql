@@ -24,12 +24,16 @@
 --
 -- Es seguro ejecutarlo mas de una vez: queda registrado en
 -- public.bugie_migraciones y la segunda vez no hace nada.
+-- 2026-10-08: solo actua sobre columnas "timestamp sin zona" (bases
+-- anteriores a 2026-10-08_fechas_timestamptz.sql); ahi el default correcto
+-- es (now() AT TIME ZONE 'utc'), que 2026-10-08 luego pasa a now(). En una
+-- base ya migrada (timestamptz) no hace nada.
 -- Ejecutar con las APIs detenidas.
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS public.bugie_migraciones (
     nombre   varchar(100) PRIMARY KEY,
-    aplicada timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+    aplicada timestamp with time zone NOT NULL DEFAULT now()
 );
 
 DO $$
@@ -43,6 +47,22 @@ BEGIN
     RAISE NOTICE 'Ya aplicada antes: no se hace nada.';
     RETURN;
   END IF;
+
+  -- Base ya pasada a timestamptz (2026-10-08_fechas_timestamptz.sql): sus
+  -- fechas son instantes y no hay nada que convertir. Re-ejecutar este
+  -- script ahi NO debe sumar horas ni poner defaults "UTC".
+  IF EXISTS (SELECT 1 FROM public.bugie_migraciones WHERE nombre = '2026-10-08_fechas_timestamptz')
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema IN ('auth', 'drivers', 'landing', 'payments', 'rewards', 'trips')
+                       AND data_type = 'timestamp without time zone') THEN
+    RAISE NOTICE 'La base ya usa timestamptz (2026-10-08): no se hace nada.';
+    RETURN;
+  END IF;
+
+  -- Sesion de este bloque en UTC: si alguna columna ya es timestamptz (p.ej.
+  -- trips.publishedat creada por un script corregido), al compararla con
+  -- una timestamp (UTC) la conversion usa UTC y la cuenta de 5 h es exacta.
+  PERFORM set_config('timezone', 'UTC', true);
 
   -- 1) valores por defecto: now() -> UTC explicito
   FOR r IN

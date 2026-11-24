@@ -7,6 +7,30 @@ public static class UserTypes
     public const string Driver    = "driver";
 
     public static bool IsValid(string? v) => v is Passenger or Driver;
+
+    /// <summary>
+    /// Tipo de perfil de puntos según el rol de la cuenta (auth.users.Role).
+    /// Solo el conductor tiene perfil de conductor; cualquier otro rol es pasajero.
+    /// </summary>
+    public static string FromRole(string? role) =>
+        string.Equals(role, Driver, StringComparison.OrdinalIgnoreCase) ? Driver : Passenger;
+}
+
+/// <summary>
+/// Orden de los niveles. Los nombres son fijos (bronze, silver, gold,
+/// platinum); el admin edita umbrales y beneficios, no los nombres.
+/// </summary>
+public static class LevelOrder
+{
+    private static readonly string[] Names = { "bronze", "silver", "gold", "platinum" };
+
+    /// <summary>Posición del nivel (bronze = 1). 0 si el nombre no es conocido.</summary>
+    public static int Rank(string? name) =>
+        Array.IndexOf(Names, (name ?? string.Empty).Trim().ToLowerInvariant()) + 1;
+
+    /// <summary>El más alto de los dos. Sirve para que el nivel nunca baje.</summary>
+    public static string Higher(string current, string candidate) =>
+        Rank(candidate) >= Rank(current) ? candidate : current;
 }
 
 /// <summary>Tipos de movimiento en el libro de puntos.</summary>
@@ -34,6 +58,7 @@ public static class SourceEvents
     public const string Rating            = "rating";
     public const string AdminAdjustment   = "admin_adjustment";
     public const string NoCancellations   = "no_cancellations";
+    public const string CouponLeftover    = "coupon_leftover";   // sobrante de un cupon de monto (vale mas que el viaje)
 }
 
 /// <summary>Claves de rewards.settings.</summary>
@@ -49,7 +74,6 @@ public static class SettingKeys
     public const string ExpiryEnabled        = "points_expiry_enabled";
     public const string ExpiryWarningDays    = "points_expiry_warning_days";
     public const string PromotionsEnabled    = "promotions_enabled";
-    public const string TimezoneOffsetHours  = "timezone_offset_hours";
     public const string RafflesEnabled       = "raffles_enabled";
     public const string RafflePointsPerTicket = "raffle_points_per_ticket";
     public const string ReferralsEnabled        = "referrals_enabled";
@@ -77,6 +101,9 @@ public static class LevelBasis
     /// <summary>Por puntos historicos acumulados. El nivel nunca baja.</summary>
     public const string Total = "total";
 
-    /// <summary>Por saldo disponible. El nivel baja si el usuario canjea.</summary>
+    /// <summary>
+    /// Por saldo disponible. El nivel sube con el saldo, pero tampoco baja al
+    /// canjear o vencer (regla del dueño: el nivel nunca baja).
+    /// </summary>
     public const string Available = "available";
 }

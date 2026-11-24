@@ -71,6 +71,8 @@ public class CouponUsageRow
     public short     Status             { get; set; }
     public DateTime  CreatedAt          { get; set; }
     public DateTime? CompletedAt        { get; set; }
+    /// <summary>Puntos devueltos por el sobrante del cupón (source 'coupon_leftover').</summary>
+    public int       LeftoverPoints     { get; set; }
 }
 
 /// <summary>Totales de los cupones aplicados a viajes.</summary>

@@ -590,6 +590,12 @@ class CouponApplied {
   final double   amountToPay;
   /// Aviso cuando se aplico menos de lo que valia el cupon.
   final String?  warning;
+  /// Cupon de monto que vale mas que la tarifa: soles que sobran y sus puntos
+  /// (se devuelven al terminar el viaje). 0 si no sobra nada.
+  final double   leftoverSoles;
+  final int      leftoverPoints;
+  /// Texto del servidor para el pasajero cuando hay sobrante.
+  final String?  notice;
 
   CouponApplied({
     required this.tripId,
@@ -599,6 +605,9 @@ class CouponApplied {
     required this.discountAmount,
     required this.amountToPay,
     this.warning,
+    this.leftoverSoles = 0,
+    this.leftoverPoints = 0,
+    this.notice,
   });
 
   factory CouponApplied.fromJson(Map<String, dynamic> j) => CouponApplied(
@@ -609,5 +618,8 @@ class CouponApplied {
         discountAmount:     (j['discountAmount']     as num?)?.toDouble() ?? 0,
         amountToPay:        (j['amountToPay']        as num?)?.toDouble() ?? 0,
         warning:            j['warning']?.toString(),
+        leftoverSoles:      (j['leftoverSoles']  as num?)?.toDouble() ?? 0,
+        leftoverPoints:     (j['leftoverPoints'] as num?)?.toInt() ?? 0,
+        notice:             j['notice']?.toString(),
       );
 }

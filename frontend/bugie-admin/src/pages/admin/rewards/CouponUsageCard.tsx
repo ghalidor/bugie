@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { API, apiFetch } from '../../../state/api';
-import { rewardsAdminApi, CouponUsage, CouponUsageReport, fmtDate } from '../../../state/rewards';
+import { rewardsAdminApi, CouponUsage, CouponUsageReport, fmtDate, fmtPoints } from '../../../state/rewards';
 import { Column, DataTable, SectionCard, Skeleton, StatCard, StatGrid, StatusBadge, Tone } from '../../../components/ui';
 import { errMsg, LoadError, soles } from './common';
 
@@ -58,6 +58,10 @@ export default function CouponUsageCard() {
     { key: 'fare', header: 'Tarifa', align: 'right', priority: 3, render: r => <span className="bugie-muted">{soles(r.fareBeforeDiscount)}</span> },
     { key: 'discount', header: 'Descuento', align: 'right', priority: 1, render: r => <span className="rw-minus">−{soles(r.discountAmount)}</span> },
     { key: 'paid', header: 'Pagó', align: 'right', priority: 2, render: r => <strong>{soles(r.amountPaid)}</strong> },
+    // Cupón de monto que valía más que el viaje: el sobrante volvió en puntos.
+    { key: 'leftover', header: 'Sobrante', align: 'right', priority: 3, render: r => (r.leftoverPoints ?? 0) > 0
+      ? <span title="Puntos devueltos al pasajero: el cupón valía más que el viaje">+{fmtPoints(r.leftoverPoints ?? 0)} pts</span>
+      : <span className="bugie-muted">—</span> },
     { key: 'status', header: 'Estado', priority: 1, render: r => {
       const e = ESTADO[r.status] ?? ESTADO.in_progress;
       return <StatusBadge tone={e.tone} size="sm">{e.label}</StatusBadge>;

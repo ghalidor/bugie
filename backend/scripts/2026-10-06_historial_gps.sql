@@ -39,23 +39,39 @@
 --    (completados o cancelados) que tengan GPS y aun no tengan recorrido.
 --
 -- Se puede ejecutar varias veces sin romper nada (idempotente).
+--
+-- 2026-10-08: las funciones de este script quedan IGUALES a las de
+-- 2026-10-08_fechas_timestamptz.sql (limites de particion UTC explicitos
+-- 'YYYY-MM-DD 00:00:00+00', consolidatedat = now()). Sirven tanto para
+-- recordedat timestamp (base vieja, antes de ese script) como timestamptz,
+-- asi que re-ejecutar este script no vuelve las funciones a timestamp.
+-- Las tablas nuevas (locationhistory particionada y trippaths) se crean ya
+-- con timestamptz y default now(): 2026-10-08_fechas_timestamptz.sql las
+-- encuentra convertidas y no las toca. Los datos que se mueven desde la
+-- tabla vieja (timestamp en UTC) pasan con la sesion en UTC: mismo instante.
 -- =====================================================================
 
 BEGIN;
 
+-- Sesion del script en UTC: en una base vieja (timestamp en UTC) las
+-- conversiones timestamp <-> timestamptz de las funciones usan UTC.
+SET LOCAL timezone = 'UTC';
+
 -- -- Funciones de particiones ------------------------------------------
 
--- Crea la particion de un dia (UTC) si no existe. Si la particion DEFAULT
--- ya tiene filas de ese dia, las mueve a la particion nueva.
+-- Crea la particion de un dia UTC si no existe. Limites UTC explicitos
+-- ('YYYY-MM-DD 00:00:00+00'), asi no dependen de la zona de la sesion.
+-- Si la particion DEFAULT ya tiene filas de ese dia, las mueve.
+-- (Igual que en 2026-10-08_fechas_timestamptz.sql.)
 CREATE OR REPLACE FUNCTION drivers.ensure_locationhistory_partition(p_day date)
 RETURNS boolean
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_name  text      := 'locationhistory_' || to_char(p_day, 'YYYYMMDD');
-    v_from  timestamp := p_day::timestamp;
-    v_to    timestamp := (p_day + 1)::timestamp;
-    v_pend  bigint    := 0;
+    v_name  text        := 'locationhistory_' || to_char(p_day, 'YYYYMMDD');
+    v_from  text        := to_char(p_day, 'YYYY-MM-DD') || ' 00:00:00+00';
+    v_to    text        := to_char(p_day + 1, 'YYYY-MM-DD') || ' 00:00:00+00';
+    v_pend  bigint      := 0;
 BEGIN
     IF to_regclass('drivers.' || v_name) IS NOT NULL THEN
         RETURN false;
@@ -64,7 +80,7 @@ BEGIN
     IF to_regclass('drivers.locationhistory_default') IS NOT NULL THEN
         SELECT count(*) INTO v_pend
           FROM drivers.locationhistory_default
-         WHERE recordedat >= v_from AND recordedat < v_to;
+         WHERE recordedat >= v_from::timestamptz AND recordedat < v_to::timestamptz;
     END IF;
 
     IF v_pend = 0 THEN
@@ -78,10 +94,10 @@ BEGIN
             'CREATE TABLE drivers.%I (LIKE drivers.locationhistory INCLUDING DEFAULTS INCLUDING CONSTRAINTS)',
             v_name);
         EXECUTE format(
-            'ALTER TABLE drivers.%I ADD CONSTRAINT %I CHECK (recordedat >= %L AND recordedat < %L)',
+            'ALTER TABLE drivers.%I ADD CONSTRAINT %I CHECK (recordedat >= %L::timestamptz AND recordedat < %L::timestamptz)',
             v_name, v_name || '_rango', v_from, v_to);
         EXECUTE format(
-            'WITH m AS (DELETE FROM drivers.locationhistory_default WHERE recordedat >= %L AND recordedat < %L RETURNING *)
+            'WITH m AS (DELETE FROM drivers.locationhistory_default WHERE recordedat >= %L::timestamptz AND recordedat < %L::timestamptz RETURNING *)
              INSERT INTO drivers.%I SELECT * FROM m',
             v_from, v_to, v_name);
         EXECUTE format(
@@ -94,14 +110,14 @@ BEGIN
 END;
 $$;
 
--- Crea las particiones de hoy (UTC) y de los proximos p_days_ahead dias.
+-- Crea las particiones de hoy (dia UTC) y de los proximos p_days_ahead dias.
 -- Devuelve cuantas creo.
 CREATE OR REPLACE FUNCTION drivers.ensure_locationhistory_partitions(p_days_ahead integer DEFAULT 3)
 RETURNS integer
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_today   date := (now() AT TIME ZONE 'utc')::date;
+    v_today   date := (now() AT TIME ZONE 'UTC')::date;
     v_created integer := 0;
     i         integer;
 BEGIN
@@ -156,6 +172,14 @@ BEGIN
     LOOP
         EXECUTE format('ALTER INDEX drivers.%I RENAME TO %I', r.indexname, r.indexname || '_old');
     END LOOP;
+    -- PostgreSQL 18 tambien nombra los NOT NULL (locationhistory_<col>_not_null):
+    -- se apartan igual, asi la tabla nueva recibe los mismos nombres.
+    FOR r IN SELECT conname FROM pg_constraint
+              WHERE conrelid = 'drivers.locationhistory_old'::regclass AND contype = 'n'
+    LOOP
+        EXECUTE format('ALTER TABLE drivers.locationhistory_old RENAME CONSTRAINT %I TO %I',
+                       r.conname, r.conname || '_old');
+    END LOOP;
 
     -- La tabla vieja tenia id IDENTITY con una secuencia del mismo nombre
     -- (locationhistory_id_seq): se suelta para reutilizar el nombre.
@@ -174,7 +198,7 @@ BEGIN
         lng         double precision            NOT NULL,
         speedkmh    double precision            NULL,
         heading     double precision            NULL,
-        recordedat  timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+        recordedat  timestamp with time zone    NOT NULL DEFAULT now(),
         CONSTRAINT locationhistory_pkey PRIMARY KEY (id, recordedat)
     ) PARTITION BY RANGE (recordedat);
     ALTER SEQUENCE drivers.locationhistory_id_seq OWNED BY drivers.locationhistory.id;
@@ -244,11 +268,11 @@ CREATE TABLE IF NOT EXISTS drivers.trippaths (
     driverid        uuid                        NOT NULL,
     pointcount      integer                     NOT NULL,
     distancekm      double precision            NOT NULL DEFAULT 0,
-    startedat       timestamp without time zone NOT NULL,
-    endedat         timestamp without time zone NOT NULL,
+    startedat       timestamp with time zone    NOT NULL,
+    endedat         timestamp with time zone    NOT NULL,
     points          text                        NOT NULL,   -- polilinea codificada (precision 1e6)
     details         jsonb                       NULL,       -- {"t":[ms desde startedat],"s":[km/h],"h":[rumbo]}
-    consolidatedat  timestamp without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+    consolidatedat  timestamp with time zone    NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_trippaths_driver_startedat ON drivers.trippaths (driverid, startedat);
 
@@ -300,6 +324,7 @@ $$;
 
 -- Arma (o rearma) el recorrido consolidado de un viaje desde locationhistory.
 -- Devuelve la cantidad de puntos; 0 si el viaje no tiene GPS (no inserta nada).
+-- consolidatedat = now() (igual que en 2026-10-08_fechas_timestamptz.sql).
 CREATE OR REPLACE FUNCTION drivers.consolidate_trip_path(p_tripid uuid)
 RETURNS integer
 LANGUAGE plpgsql
@@ -335,7 +360,7 @@ BEGIN
           FROM pts
     )
     INSERT INTO drivers.trippaths (tripid, driverid, pointcount, distancekm, startedat, endedat, points, details, consolidatedat)
-    SELECT p_tripid, driverid, pointcount, distancekm, startedat, endedat, points, details, (now() AT TIME ZONE 'utc')
+    SELECT p_tripid, driverid, pointcount, distancekm, startedat, endedat, points, details, now()
       FROM agg
      WHERE pointcount > 0
     ON CONFLICT (tripid) DO UPDATE

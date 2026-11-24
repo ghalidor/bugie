@@ -24,6 +24,7 @@ Color alertColor(AlertType type) {
     case AlertType.accountSuspended:   return BugieColors.danger;
     case AlertType.accountReactivated: return BugieColors.success;
     case AlertType.reviewKept:         return BugieColors.warning;
+    case AlertType.profilePhotoRejected: return BugieColors.danger;
   }
 }
 
@@ -52,6 +53,7 @@ IconData alertIcon(AlertType type, {String? service}) {
     case AlertType.accountSuspended:   return Icons.block_rounded;
     case AlertType.accountReactivated: return Icons.verified_user_rounded;
     case AlertType.reviewKept:         return Icons.gavel_rounded;
+    case AlertType.profilePhotoRejected: return Icons.no_photography_outlined;
   }
 }
 

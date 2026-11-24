@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../../core/api/api_config.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/services/admin_settings_service.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/location_tracking_service.dart';
 import '../../../core/theme/bugie_theme.dart';
@@ -113,9 +114,13 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
     if (_driver?.status != DriverStatus.approved) return;
     setState(() { _busy = true; _error = null; });
     try {
-      // PASO 1: cara
+      // PASO 1: cara (con prueba de vida si el admin la activó).
+      final liveness = await _faceVerificationEnabled();
+      if (!mounted) return;
       final result = await Navigator.of(context).push<FaceCaptureResult>(
-        MaterialPageRoute(builder: (_) => const FaceCaptureScreen()),
+        MaterialPageRoute(
+          builder: (_) => FaceCaptureScreen(livenessChallenges: liveness),
+        ),
       );
       if (result == null) {
         if (mounted) setState(() => _busy = false);
@@ -127,6 +132,7 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
       final checkIn = await presence.checkIn(
         filePath: result.filePath,
         faceQualityScore: result.qualityScore,
+        livenessPassed: result.livenessPassed,
       );
 
       // PASO 3: GPS + goOnline
@@ -162,6 +168,20 @@ class _GoOnlineScreenState extends State<GoOnlineScreen> {
         _error = 'No se pudo conectar. Intenta de nuevo.';
         _busy = false;
       });
+    }
+  }
+
+  /// Interruptor del admin `face_verification_enabled` (Landing settings).
+  /// Si no se puede leer a tiempo, se toma como apagado: la captura queda
+  /// igual que siempre (sin prueba de vida).
+  Future<bool> _faceVerificationEnabled() async {
+    try {
+      return await context
+          .read<AdminSettingsService>()
+          .getBool('face_verification_enabled', fallback: false)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      return false;
     }
   }
 

@@ -58,7 +58,7 @@ public class ContactRepository : IContactRepository
         _db.ExecuteAsync(@"
             UPDATE landing.ContactMessages
             SET IsRead       = TRUE,
-                ReadAt       = (now() at time zone 'utc'),
+                ReadAt       = now(),
                 ReadByUserId = @AdminUserId
             WHERE Id = @Id AND IsRead = FALSE",
             new { Id = id, AdminUserId = adminUserId });

@@ -21,6 +21,10 @@
 
 BEGIN;
 
+-- Sesion en UTC: "now()" queda bien tanto en columnas timestamptz (base
+-- migrada) como en timestamp en UTC (base anterior a 2026-10-08).
+SET LOCAL timezone = 'UTC';
+
 -- 1. Billetera: totales de comision
 ALTER TABLE payments.driverwallet
     ADD COLUMN IF NOT EXISTS totalcommission     numeric(12,2) NOT NULL DEFAULT 0,
@@ -33,7 +37,7 @@ ALTER TABLE payments.wallettransactions
     ADD COLUMN IF NOT EXISTS method          varchar(20),
     ADD COLUMN IF NOT EXISTS operationnumber varchar(50),
     ADD COLUMN IF NOT EXISTS note            varchar(300),
-    ADD COLUMN IF NOT EXISTS paidat          timestamp without time zone,
+    ADD COLUMN IF NOT EXISTS paidat          timestamp with time zone,
     ADD COLUMN IF NOT EXISTS adminid         uuid,
     ADD COLUMN IF NOT EXISTS adminname       varchar(120);
 
@@ -66,7 +70,7 @@ INSERT INTO payments.wallettransactions
 SELECT p.driverid,
        'comision',
        p.platformfee,
-       'Comision del viaje',
+       'Comisión del viaje',
        -SUM(p.platformfee) OVER (PARTITION BY p.driverid
                                  ORDER BY COALESCE(p.paidat, p.createdat), p.id),
        p.tripid,
@@ -84,7 +88,7 @@ UPDATE payments.driverwallet dw SET
     totalcommissionpaid = t.pagado,
     totalearned         = t.neto,
     balance             = t.pagado - t.comision,
-    updatedat           = now() AT TIME ZONE 'utc'
+    updatedat           = now()
 FROM (
     SELECT driverid,
            COALESCE(SUM(amount) FILTER (WHERE type = 'comision'), 0)                         AS comision,

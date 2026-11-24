@@ -1,4 +1,5 @@
 using MediatR;
+using Bugie.Rewards.Application.Config;
 using Bugie.Rewards.Application.DTOs;
 using Bugie.Rewards.Application.Queries;
 using Bugie.Rewards.Domain.Constants;
@@ -9,14 +10,17 @@ namespace Bugie.Rewards.Application.Commands;
 
 public class CancelRedemptionHandler : IRequestHandler<CancelRedemptionCommand, RedemptionDto>
 {
-    private readonly IRedemptionRepository    _redemptions;
-    private readonly IPointsProfileRepository _profiles;
+    private readonly IRedemptionRepository     _redemptions;
+    private readonly IPointsProfileRepository  _profiles;
+    private readonly IRewardSettingsRepository _settings;
 
     public CancelRedemptionHandler(
-        IRedemptionRepository redemptions, IPointsProfileRepository profiles)
+        IRedemptionRepository redemptions, IPointsProfileRepository profiles,
+        IRewardSettingsRepository settings)
     {
         _redemptions = redemptions;
         _profiles    = profiles;
+        _settings    = settings;
     }
 
     public async Task<RedemptionDto> Handle(CancelRedemptionCommand cmd, CancellationToken ct)
@@ -45,8 +49,12 @@ public class CancelRedemptionHandler : IRequestHandler<CancelRedemptionCommand, 
         // Lanza si el cupon ya se uso.
         redemption.Cancel(cmd.Note);
 
+        // Si el perfil ya no tiene fecha de vencimiento (saldo vencido), los
+        // puntos devueltos reciben la vigencia normal de su tipo de cuenta.
+        var options = RewardsOptions.From(await _settings.GetMapAsync(ct));
+
         var balanceBefore = profile.AvailablePoints;
-        profile.RefundRedemption(redemption.PointsSpent);
+        profile.RefundRedemption(redemption.PointsSpent, options.ExpiryMonthsFor(profile.UserType));
 
         var movement = PointsTransaction.Refund(
             profileId:     profile.Id,
